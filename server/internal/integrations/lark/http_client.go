@@ -71,13 +71,24 @@ const (
 	// transfers off the connector ACK path.
 	maxMessageResourceBytes = 100 << 20
 
-	// Lark's "invalid tenant_access_token" / "tenant_access_token
-	// expired" error codes. When we see either, drop the cached token
-	// so the next call refreshes from /tenant_access_token/internal.
-	// 99991663 = expired, 99991664 = invalid. Documented at:
-	// open.feishu.cn/document/server-docs/api-call-guide/server-error-codes.
-	codeTokenExpired = 99991663
-	codeTokenInvalid = 99991664
+	// Access-credential rejections. Seeing one means the token we
+	// presented is not usable, so drop the cached entry and re-mint from
+	// /tenant_access_token/internal. Both are from Lark's generic
+	// error-code table:
+	// open.feishu.cn/document/server-docs/api-call-guide/generic-error-code.
+	//
+	// 99991663 covers BOTH halves for the only credential this client
+	// mints — "tenant_access_token 已过期" and "凭证无效" share the one
+	// code — and is the code the wedged-cache bug reported in #7611 hit.
+	//
+	// 99991664 is app_access_token, which this client never mints. It
+	// stays in the class deliberately: it is unambiguously "the
+	// credential you presented was rejected", and if Lark ever answers it
+	// for a call we authenticated with a tenant token, re-minting is the
+	// only recovery. Being wrong costs one bounded refresh and one
+	// replay, while leaving it out would cost another wedged cache.
+	codeTenantTokenInvalid = 99991663
+	codeAppTokenInvalid    = 99991664
 )
 
 // HTTPClientConfig configures the production Lark HTTP APIClient.
@@ -1199,7 +1210,7 @@ func parseLarkErrorBody(raw []byte) (int, string) {
 }
 
 func isTokenError(code int) bool {
-	return code == codeTokenExpired || code == codeTokenInvalid
+	return code == codeTenantTokenInvalid || code == codeAppTokenInvalid
 }
 
 // larkAPIStatusError is a Lark reply that failed with a NON-2xx HTTP
@@ -1229,15 +1240,24 @@ func (e *larkAPIStatusError) Error() string {
 // including network failures and timeouts, so a code-keyed lookup on the
 // result never matches an ambiguous transport error.
 func larkErrorCode(err error) int {
+	code, _, _ := larkErrorCodeMsg(err)
+	return code
+}
+
+// larkErrorCodeMsg is larkErrorCode plus Lark's `msg` and whether err
+// carried a code at all. Classifiers that fall back to matching error
+// TEXT need the third result: "no code" and "code 0" must not both look
+// like a Lark verdict, or a gateway's HTML 502 would classify as one.
+func larkErrorCodeMsg(err error) (int, string, bool) {
 	var statusErr *larkAPIStatusError
 	if errors.As(err, &statusErr) {
-		return statusErr.Code
+		return statusErr.Code, statusErr.Msg, statusErr.Code != 0
 	}
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
-		return apiErr.Code
+		return apiErr.Code, apiErr.Msg, apiErr.Code != 0
 	}
-	return 0
+	return 0, "", false
 }
 
 // APIError is a structured Lark business error: the request reached
