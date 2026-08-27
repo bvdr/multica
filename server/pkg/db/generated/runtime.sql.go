@@ -1068,7 +1068,7 @@ func (q *Queries) LockAgentRuntimeForBind(ctx context.Context, id pgtype.UUID) (
 }
 
 const lockForeignAgentsByRuntime = `-- name: LockForeignAgentsByRuntime :many
-SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, starter_prompts FROM agent
+SELECT id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters FROM agent
 WHERE runtime_id = $1 AND owner_id IS DISTINCT FROM $2
 ORDER BY id
 FOR UPDATE
@@ -1124,7 +1124,7 @@ func (q *Queries) LockForeignAgentsByRuntime(ctx context.Context, arg LockForeig
 			&i.SystemKey,
 			&i.DisabledRuntimeSkills,
 			&i.ServiceTier,
-			&i.StarterPrompts,
+			&i.ConversationStarters,
 		); err != nil {
 			return nil, err
 		}
@@ -1518,7 +1518,7 @@ SET runtime_id = NULL, updated_at = now()
 WHERE runtime_id = $1
   AND kind = 'user'
   AND owner_id IS DISTINCT FROM $2
-RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, starter_prompts
+RETURNING id, workspace_id, name, avatar_url, runtime_mode, runtime_config, visibility, status, max_concurrent_tasks, owner_id, created_at, updated_at, description, runtime_id, instructions, archived_at, archived_by, custom_env, custom_args, mcp_config, model, thinking_level, composio_toolkit_allowlist, permission_mode, kind, system_key, disabled_runtime_skills, service_tier, conversation_starters
 `
 
 type UnbindForeignUserAgentsFromRuntimeParams struct {
@@ -1569,7 +1569,7 @@ func (q *Queries) UnbindForeignUserAgentsFromRuntime(ctx context.Context, arg Un
 			&i.SystemKey,
 			&i.DisabledRuntimeSkills,
 			&i.ServiceTier,
-			&i.StarterPrompts,
+			&i.ConversationStarters,
 		); err != nil {
 			return nil, err
 		}
