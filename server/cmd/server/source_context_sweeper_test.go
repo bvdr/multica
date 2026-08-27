@@ -109,3 +109,52 @@ func TestRuntimeSweepTickHasNoObjectStoreStage(t *testing.T) {
 		}
 	}
 }
+
+// TestRuntimeGCRunsOutsideTheLivenessLoop pins PR1's deployment boundary: GC
+// keeps its existing predicates and budgets, but its seven-day retention scan
+// no longer occupies the 30-second runtime/task loop.
+func TestRuntimeGCRunsOutsideTheLivenessLoop(t *testing.T) {
+	if runtimeGCSweepInterval != time.Hour {
+		t.Fatalf("runtime GC interval = %s, want 1h", runtimeGCSweepInterval)
+	}
+
+	source, err := os.ReadFile("runtime_sweeper.go")
+	if err != nil {
+		t.Fatalf("read runtime_sweeper.go: %v", err)
+	}
+	start := strings.Index(string(source), "func runRuntimeSweeper(")
+	end := strings.Index(string(source), "func runRuntimeGCSweeper(")
+	if start < 0 || end <= start {
+		t.Fatal("could not isolate runtime sweeper loops")
+	}
+	if strings.Contains(string(source[start:end]), "gcRuntimes(") {
+		t.Fatal("runtime GC is still invoked from the 30-second liveness loop")
+	}
+}
+
+func TestPeriodicSweepStopsWithItsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	called := make(chan struct{}, 1)
+	stopped := make(chan struct{})
+	go func() {
+		runPeriodicSweep(ctx, 10*time.Millisecond, func() {
+			select {
+			case called <- struct{}{}:
+			default:
+			}
+		})
+		close(stopped)
+	}()
+
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("periodic sweep did not run")
+	}
+	cancel()
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("periodic sweep did not stop with its context")
+	}
+}

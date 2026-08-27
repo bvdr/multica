@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -182,6 +183,7 @@ func TestBusinessMetricsRegistryExposesAllFamilies(t *testing.T) {
 	m.RecordEntitlementDecision("autopilot_runs", "observe", "cache_fresh")
 	m.RecordEntitlementVersionRegression()
 	m.RecordAutopilotQuotaDecision("observe", "manual", "admitted")
+	m.ObserveRuntimeSweepStage("runtime_liveness", time.Second, 2, 1)
 
 	families, err := registry.Gather()
 	if err != nil {
@@ -219,6 +221,25 @@ func TestBusinessMetricsRuntimeGC(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(m.runtimeGCBlockedObservationFailed); got != 1 {
 		t.Fatalf("runtime GC blocked observation failures = %v, want 1", got)
+	}
+}
+
+func TestBusinessMetricsRuntimeSweepStage(t *testing.T) {
+	m := NewBusinessMetrics()
+	m.ObserveRuntimeSweepStage("runtime_liveness", 250*time.Millisecond, 3, 1)
+	m.ObserveRuntimeSweepStage("unbounded-user-value", time.Second, -1, -1)
+
+	if got := testutil.ToFloat64(m.runtimeSweepRowsScanned.WithLabelValues("runtime_liveness")); got != 3 {
+		t.Fatalf("runtime liveness scanned rows = %v, want 3", got)
+	}
+	if got := testutil.ToFloat64(m.runtimeSweepRowsChanged.WithLabelValues("runtime_liveness")); got != 1 {
+		t.Fatalf("runtime liveness changed rows = %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(m.runtimeSweepRowsScanned.WithLabelValues("other")); got != 0 {
+		t.Fatalf("normalized other scanned rows = %v, want 0", got)
+	}
+	if got := testutil.CollectAndCount(m.runtimeSweepStageDuration); got != 2 {
+		t.Fatalf("runtime sweep duration series = %d, want 2", got)
 	}
 }
 
