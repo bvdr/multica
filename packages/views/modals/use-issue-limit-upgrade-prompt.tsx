@@ -167,7 +167,7 @@ export function IssueLimitUpgradeDialog() {
             className="sm:min-w-28"
             onClick={dismiss}
           >
-            {t(($) => $.close)}
+            {t(($) => $.common.close)}
           </Button>
           {recovery.action && (
             <Button
