@@ -162,7 +162,7 @@
       "checking_description": "このワークスペースで利用可能な請求操作を確認しています…",
       "upgrade_description": "Pro にアップグレードすると、引き続きタスクを作成できます。",
       "portal_description": "請求ポータルを開いてワークスペースのサブスクリプションを管理し、タスク作成を再開してください。",
-      "contact_description": "ワークスペースの owner または admin に Pro へのアップグレードを依頼してください。",
+      "contact_description": "ワークスペースの所有者または管理者に Pro へのアップグレードを依頼してください。",
       "billing_description": "請求設定を開いて、このワークスペースで利用可能なアップグレードオプションを確認してください。",
       "billing_unavailable_description": "請求操作を読み込めませんでした。請求設定を開いて再試行してください。",
       "billing_disabled_description": "既存のタスクを削除して空きを作るか、ワークスペースの管理者に連絡してください。",

@@ -162,7 +162,7 @@
       "checking_description": "正在查询该工作区可用的账单操作…",
       "upgrade_description": "升级到 Pro 后可继续创建任务。",
       "portal_description": "打开账单门户管理该工作区的订阅，以恢复任务创建。",
-      "contact_description": "请联系工作区 owner 或 admin 升级到 Pro。",
+      "contact_description": "请联系工作区所有者或管理员升级到 Pro。",
       "billing_description": "请前往账单设置查看该工作区可用的升级选项。",
       "billing_unavailable_description": "暂时无法加载账单操作，请前往账单设置重试。",
       "billing_disabled_description": "请删除已有任务以释放名额，或联系工作区管理员。",

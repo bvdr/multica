@@ -193,6 +193,9 @@ func TestQuickCreateIssueParentTrustBoundary(t *testing.T) {
 		).Scan(&issueCount); err != nil {
 			t.Fatalf("count workspace issues: %v", err)
 		}
+		if issueCount <= 0 {
+			t.Fatal("full-workspace test requires at least one seeded issue")
+		}
 		stub := entitlementtest.New()
 		stub.Set(uuid.MustParse(testWorkspaceID), entitlement.GateIssueCount, entitlement.Decision{
 			Gate:           entitlement.Gate{Action: entitlement.ActionEnforce, Limit: &issueCount},
