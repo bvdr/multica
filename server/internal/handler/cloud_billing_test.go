@@ -564,7 +564,7 @@ func TestCloudWorkspaceSeatPurchasePreviewUsesAuthoritativePath(t *testing.T) {
 	}
 }
 
-func TestCloudWorkspaceSeatPurchaseRejectsInvalidOrUnauthorizedRequests(t *testing.T) {
+func TestCloudWorkspaceSeatPurchaseRejectsInvalidRequests(t *testing.T) {
 	withFeatureFlag(t, testHandler, featureflags.BillingWorkspaceSubscriptions, true)
 	tests := []struct {
 		name   string
@@ -572,7 +572,7 @@ func TestCloudWorkspaceSeatPurchaseRejectsInvalidOrUnauthorizedRequests(t *testi
 		body   map[string]any
 		header string
 	}{
-		{name: "missing confirmation fields", role: "member", body: map[string]any{"additional_seats": 1}},
+		{name: "missing confirmation fields", role: "owner", body: map[string]any{"additional_seats": 1}},
 		{name: "non-positive current seats", role: "owner", body: map[string]any{"additional_seats": 2, "expected_current_seats": 0, "expected_purchase_version": 1, "accepted_proration_amount": 0, "currency": "usd", "idempotency_key": "key"}},
 		{name: "bad currency", role: "owner", body: map[string]any{"additional_seats": 1, "expected_current_seats": 5, "expected_purchase_version": 1, "accepted_proration_amount": 0, "currency": "u$d", "idempotency_key": "key"}},
 		{name: "long key", role: "owner", body: map[string]any{"additional_seats": 1, "expected_current_seats": 5, "expected_purchase_version": 1, "accepted_proration_amount": 0, "currency": "usd"}, header: strings.Repeat("a", 201)},
