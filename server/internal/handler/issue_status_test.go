@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -1329,4 +1330,196 @@ func TestCatalogWritesAnnounceThemselves(t *testing.T) {
 		t.Fatalf("second archive: %d", code)
 	}
 	expectNoChange(t)
+}
+
+// TestCreateIssueStatusAcceptsANonLatinName is the regression for MUL-6749 /
+// GitHub #7627. A display name written entirely in a non-Latin script has no
+// characters in the key alphabet, so key derivation used to fail the create
+// outright — and the settings form has no field for an explicit key, which left
+// no way to create the status at all.
+func TestCreateIssueStatusAcceptsANonLatinName(t *testing.T) {
+	seedTestCatalog(t)
+
+	create := func(t *testing.T, name, category string) IssueStatusResponse {
+		t.Helper()
+		var created IssueStatusResponse
+		testutil.Call(t, testHandler.CreateIssueStatus,
+			newRequest(http.MethodPost, "/api/issue-statuses", map[string]any{
+				"name": name, "category": category, "color": "#123456",
+			})).Want(http.StatusCreated).JSON(&created)
+		t.Cleanup(func() {
+			testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(created.ID))
+		})
+		return created
+	}
+
+	first := create(t, "客户确认", issuestatus.InReview)
+	if first.Key != "in_review_2" {
+		t.Errorf("derived key = %q, want %q", first.Key, "in_review_2")
+	}
+	if first.Name != "客户确认" {
+		t.Errorf("display name = %q, want it stored verbatim", first.Name)
+	}
+
+	// A second one in the same category takes the next ordinal instead of
+	// colliding with the first.
+	second := create(t, "供应商确认", issuestatus.InReview)
+	if second.Key != "in_review_3" {
+		t.Errorf("second derived key = %q, want %q", second.Key, "in_review_3")
+	}
+
+	// A name that CAN be slugged is untouched by the fallback.
+	english := create(t, "Human Review Zh", issuestatus.InReview)
+	if english.Key != "human_review_zh" {
+		t.Errorf("sluggable name derived %q, want %q", english.Key, "human_review_zh")
+	}
+}
+
+// TestCreateIssueStatusDisambiguatesCollidingSlugs covers the sharper half of
+// #7627. The bug report's suggested workaround was to mix ASCII into the
+// display name, but the non-ASCII part is dropped, so two DIFFERENT names
+// collapse onto one key — and the second create used to fail with a conflict
+// that blamed a display name nobody had taken.
+func TestCreateIssueStatusDisambiguatesCollidingSlugs(t *testing.T) {
+	seedTestCatalog(t)
+
+	create := func(t *testing.T, name string) IssueStatusResponse {
+		t.Helper()
+		var created IssueStatusResponse
+		testutil.Call(t, testHandler.CreateIssueStatus,
+			newRequest(http.MethodPost, "/api/issue-statuses", map[string]any{
+				"name": name, "category": issuestatus.Todo, "color": "#123456",
+			})).Want(http.StatusCreated).JSON(&created)
+		t.Cleanup(func() {
+			testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(created.ID))
+		})
+		return created
+	}
+
+	if got := create(t, "待客户 Zzreview").Key; got != "zzreview" {
+		t.Fatalf("first key = %q, want %q", got, "zzreview")
+	}
+	if got := create(t, "待供应商 Zzreview").Key; got != "zzreview_2" {
+		t.Errorf("colliding key = %q, want %q", got, "zzreview_2")
+	}
+}
+
+// TestDerivedKeyAvoidsAnArchivedKey pins the storage constraint that makes the
+// "taken" set wider than the visible catalog: idx_issue_status_workspace_key is
+// NOT partial, so an archived status still owns its key and handing it out
+// again would fail on insert.
+func TestDerivedKeyAvoidsAnArchivedKey(t *testing.T) {
+	entry := createTestCustomStatus(t, "zzarchived", issuestatus.Todo)
+	if _, err := testHandler.Queries.ArchiveIssueStatusEntry(context.Background(), db.ArchiveIssueStatusEntryParams{
+		ID:          entry.ID,
+		WorkspaceID: parseUUID(testWorkspaceID),
+	}); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	var created IssueStatusResponse
+	testutil.Call(t, testHandler.CreateIssueStatus,
+		newRequest(http.MethodPost, "/api/issue-statuses", map[string]any{
+			"name": "Zzarchived", "category": issuestatus.Todo, "color": "#123456",
+		})).Want(http.StatusCreated).JSON(&created)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, parseUUID(created.ID))
+	})
+
+	if created.Key == "zzarchived" {
+		t.Fatal("derivation reused an archived status's key")
+	}
+	if created.Key != "zzarchived_2" {
+		t.Errorf("derived key = %q, want %q", created.Key, "zzarchived_2")
+	}
+}
+
+// TestUnknownStatusErrorNamesCustomStatuses covers the other half of what makes
+// a derived key usable: on its own `in_review_2` says nothing, so the error a
+// caller gets after writing a bad status has to carry the display name or there
+// is no way to find the status they were told to use. (MUL-6749)
+func TestUnknownStatusErrorNamesCustomStatuses(t *testing.T) {
+	seedTestCatalog(t)
+	entry, err := testHandler.Queries.CreateIssueStatusEntry(context.Background(), db.CreateIssueStatusEntryParams{
+		WorkspaceID: parseUUID(testWorkspaceID),
+		Key:         "in_review_9",
+		Name:        "客户确认",
+		Description: "",
+		Category:    issuestatus.InReview,
+		Color:       "#123456",
+	})
+	if err != nil {
+		t.Fatalf("create custom status: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, entry.ID)
+	})
+
+	rec := httptest.NewRecorder()
+	testHandler.CreateIssue(rec, newRequest(http.MethodPost, "/api/issues", map[string]any{
+		"title":  "unknown status error body",
+		"status": "not_a_status",
+	}))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "in_review_9 (客户确认)") {
+		t.Errorf("error body does not pair the key with its name: %s", body)
+	}
+	// Built-ins stay bare — clients localize those from the key, so echoing the
+	// seeded English name would be the one string a Chinese workspace ignores.
+	if strings.Contains(body, "todo (Todo)") {
+		t.Errorf("built-in statuses should be listed as bare keys: %s", body)
+	}
+}
+
+// TestIssueResponseCarriesCustomStatusName pins the field an agent reads an
+// issue through. `status` alone is a bare handle, and a derived key carries no
+// meaning, so the display name travels beside it. (MUL-6749)
+func TestIssueResponseCarriesCustomStatusName(t *testing.T) {
+	seedTestCatalog(t)
+	entry, err := testHandler.Queries.CreateIssueStatusEntry(context.Background(), db.CreateIssueStatusEntryParams{
+		WorkspaceID: parseUUID(testWorkspaceID),
+		Key:         "in_review_8",
+		Name:        "客户确认",
+		Description: "",
+		Category:    issuestatus.InReview,
+		Color:       "#123456",
+	})
+	if err != nil {
+		t.Fatalf("create custom status: %v", err)
+	}
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue_status WHERE id = $1`, entry.ID)
+	})
+
+	var custom IssueResponse
+	testutil.Call(t, testHandler.CreateIssue,
+		newRequest(http.MethodPost, "/api/issues", map[string]any{
+			"title": "custom status name", "status": "in_review_8",
+		})).Want(http.StatusCreated).JSON(&custom)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parseUUID(custom.ID))
+	})
+	if custom.StatusName != "客户确认" {
+		t.Errorf("status_name = %q, want %q", custom.StatusName, "客户确认")
+	}
+	if custom.StatusCategory != issuestatus.InReview {
+		t.Errorf("status_category = %q, want %q", custom.StatusCategory, issuestatus.InReview)
+	}
+
+	// A built-in carries no name: every client renders those from the key
+	// through i18n, so the seeded English one would be noise at best.
+	var builtIn IssueResponse
+	testutil.Call(t, testHandler.CreateIssue,
+		newRequest(http.MethodPost, "/api/issues", map[string]any{
+			"title": "built-in status name", "status": issuestatus.Todo,
+		})).Want(http.StatusCreated).JSON(&builtIn)
+	t.Cleanup(func() {
+		testPool.Exec(context.Background(), `DELETE FROM issue WHERE id = $1`, parseUUID(builtIn.ID))
+	})
+	if builtIn.StatusName != "" {
+		t.Errorf("built-in status_name = %q, want it empty", builtIn.StatusName)
+	}
 }

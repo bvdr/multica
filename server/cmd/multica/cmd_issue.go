@@ -220,8 +220,10 @@ var issueAssignCmd = &cobra.Command{
 var issueStatusCmd = &cobra.Command{
 	Use:   "status <id> <status>",
 	Short: "Change issue status",
-	Long: "Change an issue's status. Valid statuses: " +
-		"backlog, todo, in_progress, in_review, done, blocked, cancelled.",
+	Long: "Change an issue's status. The argument is a status KEY, not its display name.\n" +
+		"Built-in keys: backlog, todo, in_progress, in_review, done, blocked, cancelled.\n" +
+		"A workspace may define custom statuses on top of these; their keys are shown in\n" +
+		"Workspace Settings > Issue Statuses, and an unknown value errors with the full list.",
 	Args: exactArgs(2),
 	RunE: runIssueStatus,
 }
