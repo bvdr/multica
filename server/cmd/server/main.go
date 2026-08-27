@@ -551,15 +551,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Same posture for the Codex capacity retry budget: a value above the
-	// ceiling would let one capacity failure spawn an unbounded task chain, so
-	// the boot stops rather than quietly restoring the default.
-	codexCapacityRetries, err := parseCodexCapacityRetryCount(os.Getenv("MULTICA_CODEX_CAPACITY_RETRY_COUNT"))
-	if err != nil {
-		slog.Error("invalid MULTICA_CODEX_CAPACITY_RETRY_COUNT", "error", err)
-		os.Exit(1)
-	}
-
 	r, h := NewRouterWithOptions(pool, hub, bus, analyticsClient, storeRedis, RouterOptions{
 		HTTPMetrics:         httpMetrics,
 		BusinessMetrics:     businessMetrics,
@@ -572,8 +563,6 @@ func main() {
 		FeatureFlags:        flags,
 		HeartbeatScheduler:  heartbeatScheduler,
 		LLMMaxRetries:       llmMaxRetries,
-
-		CodexCapacityRetryCount: &codexCapacityRetries,
 	})
 
 	srv := &http.Server{
