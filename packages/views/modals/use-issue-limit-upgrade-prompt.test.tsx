@@ -1,16 +1,27 @@
 import type { ReactNode } from "react";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@multica/core/i18n/react";
 import enCommon from "../locales/en/common.json";
 import enModals from "../locales/en/modals.json";
 
+interface AvailableActions {
+  checkout: boolean;
+  portal: boolean;
+  purchaseSeats: boolean;
+}
+
 const mockPush = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
+const mockCreatePortal = vi.hoisted(() => vi.fn());
+const mockOpenExternal = vi.hoisted(() => vi.fn());
+const mockSummaryQuery = vi.hoisted(() => vi.fn());
+const featureState = vi.hoisted(() => ({ billingEnabled: true }));
 const summaryState = vi.hoisted(() => ({
-  value: null as null | { availableActions: { checkout: boolean } },
+  value: null as null | { availableActions: AvailableActions },
   error: null as Error | null,
+  pending: null as Promise<{ availableActions: AvailableActions } | null> | null,
 }));
 
 vi.mock("@multica/core/hooks", () => ({
@@ -23,17 +34,25 @@ vi.mock("@multica/core/paths", () => ({
   }),
 }));
 
+vi.mock("@multica/core/config", () => ({
+  useFeatureEnabled: () => featureState.billingEnabled,
+}));
+
 vi.mock("../navigation/context", () => ({
   useNavigation: () => ({ push: mockPush }),
+}));
+
+vi.mock("../platform", () => ({
+  openExternal: mockOpenExternal,
 }));
 
 vi.mock("@multica/core/billing", () => ({
   workspaceSubscriptionSummaryOptions: (wsId: string) => ({
     queryKey: ["workspace-subscriptions", wsId, "summary"],
-    queryFn: async () => {
-      if (summaryState.error) throw summaryState.error;
-      return summaryState.value;
-    },
+    queryFn: mockSummaryQuery,
+  }),
+  useCreateWorkspaceSubscriptionPortal: () => ({
+    mutateAsync: mockCreatePortal,
   }),
 }));
 
@@ -49,9 +68,18 @@ const TEST_RESOURCES = {
   en: { common: enCommon, modals: enModals },
 };
 
+const actions = (
+  overrides: Partial<AvailableActions> = {},
+): AvailableActions => ({
+  checkout: false,
+  portal: false,
+  purchaseSeats: false,
+  ...overrides,
+});
+
 function renderPrompt(onNavigate = vi.fn()) {
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: 1 } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
@@ -62,68 +90,154 @@ function renderPrompt(onNavigate = vi.fn()) {
     () => useIssueLimitUpgradePrompt({ onNavigate }),
     { wrapper },
   );
-  return { ...hook, onNavigate };
+  return { ...hook, client, onNavigate };
+}
+
+function latestToastOptions() {
+  return mockToastError.mock.calls.at(-1)?.[1];
 }
 
 describe("useIssueLimitUpgradePrompt", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    featureState.billingEnabled = true;
     summaryState.value = null;
     summaryState.error = null;
+    summaryState.pending = null;
+    mockSummaryQuery.mockImplementation(async () => {
+      if (summaryState.pending) return summaryState.pending;
+      if (summaryState.error) throw summaryState.error;
+      return summaryState.value;
+    });
+    mockCreatePortal.mockResolvedValue({
+      url: "https://billing.example/portal",
+    });
   });
 
-  it("offers Upgrade to Pro only when Cloud authorizes checkout", async () => {
-    summaryState.value = { availableActions: { checkout: true } };
-    const { result, onNavigate } = renderPrompt();
-
-    await act(async () => {
-      await result.current();
+  it("shows a persistent recovery surface immediately while Cloud is pending", async () => {
+    let resolveSummary!: (
+      value: { availableActions: AvailableActions } | null,
+    ) => void;
+    summaryState.pending = new Promise((resolve) => {
+      resolveSummary = resolve;
     });
+    const { result } = renderPrompt();
+
+    act(() => result.current());
 
     expect(mockToastError).toHaveBeenCalledWith(
       "This workspace has reached its issue limit",
       expect.objectContaining({
-        description: "Upgrade to Pro to keep creating issues.",
-        action: expect.objectContaining({ label: "Upgrade to Pro" }),
+        description: "Checking the billing actions available for this workspace…",
+        duration: Infinity,
+        closeButton: true,
       }),
     );
-    const action = mockToastError.mock.calls[0]?.[1]?.action;
-    action?.onClick();
+
+    await act(async () => {
+      resolveSummary({ availableActions: actions({ checkout: true }) });
+      await summaryState.pending;
+    });
+    await waitFor(() =>
+      expect(latestToastOptions()?.action?.label).toBe("Upgrade to Pro"),
+    );
+  });
+
+  it("offers Upgrade to Pro only when Cloud authorizes checkout", async () => {
+    summaryState.value = {
+      availableActions: actions({ checkout: true }),
+    };
+    const { result, onNavigate } = renderPrompt();
+
+    act(() => result.current());
+    await waitFor(() =>
+      expect(latestToastOptions()?.action?.label).toBe("Upgrade to Pro"),
+    );
+
+    latestToastOptions()?.action?.onClick();
     expect(onNavigate).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith("/ws-test/settings?tab=billing");
   });
 
-  it("asks a member to contact owner or admin when Cloud denies checkout", async () => {
-    summaryState.value = { availableActions: { checkout: false } };
-    const { result } = renderPrompt();
+  it("opens Billing Portal for a past-due manager authorized for portal", async () => {
+    summaryState.value = {
+      availableActions: actions({ portal: true }),
+    };
+    const { result, onNavigate } = renderPrompt();
+
+    act(() => result.current());
+    await waitFor(() =>
+      expect(latestToastOptions()?.action?.label).toBe("Open Billing Portal"),
+    );
 
     await act(async () => {
-      await result.current();
+      latestToastOptions()?.action?.onClick();
     });
-
-    expect(mockToastError).toHaveBeenCalledWith(
-      "This workspace has reached its issue limit",
-      expect.objectContaining({
-        description: "Ask a workspace owner or admin to upgrade to Pro.",
-      }),
+    await waitFor(() => expect(mockCreatePortal).toHaveBeenCalledTimes(1));
+    expect(mockCreatePortal.mock.calls[0]?.[0]).toMatch(
+      /^issue-limit-portal-ws-test-/,
     );
-    expect(mockToastError.mock.calls[0]?.[1]).not.toHaveProperty("action");
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(mockOpenExternal).toHaveBeenCalledWith(
+      "https://billing.example/portal",
+      { webTarget: "same-tab" },
+    );
   });
 
-  it("uses a neutral Billing action when the Cloud summary is unavailable", async () => {
+  it("asks for an administrator only when Cloud authorizes no management action", async () => {
+    summaryState.value = { availableActions: actions() };
+    const { result } = renderPrompt();
+
+    act(() => result.current());
+    await waitFor(() =>
+      expect(latestToastOptions()?.description).toBe(
+        "Ask a workspace owner or admin to upgrade to Pro.",
+      ),
+    );
+    expect(latestToastOptions()).not.toHaveProperty("action");
+  });
+
+  it("keeps another Cloud-authorized management action reachable in Billing", async () => {
+    summaryState.value = {
+      availableActions: actions({ purchaseSeats: true }),
+    };
+    const { result } = renderPrompt();
+
+    act(() => result.current());
+    await waitFor(() =>
+      expect(latestToastOptions()?.action?.label).toBe("View Billing"),
+    );
+  });
+
+  it("uses one background attempt and keeps Billing as the recovery path", async () => {
     summaryState.error = new Error("cloud unavailable");
     const { result } = renderPrompt();
 
-    await act(async () => {
-      await result.current();
-    });
+    act(() => result.current());
+    expect(latestToastOptions()?.description).toBe(
+      "Checking the billing actions available for this workspace…",
+    );
+    await waitFor(() =>
+      expect(latestToastOptions()?.action?.label).toBe("View Billing"),
+    );
+    expect(mockSummaryQuery).toHaveBeenCalledTimes(1);
+  });
 
-    expect(mockToastError).toHaveBeenCalledWith(
-      "This workspace has reached its issue limit",
+  it("does not expose a dead Billing link when the Billing surface is disabled", () => {
+    featureState.billingEnabled = false;
+    const { result } = renderPrompt();
+
+    act(() => result.current());
+
+    expect(latestToastOptions()).toEqual(
       expect.objectContaining({
-        description: "Open Billing to see the upgrade options available for this workspace.",
-        action: expect.objectContaining({ label: "View Billing" }),
+        description:
+          "Delete an existing issue to free space, or contact your workspace administrator.",
+        duration: Infinity,
+        closeButton: true,
       }),
     );
+    expect(latestToastOptions()).not.toHaveProperty("action");
+    expect(mockSummaryQuery).not.toHaveBeenCalled();
   });
 });

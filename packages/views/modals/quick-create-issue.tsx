@@ -470,7 +470,7 @@ export function AgentCreatePanel({
             min_version?: string;
           };
           if (body.code === "issue_limit_reached") {
-            await showIssueLimitUpgradePrompt();
+            showIssueLimitUpgradePrompt();
             return false;
           }
           if (body.code === "agent_unavailable") {

@@ -1,81 +1,197 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { workspaceSubscriptionSummaryOptions } from "@multica/core/billing";
+import {
+  useCreateWorkspaceSubscriptionPortal,
+  workspaceSubscriptionSummaryOptions,
+} from "@multica/core/billing";
+import { useFeatureEnabled } from "@multica/core/config";
+import { BILLING_WORKSPACE_SUBSCRIPTIONS_FLAG } from "@multica/core/feature-flags";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
+import type { WorkspaceSubscriptionSummary } from "@multica/core/types";
 import { useT } from "../i18n";
 import { useNavigation } from "../navigation";
+import { openExternal } from "../platform";
 
 interface IssueLimitUpgradePromptOptions {
   onNavigate?: () => void;
 }
 
+type BillingActions = WorkspaceSubscriptionSummary["availableActions"];
+
+function createPortalIdempotencyKey(wsId: string): string {
+  const suffix =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `issue-limit-portal-${wsId}-${suffix}`.slice(0, 255);
+}
+
 /**
- * Shows the issue-limit recovery action authorized by Cloud for the current
- * caller. The UI never infers billing permissions from a local workspace role:
- * only availableActions.checkout can expose the upgrade action.
+ * Immediately shows a persistent issue-limit recovery surface, then enriches
+ * it with the complete action set authorized by Cloud for the current caller.
+ * No local role, plan, subscription, or quota inference controls an action.
  */
 export function useIssueLimitUpgradePrompt(
   options: IssueLimitUpgradePromptOptions = {},
-): () => Promise<void> {
+): () => void {
   const { onNavigate } = options;
   const { t } = useT("modals");
   const queryClient = useQueryClient();
   const wsId = useWorkspaceId();
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
+  const billingEnabled = useFeatureEnabled(
+    BILLING_WORKSPACE_SUBSCRIPTIONS_FLAG,
+    false,
+  );
+  const createPortal = useCreateWorkspaceSubscriptionPortal(wsId).mutateAsync;
+  const portalIntentKeyRef = useRef<string | null>(null);
 
-  return useCallback(async () => {
-    let checkoutAvailable: boolean | null = null;
-    try {
-      const summary = await queryClient.fetchQuery({
-        ...workspaceSubscriptionSummaryOptions(wsId),
-        // A quota rejection is a strong signal that the cached billing state
-        // may be stale. Ask the server for the current per-caller action.
-        staleTime: 0,
-      });
-      checkoutAvailable = summary?.availableActions.checkout ?? null;
-    } catch {
-      // Billing remains reachable as a neutral recovery path. Do not infer
-      // checkout permission when Cloud's summary is unavailable.
-    }
-
+  return useCallback(() => {
+    const toastId = `issue-limit-recovery:${wsId}`;
+    const title = t(($) => $.create_issue.issue_limit.title);
+    const persistentOptions = {
+      id: toastId,
+      duration: Infinity,
+      closeButton: true,
+    };
     const openBilling = () => {
       onNavigate?.();
       navigation.push(`${paths.settings()}?tab=billing`);
     };
-    const title = t(($) => $.create_issue.issue_limit.title);
-
-    if (checkoutAvailable === true) {
+    const showBillingFallback = () => {
       toast.error(title, {
-        description: t(($) => $.create_issue.issue_limit.upgrade_description),
-        duration: 10_000,
+        ...persistentOptions,
+        description: t(
+          ($) => $.create_issue.issue_limit.billing_unavailable_description,
+        ),
         action: {
-          label: t(($) => $.create_issue.issue_limit.upgrade_action),
+          label: t(($) => $.create_issue.issue_limit.billing_action),
           onClick: openBilling,
         },
       });
-      return;
-    }
+    };
+    const openPortal = async () => {
+      const key =
+        portalIntentKeyRef.current ?? createPortalIdempotencyKey(wsId);
+      portalIntentKeyRef.current = key;
+      try {
+        const response = await createPortal(key);
+        if (!response?.url) {
+          showBillingFallback();
+          return;
+        }
+        portalIntentKeyRef.current = null;
+        onNavigate?.();
+        openExternal(response.url, { webTarget: "same-tab" });
+      } catch {
+        showBillingFallback();
+      }
+    };
+    const showAuthorizedActions = (actions: BillingActions) => {
+      if (actions.checkout) {
+        toast.error(title, {
+          ...persistentOptions,
+          description: t(
+            ($) => $.create_issue.issue_limit.upgrade_description,
+          ),
+          action: {
+            label: t(($) => $.create_issue.issue_limit.upgrade_action),
+            onClick: openBilling,
+          },
+        });
+        return;
+      }
 
-    if (checkoutAvailable === false) {
+      if (actions.portal) {
+        toast.error(title, {
+          ...persistentOptions,
+          description: t(($) => $.create_issue.issue_limit.portal_description),
+          action: {
+            label: t(($) => $.create_issue.issue_limit.portal_action),
+            onClick: () => {
+              void openPortal();
+            },
+          },
+        });
+        return;
+      }
+
+      if (actions.purchaseSeats) {
+        toast.error(title, {
+          ...persistentOptions,
+          description: t(
+            ($) => $.create_issue.issue_limit.billing_description,
+          ),
+          action: {
+            label: t(($) => $.create_issue.issue_limit.billing_action),
+            onClick: openBilling,
+          },
+        });
+        return;
+      }
+
       toast.error(title, {
+        ...persistentOptions,
         description: t(($) => $.create_issue.issue_limit.contact_description),
-        duration: 10_000,
+      });
+    };
+
+    if (!billingEnabled) {
+      toast.error(title, {
+        ...persistentOptions,
+        description: t(
+          ($) => $.create_issue.issue_limit.billing_disabled_description,
+        ),
       });
       return;
     }
 
-    toast.error(title, {
-      description: t(($) => $.create_issue.issue_limit.billing_description),
-      duration: 10_000,
-      action: {
-        label: t(($) => $.create_issue.issue_limit.billing_action),
-        onClick: openBilling,
-      },
-    });
-  }, [navigation, onNavigate, paths, queryClient, t, wsId]);
+    const summaryOptions = workspaceSubscriptionSummaryOptions(wsId);
+    const cachedSummary = queryClient.getQueryData<
+      WorkspaceSubscriptionSummary | null
+    >(summaryOptions.queryKey);
+    if (cachedSummary) {
+      showAuthorizedActions(cachedSummary.availableActions);
+    } else {
+      toast.error(title, {
+        ...persistentOptions,
+        description: t(
+          ($) => $.create_issue.issue_limit.checking_description,
+        ),
+      });
+    }
+
+    // A quota rejection is a strong signal that cached billing state may be
+    // stale. Refresh once in the background; the recovery surface above never
+    // waits for Cloud or inherits the application's retry budget.
+    void queryClient
+      .fetchQuery({
+        ...summaryOptions,
+        staleTime: 0,
+        retry: false,
+      })
+      .then((summary) => {
+        if (summary) {
+          showAuthorizedActions(summary.availableActions);
+        } else if (!cachedSummary) {
+          showBillingFallback();
+        }
+      })
+      .catch(() => {
+        if (!cachedSummary) showBillingFallback();
+      });
+  }, [
+    billingEnabled,
+    createPortal,
+    navigation,
+    onNavigate,
+    paths,
+    queryClient,
+    t,
+    wsId,
+  ]);
 }

@@ -681,7 +681,7 @@ export function ManualCreatePanel({
         return false;
       }
       if (sourceCode === "issue_limit_reached") {
-        await showIssueLimitUpgradePrompt();
+        showIssueLimitUpgradePrompt();
         return false;
       }
       // Duplicate-issue is the only structured 409 the create endpoint
