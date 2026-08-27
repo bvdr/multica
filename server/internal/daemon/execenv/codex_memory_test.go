@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // requireMemoryDisabled asserts that the parsed config has Codex memory
@@ -14,35 +16,21 @@ func requireMemoryDisabled(t *testing.T, parsed map[string]any) {
 	t.Helper()
 
 	features, ok := parsed["features"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected `features` table in parsed config, got: %#v", parsed["features"])
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected `features` table in parsed config, got: %#v", parsed["features"]) })
 	v, ok := features["memories"].(bool)
-	if !ok {
-		t.Fatalf("expected features.memories to be a bool, got: %#v", features["memories"])
-	}
-	if v {
-		t.Errorf("expected features.memories = false, got true")
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected features.memories to be a bool, got: %#v", features["memories"]) })
+	testassert.OnFailure(t, v, func() { t.Errorf("expected features.memories = false, got true") })
 
 	memories, ok := parsed["memories"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected `memories` table in parsed config, got: %#v", parsed["memories"])
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected `memories` table in parsed config, got: %#v", parsed["memories"]) })
 	gen, ok := memories["generate_memories"].(bool)
-	if !ok {
+	testassert.OnFailure(t, !ok, func() {
 		t.Fatalf("expected memories.generate_memories to be a bool, got: %#v", memories["generate_memories"])
-	}
-	if gen {
-		t.Errorf("expected memories.generate_memories = false, got true")
-	}
+	})
+	testassert.OnFailure(t, gen, func() { t.Errorf("expected memories.generate_memories = false, got true") })
 	use, ok := memories["use_memories"].(bool)
-	if !ok {
-		t.Fatalf("expected memories.use_memories to be a bool, got: %#v", memories["use_memories"])
-	}
-	if use {
-		t.Errorf("expected memories.use_memories = false, got true")
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected memories.use_memories to be a bool, got: %#v", memories["use_memories"]) })
+	testassert.OnFailure(t, use, func() { t.Errorf("expected memories.use_memories = false, got true") })
 }
 
 func TestStripUserMemoryDirectives(t *testing.T) {
@@ -150,9 +138,9 @@ model = "o3"
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := stripUserMemoryDirectives(tt.in)
-			if got != tt.want {
+			testassert.OnFailure(t, got != tt.want, func() {
 				t.Errorf("stripUserMemoryDirectives mismatch\n--- got ---\n%s\n--- want ---\n%s", got, tt.want)
-			}
+			})
 		})
 	}
 }
@@ -168,9 +156,7 @@ func TestEnsureCodexMemoryConfigEmptyFile(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read result: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read result: %v", err) })
 	got := string(data)
 	for _, want := range []string{
 		"features.memories = false",
@@ -181,9 +167,7 @@ func TestEnsureCodexMemoryConfigEmptyFile(t *testing.T) {
 		multicaMemoryConfigBeginMarker,
 		multicaMemoryConfigEndMarker,
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("expected %q in output, got:\n%s", want, got)
-		}
+		testassert.OnFailure(t, !strings.Contains(got, want), func() { t.Errorf("expected %q in output, got:\n%s", want, got) })
 	}
 	requireMemoryDisabled(t, parseTOML(t, got))
 }
@@ -216,13 +200,9 @@ model = "o3"
 		"memories.generate_memories = true",
 		"memories.use_memories = true",
 	} {
-		if strings.Contains(got, banned) {
-			t.Errorf("expected user %q stripped, got:\n%s", banned, got)
-		}
+		testassert.OnFailure(t, strings.Contains(got, banned), func() { t.Errorf("expected user %q stripped, got:\n%s", banned, got) })
 	}
-	if !strings.Contains(got, `[profiles.default]`) || !strings.Contains(got, `model = "o3"`) {
-		t.Errorf("expected unrelated content preserved, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, `[profiles.default]`) || !strings.Contains(got, `model = "o3"`), func() { t.Errorf("expected unrelated content preserved, got:\n%s", got) })
 	requireMemoryDisabled(t, parseTOML(t, got))
 }
 
@@ -252,26 +232,16 @@ model = "o3"
 	// User's `memories = true` inside [features] must be gone.
 	// Managed override must be INSIDE [features], not as a root dotted key
 	// (which would redefine the table and break the strict TOML parser).
-	if strings.Contains(got, "memories = true") {
-		t.Errorf("expected user memories = true to be stripped, got:\n%s", got)
-	}
-	if strings.Contains(got, "features.memories = false") {
+	testassert.OnFailure(t, strings.Contains(got, "memories = true"), func() { t.Errorf("expected user memories = true to be stripped, got:\n%s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "features.memories = false"), func() {
 		t.Errorf("managed memory-feature block must NOT use root dotted-key form when [features] table exists (would redefine the table); got:\n%s", got)
-	}
-	if !strings.Contains(got, "[features]") {
-		t.Errorf("expected [features] header preserved, got:\n%s", got)
-	}
-	if !strings.Contains(got, "experimental_thinking = true") {
-		t.Errorf("expected sibling features.* keys preserved, got:\n%s", got)
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(got, "[features]"), func() { t.Errorf("expected [features] header preserved, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, "experimental_thinking = true"), func() { t.Errorf("expected sibling features.* keys preserved, got:\n%s", got) })
 
 	// memory-config side still root-form because no [memories] table existed.
-	if !strings.Contains(got, "memories.generate_memories = false") {
-		t.Errorf("expected memories.generate_memories = false at root, got:\n%s", got)
-	}
-	if !strings.Contains(got, "memories.use_memories = false") {
-		t.Errorf("expected memories.use_memories = false at root, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "memories.generate_memories = false"), func() { t.Errorf("expected memories.generate_memories = false at root, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, "memories.use_memories = false"), func() { t.Errorf("expected memories.use_memories = false at root, got:\n%s", got) })
 
 	requireMemoryDisabled(t, parseTOML(t, got))
 }
@@ -300,23 +270,15 @@ model = "o3"
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
 
-	if strings.Contains(got, "generate_memories = true") {
-		t.Errorf("expected user generate_memories = true to be stripped, got:\n%s", got)
-	}
-	if strings.Contains(got, "use_memories = true") {
-		t.Errorf("expected user use_memories = true to be stripped, got:\n%s", got)
-	}
-	if strings.Contains(got, "memories.generate_memories = false") {
+	testassert.OnFailure(t, strings.Contains(got, "generate_memories = true"), func() { t.Errorf("expected user generate_memories = true to be stripped, got:\n%s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "use_memories = true"), func() { t.Errorf("expected user use_memories = true to be stripped, got:\n%s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "memories.generate_memories = false"), func() {
 		t.Errorf("managed memory-config block must NOT use root dotted-key form when [memories] table exists (would redefine the table); got:\n%s", got)
-	}
-	if !strings.Contains(got, `storage_path = "/somewhere"`) {
-		t.Errorf("expected sibling memories.* keys preserved, got:\n%s", got)
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(got, `storage_path = "/somewhere"`), func() { t.Errorf("expected sibling memories.* keys preserved, got:\n%s", got) })
 
 	// memory-feature side still root-form because no [features] table existed.
-	if !strings.Contains(got, "features.memories = false") {
-		t.Errorf("expected features.memories = false at root, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "features.memories = false"), func() { t.Errorf("expected features.memories = false at root, got:\n%s", got) })
 
 	requireMemoryDisabled(t, parseTOML(t, got))
 }
@@ -347,20 +309,16 @@ storage_path = "/somewhere"
 	got := string(data)
 
 	// No root dotted-key forms when both tables exist.
-	if strings.Contains(got, "features.memories = false") {
+	testassert.OnFailure(t, strings.Contains(got, "features.memories = false"), func() {
 		t.Errorf("managed block must NOT use root dotted-key form when [features] table exists; got:\n%s", got)
-	}
-	if strings.Contains(got, "memories.generate_memories = false") {
+	})
+	testassert.OnFailure(t, strings.Contains(got, "memories.generate_memories = false"), func() {
 		t.Errorf("managed block must NOT use root dotted-key form when [memories] table exists; got:\n%s", got)
-	}
+	})
 
 	// User content preserved.
-	if !strings.Contains(got, "experimental_thinking = true") {
-		t.Errorf("expected experimental_thinking preserved, got:\n%s", got)
-	}
-	if !strings.Contains(got, `storage_path = "/somewhere"`) {
-		t.Errorf("expected storage_path preserved, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "experimental_thinking = true"), func() { t.Errorf("expected experimental_thinking preserved, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, `storage_path = "/somewhere"`), func() { t.Errorf("expected storage_path preserved, got:\n%s", got) })
 
 	requireMemoryDisabled(t, parseTOML(t, got))
 }
@@ -386,9 +344,7 @@ thinking = true
 
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
-	if !strings.Contains(got, "features.memories = false") {
-		t.Errorf("expected root dotted-key form when only sub-tables exist, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "features.memories = false"), func() { t.Errorf("expected root dotted-key form when only sub-tables exist, got:\n%s", got) })
 
 	parsed := parseTOML(t, got)
 	requireMemoryDisabled(t, parsed)
@@ -447,12 +403,8 @@ use_memories = true
 			second, _ := os.ReadFile(configPath)
 			infoSecond, _ := os.Stat(configPath)
 
-			if string(first) != string(second) {
-				t.Errorf("expected idempotent rewrite\n--- first ---\n%s\n--- second ---\n%s", first, second)
-			}
-			if !infoSecond.ModTime().Equal(infoFirst.ModTime()) {
-				t.Errorf("expected no rewrite on second pass (file was touched)")
-			}
+			testassert.OnFailure(t, string(first) != string(second), func() { t.Errorf("expected idempotent rewrite\n--- first ---\n%s\n--- second ---\n%s", first, second) })
+			testassert.OnFailure(t, !infoSecond.ModTime().Equal(infoFirst.ModTime()), func() { t.Errorf("expected no rewrite on second pass (file was touched)") })
 			requireMemoryDisabled(t, parseTOML(t, string(second)))
 		})
 	}
@@ -477,18 +429,16 @@ features.memories = true
 
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
-	if got != original {
+	testassert.OnFailure(t, got != original, func() {
 		t.Errorf("expected file untouched when escape hatch set\n--- got ---\n%s\n--- want ---\n%s", got, original)
-	}
+	})
 }
 
 func TestCodexMemoryEnabledTruthy(t *testing.T) {
 	for _, v := range []string{"1", "true", "TRUE", "yes", "On"} {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv(MulticaCodexMemoryEnv, v)
-			if !codexMemoryEnabled() {
-				t.Errorf("expected %q to be truthy", v)
-			}
+			testassert.OnFailure(t, !codexMemoryEnabled(), func() { t.Errorf("expected %q to be truthy", v) })
 		})
 	}
 }
@@ -497,9 +447,7 @@ func TestCodexMemoryEnabledFalsy(t *testing.T) {
 	for _, v := range []string{"", "0", "false", "no", "off", "anything else"} {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv(MulticaCodexMemoryEnv, v)
-			if codexMemoryEnabled() {
-				t.Errorf("expected %q to be falsy", v)
-			}
+			testassert.OnFailure(t, codexMemoryEnabled(), func() { t.Errorf("expected %q to be falsy", v) })
 		})
 	}
 }
@@ -536,16 +484,10 @@ features.multi_agent = true
 		multicaMemoryFeatureBeginMarker,
 		multicaMemoryConfigBeginMarker,
 	} {
-		if !strings.Contains(got, marker) {
-			t.Errorf("expected marker %q in combined output, got:\n%s", marker, got)
-		}
+		testassert.OnFailure(t, !strings.Contains(got, marker), func() { t.Errorf("expected marker %q in combined output, got:\n%s", marker, got) })
 	}
-	if strings.Contains(got, "features.memories = true") {
-		t.Errorf("expected user features.memories = true stripped, got:\n%s", got)
-	}
-	if strings.Contains(got, "features.multi_agent = true") {
-		t.Errorf("expected user features.multi_agent = true stripped, got:\n%s", got)
-	}
+	testassert.OnFailure(t, strings.Contains(got, "features.memories = true"), func() { t.Errorf("expected user features.memories = true stripped, got:\n%s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "features.multi_agent = true"), func() { t.Errorf("expected user features.multi_agent = true stripped, got:\n%s", got) })
 
 	// File must parse as valid TOML with everything disabled.
 	parsed := parseTOML(t, got)
@@ -563,9 +505,9 @@ features.multi_agent = true
 		t.Fatalf("ensureCodexMemoryConfig (rerun) failed: %v", err)
 	}
 	dataAfter, _ := os.ReadFile(configPath)
-	if string(dataAfter) != got {
+	testassert.OnFailure(t, string(dataAfter) != got, func() {
 		t.Errorf("expected idempotent combined rewrite\n--- first ---\n%s\n--- second ---\n%s", got, dataAfter)
-	}
+	})
 }
 
 // Regression: when the user's config has a `[features]` table, naively

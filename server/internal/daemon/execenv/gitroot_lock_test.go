@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // gitRootLockHolderMode re-execs this test binary as a process that takes the
@@ -57,9 +59,7 @@ func waitForFile(t *testing.T, path string, within time.Duration) {
 		if _, err := os.Stat(path); err == nil {
 			return
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", path)
-		}
+		testassert.OnFailure(t, time.Now().After(deadline), func() { t.Fatalf("timed out waiting for %s", path) })
 		time.Sleep(10 * time.Millisecond)
 	}
 }
@@ -122,9 +122,7 @@ func TestLockGitRootExcludesOtherProcesses(t *testing.T) {
 	release()
 	select {
 	case err := <-acquired:
-		if err != nil {
-			t.Fatalf("lockGitRoot after release: %v", err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("lockGitRoot after release: %v", err) })
 	case <-time.After(30 * time.Second):
 		t.Fatal("lockGitRoot never acquired the lock after the holder released it")
 	}
@@ -139,13 +137,9 @@ func TestLockGitRootExcludesOtherProcesses(t *testing.T) {
 func TestGitRootLockPathIsRepoWide(t *testing.T) {
 	repo := newTestRepo(t)
 	path, err := gitRootLockPath(repo)
-	if err != nil {
-		t.Fatalf("gitRootLockPath: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("gitRootLockPath: %v", err) })
 	want := filepath.Join(repo, ".git", gitRootLockFileName)
-	if path != want {
-		t.Fatalf("lock path = %q, want %q", path, want)
-	}
+	testassert.OnFailure(t, path != want, func() { t.Fatalf("lock path = %q, want %q", path, want) })
 
 	linked := filepath.Join(t.TempDir(), "linked")
 	gitRun(t, repo, "worktree", "add", "-b", "linked-branch", linked)
@@ -153,21 +147,13 @@ func TestGitRootLockPathIsRepoWide(t *testing.T) {
 		linked = resolved
 	}
 	linkedPath, err := gitRootLockPath(linked)
-	if err != nil {
-		t.Fatalf("gitRootLockPath(linked): %v", err)
-	}
-	if linkedPath != path {
-		t.Fatalf("linked worktree locks %q, want the repository's single lock %q", linkedPath, path)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("gitRootLockPath(linked): %v", err) })
+	testassert.OnFailure(t, linkedPath != path, func() { t.Fatalf("linked worktree locks %q, want the repository's single lock %q", linkedPath, path) })
 	// The per-worktree git dir is still what the index.lock hint must read:
 	// that is where a linked worktree's own index lives.
 	linkedGitDir, err := gitDirFor(linked)
-	if err != nil {
-		t.Fatalf("gitDirFor(linked): %v", err)
-	}
-	if !strings.Contains(filepath.ToSlash(linkedGitDir), "/worktrees/") {
-		t.Fatalf("linked worktree git dir = %q, want it under worktrees/", linkedGitDir)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("gitDirFor(linked): %v", err) })
+	testassert.OnFailure(t, !strings.Contains(filepath.ToSlash(linkedGitDir), "/worktrees/"), func() { t.Fatalf("linked worktree git dir = %q, want it under worktrees/", linkedGitDir) })
 }
 
 // A held lock file is never stale: the kernel drops the lock when the holder
@@ -188,22 +174,14 @@ func TestGitRootLockTimeoutDoesNotAdviseDeletingTheLock(t *testing.T) {
 	if unlock != nil {
 		unlock()
 	}
-	if err == nil {
-		t.Fatal("lockGitRoot succeeded while another process held the lock")
-	}
-	if !errors.Is(err, errGitRootLockBusy) {
-		t.Fatalf("error is not errGitRootLockBusy: %v", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("lockGitRoot succeeded while another process held the lock") })
+	testassert.OnFailure(t, !errors.Is(err, errGitRootLockBusy), func() { t.Fatalf("error is not errGitRootLockBusy: %v", err) })
 
 	msg := err.Error()
 	for _, banned := range []string{"can be deleted", "stale lock", "delete the lock"} {
-		if strings.Contains(msg, banned) {
-			t.Errorf("timeout message advises %q, which breaks the exclusion: %v", banned, err)
-		}
+		testassert.OnFailure(t, strings.Contains(msg, banned), func() { t.Errorf("timeout message advises %q, which breaks the exclusion: %v", banned, err) })
 	}
-	if !strings.Contains(msg, "wait for that task to finish or stop it") {
-		t.Errorf("timeout message does not say what to actually do: %v", err)
-	}
+	testassert.OnFailure(t, !strings.Contains(msg, "wait for that task to finish or stop it"), func() { t.Errorf("timeout message does not say what to actually do: %v", err) })
 }
 
 // Losing the index-lock race used to end the task. It is a millisecond-scale
@@ -225,12 +203,8 @@ func TestCaptureDirtyStateRetriesUntilTheIndexLockClears(t *testing.T) {
 
 	sha, err := captureDirtyState(repo, worktreeTestLogger())
 	<-cleared
-	if err != nil {
-		t.Fatalf("captureDirtyState: %v", err)
-	}
-	if sha == "" {
-		t.Fatal("captured no stash commit for a dirty tree")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("captureDirtyState: %v", err) })
+	testassert.OnFailure(t, sha == "", func() { t.Fatal("captured no stash commit for a dirty tree") })
 	// The capture must be readable as a real commit carrying the user's edit.
 	if got := gitRun(t, repo, "show", sha+":tracked.txt"); got != "edited by the user" {
 		t.Fatalf("stash commit content = %q, want the user's edit", got)
@@ -250,16 +224,10 @@ func TestCaptureDirtyStateNamesTheIndexLockHolder(t *testing.T) {
 	defer os.Remove(lock)
 
 	_, err := captureDirtyState(repo, worktreeTestLogger())
-	if err == nil {
-		t.Fatal("captureDirtyState succeeded while index.lock was held")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("captureDirtyState succeeded while index.lock was held") })
 	msg := err.Error()
-	if !strings.Contains(msg, "index.lock") {
-		t.Errorf("error does not name the index lock, so it is not actionable: %v", err)
-	}
-	if !strings.Contains(msg, "times") {
-		t.Errorf("error does not report that the capture was retried: %v", err)
-	}
+	testassert.OnFailure(t, !strings.Contains(msg, "index.lock"), func() { t.Errorf("error does not name the index lock, so it is not actionable: %v", err) })
+	testassert.OnFailure(t, !strings.Contains(msg, "times"), func() { t.Errorf("error does not report that the capture was retried: %v", err) })
 }
 
 // Every failure through runGitStdout used to arrive as "exit status 1": stderr
@@ -267,12 +235,8 @@ func TestCaptureDirtyStateNamesTheIndexLockHolder(t *testing.T) {
 func TestRunGitSurfacesStderrInTheError(t *testing.T) {
 	repo := newTestRepo(t)
 	_, err := runGitTrimmed(repo, "rev-parse", "--verify", "definitely-not-a-ref")
-	if err == nil {
-		t.Fatal("rev-parse of a bogus ref succeeded")
-	}
-	if !strings.Contains(err.Error(), "fatal:") {
-		t.Errorf("error dropped git's stderr: %v", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("rev-parse of a bogus ref succeeded") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "fatal:"), func() { t.Errorf("error dropped git's stderr: %v", err) })
 }
 
 // The production shape: two tasks on one local_directory, each preparing in
@@ -315,16 +279,10 @@ func TestConcurrentIsolatedPreparesOnOneRepo(t *testing.T) {
 	branches := map[string]bool{}
 	for range taskIDs {
 		got := <-results
-		if got.err != nil {
-			t.Fatalf("concurrent PrepareIsolated failed: %v", got.err)
-		}
+		testassert.OnFailure(t, got.err != nil, func() { t.Fatalf("concurrent PrepareIsolated failed: %v", got.err) })
 		wt := got.env.LocalWorktree
-		if wt == nil {
-			t.Fatal("prepared environment has no worktree")
-		}
-		if branches[wt.Branch] {
-			t.Fatalf("two concurrent tasks landed on branch %q", wt.Branch)
-		}
+		testassert.OnFailure(t, wt == nil, func() { t.Fatal("prepared environment has no worktree") })
+		testassert.OnFailure(t, branches[wt.Branch], func() { t.Fatalf("two concurrent tasks landed on branch %q", wt.Branch) })
 		branches[wt.Branch] = true
 		// Each task must see the user's uncommitted state, which is precisely
 		// what the lost capture would have silently replaced with a clean HEAD.

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 func TestEnsureSymlink_SkipsWhenSourceMissing(t *testing.T) {
@@ -40,12 +42,10 @@ func TestEnsureSymlink_ReplacesStaleRegularFile(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(dst)
-	if err != nil {
-		t.Fatalf("read dst: %v", err)
-	}
-	if string(data) != "new" {
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read dst: %v", err) })
+	testassert.OnFailure(t, string(data) != "new", func() {
 		t.Errorf("dst content = %q, want %q (file should be re-linked/re-copied from src)", data, "new")
-	}
+	})
 }
 
 func TestEnsureSymlink_RefreshesAfterCopyFallbackThenSrcChange(t *testing.T) {
@@ -70,12 +70,8 @@ func TestEnsureSymlink_RefreshesAfterCopyFallbackThenSrcChange(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(dst)
-	if err != nil {
-		t.Fatalf("read dst: %v", err)
-	}
-	if string(data) != `{"refresh_token":"v2"}` {
-		t.Errorf("dst content after refresh = %q, want v2 contents", data)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read dst: %v", err) })
+	testassert.OnFailure(t, string(data) != `{"refresh_token":"v2"}`, func() { t.Errorf("dst content after refresh = %q, want v2 contents", data) })
 }
 
 func TestCreateDirLink(t *testing.T) {
@@ -93,12 +89,8 @@ func TestCreateDirLink(t *testing.T) {
 
 	// Should be able to read files through the link.
 	data, err := os.ReadFile(filepath.Join(dst, "test.txt"))
-	if err != nil {
-		t.Fatalf("read through link: %v", err)
-	}
-	if string(data) != "hello" {
-		t.Errorf("content = %q, want %q", data, "hello")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read through link: %v", err) })
+	testassert.OnFailure(t, string(data) != "hello", func() { t.Errorf("content = %q, want %q", data, "hello") })
 }
 
 func TestCreateFileLink(t *testing.T) {
@@ -114,12 +106,8 @@ func TestCreateFileLink(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(dst)
-	if err != nil {
-		t.Fatalf("read link: %v", err)
-	}
-	if string(data) != `{"key":"value"}` {
-		t.Errorf("content = %q", data)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read link: %v", err) })
+	testassert.OnFailure(t, string(data) != `{"key":"value"}`, func() { t.Errorf("content = %q", data) })
 }
 
 func TestCopyFile(t *testing.T) {
@@ -135,13 +123,9 @@ func TestCopyFile(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(dst)
-	if string(data) != "content" {
-		t.Errorf("content = %q", data)
-	}
+	testassert.OnFailure(t, string(data) != "content", func() { t.Errorf("content = %q", data) })
 
 	// Verify it's a copy, not a symlink.
 	fi, _ := os.Lstat(dst)
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Error("expected regular file, not symlink")
-	}
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Error("expected regular file, not symlink") })
 }

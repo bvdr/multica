@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // makeTaskTempDir creates a temp dir the way ensureTaskTempDir does, optionally
@@ -17,9 +19,7 @@ func makeTaskTempDir(t *testing.T, base, suffix string, withLock bool) string {
 	}
 	if withLock {
 		lock, err := LockTaskTempDir(dir)
-		if err != nil {
-			t.Fatalf("LockTaskTempDir(): %v", err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("LockTaskTempDir(): %v", err) })
 		ReleaseTaskTempLock(lock)
 	}
 	return dir
@@ -40,9 +40,7 @@ func TestPruneTaskTempDirsHoldsOffLiveDirThenReclaimsIt(t *testing.T) {
 		t.Fatalf("create task temp dir: %v", err)
 	}
 	lock, err := LockTaskTempDir(dir)
-	if err != nil {
-		t.Fatalf("LockTaskTempDir(): %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("LockTaskTempDir(): %v", err) })
 
 	// legacyTTL 0 so nothing here can be reclaimed on age: the lock is the only
 	// thing under test. `now` is far in the future for the same reason.
@@ -57,9 +55,7 @@ func TestPruneTaskTempDirsHoldsOffLiveDirThenReclaimsIt(t *testing.T) {
 	ReleaseTaskTempLock(lock)
 
 	removed, _ := PruneTaskTempDirs(base, 0, future, testLogger())
-	if removed != 1 {
-		t.Fatalf("prune removed %d dirs after the lock was released, want 1", removed)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("prune removed %d dirs after the lock was released, want 1", removed) })
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("task temp dir still present after prune: %v", err)
 	}
@@ -78,12 +74,8 @@ func TestPruneTaskTempDirsReclaimsUnlockedDirImmediately(t *testing.T) {
 	}
 
 	removed, bytesFreed := PruneTaskTempDirs(base, 0, time.Now(), testLogger())
-	if removed != 1 {
-		t.Fatalf("prune removed %d dirs, want 1", removed)
-	}
-	if bytesFreed < 4096 {
-		t.Fatalf("prune reported %d bytes freed, want at least 4096", bytesFreed)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("prune removed %d dirs, want 1", removed) })
+	testassert.OnFailure(t, bytesFreed < 4096, func() { t.Fatalf("prune reported %d bytes freed, want at least 4096", bytesFreed) })
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("task temp dir still present after prune: %v", err)
 	}
@@ -160,9 +152,7 @@ func TestPruneTaskTempDirsOnlyTouchesOwnDirs(t *testing.T) {
 	}
 
 	removed, _ := PruneTaskTempDirs(base, time.Hour, time.Now().Add(10*365*24*time.Hour), testLogger())
-	if removed != 0 {
-		t.Fatalf("prune removed %d entries, want 0", removed)
-	}
+	testassert.OnFailure(t, removed != 0, func() { t.Fatalf("prune removed %d entries, want 0", removed) })
 	for _, path := range []string{base, foreignDir, foreignFile, prefixedFile} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("prune touched %s: %v", path, err)
@@ -174,9 +164,7 @@ func TestPruneTaskTempDirsOnlyTouchesOwnDirs(t *testing.T) {
 // daemon that has never run a task, and a GC cycle must not care.
 func TestPruneTaskTempDirsMissingBaseIsNotAnError(t *testing.T) {
 	removed, bytesFreed := PruneTaskTempDirs(filepath.Join(t.TempDir(), "nope"), time.Hour, time.Now(), testLogger())
-	if removed != 0 || bytesFreed != 0 {
-		t.Fatalf("prune over a missing base = (%d, %d), want (0, 0)", removed, bytesFreed)
-	}
+	testassert.OnFailure(t, removed != 0 || bytesFreed != 0, func() { t.Fatalf("prune over a missing base = (%d, %d), want (0, 0)", removed, bytesFreed) })
 }
 
 // TestLockTaskTempDirPublishesAnAlreadyHeldMarker pins the publication order:
@@ -191,9 +179,7 @@ func TestLockTaskTempDirPublishesAnAlreadyHeldMarker(t *testing.T) {
 		t.Fatalf("create task temp dir: %v", err)
 	}
 	lock, err := LockTaskTempDir(dir)
-	if err != nil {
-		t.Fatalf("LockTaskTempDir(): %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("LockTaskTempDir(): %v", err) })
 	t.Cleanup(func() { ReleaseTaskTempLock(lock) })
 
 	if _, err := os.Stat(filepath.Join(dir, envRootLockFile)); err != nil {
@@ -221,9 +207,7 @@ func TestPruneTaskTempDirsSpareDirMidClaim(t *testing.T) {
 			}
 			// Exactly the on-disk state between claim and publish.
 			claim, err := openLockFile(filepath.Join(dir, taskTempLockClaimFile))
-			if err != nil {
-				t.Fatalf("open claim: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("open claim: %v", err) })
 			if ok, err := lockFileExclusiveNonBlocking(claim); err != nil || !ok {
 				t.Fatalf("lock claim: ok=%v err=%v", ok, err)
 			}
@@ -265,13 +249,9 @@ func TestLockTaskTempDirRacesPruneCleanly(t *testing.T) {
 
 	for i := 0; i < 200; i++ {
 		dir, err := os.MkdirTemp(base, TaskTempDirPrefix)
-		if err != nil {
-			t.Fatalf("MkdirTemp(): %v", err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("MkdirTemp(): %v", err) })
 		lock, err := LockTaskTempDir(dir)
-		if err != nil {
-			t.Fatalf("LockTaskTempDir() on iteration %d: %v", i, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("LockTaskTempDir() on iteration %d: %v", i, err) })
 		// What the task does next: write into the TMPDIR it was handed.
 		if err := os.WriteFile(filepath.Join(dir, "payload"), []byte("x"), 0o600); err != nil {
 			t.Fatalf("task temp dir vanished under its owner on iteration %d: %v", i, err)
@@ -293,9 +273,7 @@ func TestPruneTaskTempDirsSparesDirBeforeItsClaimExists(t *testing.T) {
 		t.Run(legacyTTL.String(), func(t *testing.T) {
 			base := t.TempDir()
 			dir, err := os.MkdirTemp(base, TaskTempDirPrefix)
-			if err != nil {
-				t.Fatalf("MkdirTemp(): %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("MkdirTemp(): %v", err) })
 			now := time.Now().Add(legacyTTL + time.Second)
 			if removed, _ := PruneTaskTempDirs(base, legacyTTL, now, testLogger()); removed != 0 {
 				t.Fatalf("prune removed %d dirs before their claim existed, want 0", removed)
@@ -319,9 +297,7 @@ func TestPruneTaskTempDirsLegacyBranchNeedsContent(t *testing.T) {
 	}
 
 	removed, _ := PruneTaskTempDirs(base, time.Hour, time.Now().Add(48*time.Hour), testLogger())
-	if removed != 1 {
-		t.Fatalf("prune removed %d dirs, want 1 (only the one holding content)", removed)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("prune removed %d dirs, want 1 (only the one holding content)", removed) })
 	if _, err := os.Stat(withContent); !os.IsNotExist(err) {
 		t.Fatalf("expired legacy dir with content survived: %v", err)
 	}
@@ -372,12 +348,10 @@ func TestPruneTaskTempDirsRechecksLockBeforeRemoving(t *testing.T) {
 	})
 
 	removed, _ := PruneTaskTempDirs(base, time.Hour, time.Now().Add(72*time.Hour), testLogger())
-	if barrierRuns != 1 {
+	testassert.OnFailure(t, barrierRuns != 1, func() {
 		t.Fatalf("barrier ran %d times, want 1 — the sweep never reached the removal decision", barrierRuns)
-	}
-	if removed != 0 {
-		t.Fatalf("sweep removed %d dirs after the owner published mid-decision, want 0", removed)
-	}
+	})
+	testassert.OnFailure(t, removed != 0, func() { t.Fatalf("sweep removed %d dirs after the owner published mid-decision, want 0", removed) })
 	if _, err := os.Stat(filepath.Join(dir, "task-output")); err != nil {
 		t.Fatalf("sweep destroyed a live task's temp dir: %v", err)
 	}

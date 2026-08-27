@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 const (
@@ -136,10 +138,6 @@ func TestPrepareIsolated_WindowsKillsDescendantBeforeRetry(t *testing.T) {
 	retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer retryCancel()
 	env, err := PrepareIsolated(retryCtx, preparationHelperTestCommand(), params, nil)
-	if err != nil {
-		t.Fatalf("immediate retry PrepareIsolated: %v", err)
-	}
-	if env == nil || env.RootDir != PredictRootDir(RootDirParams{WorkspacesRoot: params.WorkspacesRoot, WorkspaceID: params.WorkspaceID, WorkspaceSlug: params.WorkspaceSlug, TaskID: params.TaskID, IssueIdentifier: params.IssueIdentifier}) {
-		t.Fatalf("retry environment = %#v, want the predicted root", env)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("immediate retry PrepareIsolated: %v", err) })
+	testassert.OnFailure(t, env == nil || env.RootDir != PredictRootDir(RootDirParams{WorkspacesRoot: params.WorkspacesRoot, WorkspaceID: params.WorkspaceID, WorkspaceSlug: params.WorkspaceSlug, TaskID: params.TaskID, IssueIdentifier: params.IssueIdentifier}), func() { t.Fatalf("retry environment = %#v, want the predicted root", env) })
 }

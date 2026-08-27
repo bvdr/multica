@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // openclawCacheFixture is one host: a real (fake) openclaw binary file, a real
@@ -100,13 +102,9 @@ func TestOpenclawDiscoveryCacheHitProducesSameWrapper(t *testing.T) {
 			t.Fatalf("mkdir workdir: %v", err)
 		}
 		result, err := prepareOpenclawConfig(envRoot, workDir, f.prep())
-		if err != nil {
-			t.Fatalf("prepareOpenclawConfig: %v", err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 		raw, err := os.ReadFile(result.ConfigPath)
-		if err != nil {
-			t.Fatalf("read wrapper: %v", err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("read wrapper: %v", err) })
 		// The workspace override is env-root specific; normalise it away so the
 		// comparison is about the discovered content, not the temp path.
 		return []byte(strings.ReplaceAll(string(raw), workDir, "<WORKDIR>"))
@@ -114,9 +112,7 @@ func TestOpenclawDiscoveryCacheHitProducesSameWrapper(t *testing.T) {
 
 	cold := read()
 	warm := read()
-	if string(cold) != string(warm) {
-		t.Errorf("cache hit produced a different wrapper\ncold: %s\nwarm: %s", cold, warm)
-	}
+	testassert.OnFailure(t, string(cold) != string(warm), func() { t.Errorf("cache hit produced a different wrapper\ncold: %s\nwarm: %s", cold, warm) })
 }
 
 // TestOpenclawDiscoveryCacheInvalidatesOnConfigChange covers the refresh
@@ -176,18 +172,14 @@ func TestOpenclawDiscoveryCacheExpiresWithTTL(t *testing.T) {
 	f.run(t)
 
 	raw, err := os.ReadFile(f.cachePath())
-	if err != nil {
-		t.Fatalf("read cache: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read cache: %v", err) })
 	var entry openclawDiscoveryCacheEntry
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		t.Fatalf("decode cache: %v", err)
 	}
 	entry.CachedAtNano = time.Now().Add(-openclawDiscoveryCacheTTL - time.Second).UnixNano()
 	aged, err := json.Marshal(entry)
-	if err != nil {
-		t.Fatalf("encode aged cache: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("encode aged cache: %v", err) })
 	if err := os.WriteFile(f.cachePath(), aged, 0o600); err != nil {
 		t.Fatalf("write aged cache: %v", err)
 	}
@@ -204,18 +196,14 @@ func TestOpenclawDiscoveryCacheRejectsFutureEntry(t *testing.T) {
 	f.run(t)
 
 	raw, err := os.ReadFile(f.cachePath())
-	if err != nil {
-		t.Fatalf("read cache: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read cache: %v", err) })
 	var entry openclawDiscoveryCacheEntry
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		t.Fatalf("decode cache: %v", err)
 	}
 	entry.CachedAtNano = time.Now().Add(time.Hour).UnixNano()
 	future, err := json.Marshal(entry)
-	if err != nil {
-		t.Fatalf("encode future cache: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("encode future cache: %v", err) })
 	if err := os.WriteFile(f.cachePath(), future, 0o600); err != nil {
 		t.Fatalf("write future cache: %v", err)
 	}
@@ -369,13 +357,9 @@ func TestOpenclawDiscoveryCacheConcurrentPreparations(t *testing.T) {
 
 	// No half-written temp files may survive a clean run.
 	entries, err := os.ReadDir(f.cacheDir)
-	if err != nil {
-		t.Fatalf("read cache dir: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read cache dir: %v", err) })
 	for _, entry := range entries {
-		if entry.Name() != openclawDiscoveryCacheFile {
-			t.Errorf("leftover file in cache dir: %s", entry.Name())
-		}
+		testassert.OnFailure(t, entry.Name() != openclawDiscoveryCacheFile, func() { t.Errorf("leftover file in cache dir: %s", entry.Name()) })
 	}
 }
 
@@ -418,9 +402,7 @@ func TestOpenclawDiscoveryCacheStoresEmptyAgentsList(t *testing.T) {
 			}
 
 			cold := f.run(t)
-			if cold == 0 {
-				t.Fatalf("cold preparation made no CLI calls, want a live discovery")
-			}
+			testassert.OnFailure(t, cold == 0, func() { t.Fatalf("cold preparation made no CLI calls, want a live discovery") })
 			if got := f.run(t); got != 0 {
 				t.Errorf("warm preparation made %d CLI calls, want 0: an agent-less host must be cacheable too", got)
 			}

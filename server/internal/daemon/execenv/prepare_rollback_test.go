@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestPrepareRollsBackSidecarsWhenPrepareFailsInPlace is the regression test for
@@ -51,9 +53,7 @@ func TestPrepareRollsBackSidecarsWhenPrepareFailsInPlace(t *testing.T) {
 			AgentID: "99999999-8888-7777-6666-555555555555",
 		},
 	}, testLogger())
-	if err == nil {
-		t.Fatal("Prepare succeeded; expected the pre-existing .cursor/mcp.json to fail it")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("Prepare succeeded; expected the pre-existing .cursor/mcp.json to fail it") })
 
 	markerPath := filepath.Join(userDir, TaskContextMarkerRelPath)
 	if _, statErr := os.Stat(markerPath); !os.IsNotExist(statErr) {
@@ -105,9 +105,7 @@ func TestPrepareRollsBackWhenWriteContextFilesFailsAfterMarker(t *testing.T) {
 			AgentID: "77777777-6666-5555-4444-333333333333",
 		},
 	}, testLogger())
-	if err == nil {
-		t.Fatal("Prepare succeeded; expected the .agent_context blocker to fail it")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("Prepare succeeded; expected the .agent_context blocker to fail it") })
 
 	markerPath := filepath.Join(userDir, TaskContextMarkerRelPath)
 	if _, statErr := os.Stat(markerPath); !os.IsNotExist(statErr) {
@@ -138,9 +136,7 @@ func TestPrepareSucceedsInPlaceAndLeavesMarker(t *testing.T) {
 			AgentID: "88888888-7777-6666-5555-444444444444",
 		},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 
 	if _, statErr := os.Stat(filepath.Join(userDir, TaskContextMarkerRelPath)); statErr != nil {
 		t.Fatalf("successful Prepare did not leave the daemon task marker: %v", statErr)

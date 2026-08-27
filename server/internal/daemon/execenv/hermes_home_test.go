@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,9 +14,7 @@ import (
 func hermesExternalDirs(t *testing.T, configPath string) []string {
 	t.Helper()
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read derived config: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read derived config: %v", err) })
 	var parsed struct {
 		Skills struct {
 			ExternalDirs []string `yaml:"external_dirs"`
@@ -32,9 +31,7 @@ func hermesExternalDirs(t *testing.T, configPath string) []string {
 func hermesMemoryProvider(t *testing.T, configPath string) (string, bool) {
 	t.Helper()
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read derived config: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read derived config: %v", err) })
 	var parsed struct {
 		Memory struct {
 			Provider *string `yaml:"provider"`
@@ -71,12 +68,8 @@ func TestPrepareHermesHomeOverlay(t *testing.T) {
 
 	for _, name := range []string{"auth.json", "plugins", "oauth_state.json"} {
 		fi, err := os.Lstat(filepath.Join(hermesHome, name))
-		if err != nil {
-			t.Fatalf("%s not mirrored into overlay: %v", name, err)
-		}
-		if fi.Mode()&os.ModeSymlink == 0 {
-			t.Errorf("%s should be a symlink into the shared home", name)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("%s not mirrored into overlay: %v", name, err) })
+		testassert.OnFailure(t, fi.Mode()&os.ModeSymlink == 0, func() { t.Errorf("%s should be a symlink into the shared home", name) })
 	}
 
 	// .env is overlay-owned/derived (not symlinked): it preserves the source's
@@ -134,12 +127,8 @@ func TestHermesDisablesExternalMemoryProvider(t *testing.T) {
 	}
 
 	got, ok := hermesMemoryProvider(t, filepath.Join(hermesHome, "config.yaml"))
-	if !ok {
-		t.Fatal("memory.provider should be present and explicitly disabled")
-	}
-	if got != "" {
-		t.Errorf("memory.provider = %q, want \"\" (external backend disabled)", got)
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatal("memory.provider should be present and explicitly disabled") })
+	testassert.OnFailure(t, got != "", func() { t.Errorf("memory.provider = %q, want \"\" (external backend disabled)", got) })
 	if data, _ := os.ReadFile(filepath.Join(hermesHome, "config.yaml")); !strings.Contains(string(data), "memory_enabled: true") {
 		t.Error("built-in memory settings should be preserved")
 	}
@@ -167,9 +156,7 @@ func TestHermesDerivedConfigRebasesRelativeExternalDirs(t *testing.T) {
 		"/opt/shared/skills",
 		filepath.Join(sharedHome, "skills"),
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("external_dirs =\n%v\nwant\n%v", got, want)
-	}
+	testassert.OnFailure(t, strings.Join(got, "\n") != strings.Join(want, "\n"), func() { t.Errorf("external_dirs =\n%v\nwant\n%v", got, want) })
 }
 
 // TestHermesExternalDirsExpandsSanitizedEnv verifies a ${VAR} present in the
@@ -195,9 +182,7 @@ func TestHermesExternalDirsExpandsSanitizedEnv(t *testing.T) {
 		"${MYSTERY_VAR}/x",  // unknown var preserved verbatim, NOT absolutized
 		filepath.Join(sharedHome, "skills"),
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("external_dirs =\n%v\nwant\n%v", got, want)
-	}
+	testassert.OnFailure(t, strings.Join(got, "\n") != strings.Join(want, "\n"), func() { t.Errorf("external_dirs =\n%v\nwant\n%v", got, want) })
 }
 
 // TestHermesBoundSkillKeepsNaturalSlug asserts a bound skill sharing a name with
@@ -216,12 +201,8 @@ func TestHermesBoundSkillKeepsNaturalSlug(t *testing.T) {
 	}
 
 	body, err := os.ReadFile(filepath.Join(hermesHome, "skills", "review-helper", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("read bound skill: %v", err)
-	}
-	if strings.Contains(string(body), "USER VERSION") || !strings.Contains(string(body), "WORKSPACE VERSION") {
-		t.Errorf("bound skill should keep natural slug with its own content, got: %q", body)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read bound skill: %v", err) })
+	testassert.OnFailure(t, strings.Contains(string(body), "USER VERSION") || !strings.Contains(string(body), "WORKSPACE VERSION"), func() { t.Errorf("bound skill should keep natural slug with its own content, got: %q", body) })
 	if data, _ := os.ReadFile(userSkill); string(data) != "USER VERSION" {
 		t.Errorf("user's shared skill was modified: %q", data)
 	}
@@ -295,9 +276,7 @@ func TestHermesOverlayKeepsSessionDatabaseTaskLocal(t *testing.T) {
 	}
 	for _, name := range stateFiles {
 		data, err := os.ReadFile(filepath.Join(hermesHome, name))
-		if err != nil {
-			t.Fatalf("read task-local %s after reuse: %v", name, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("read task-local %s after reuse: %v", name, err) })
 		if got, want := string(data), "TASK "+name; got != want {
 			t.Errorf("task-local %s after reuse = %q, want %q", name, got, want)
 		}
@@ -338,9 +317,7 @@ func TestHermesOverlayMigratesLegacySessionDatabase(t *testing.T) {
 			t.Errorf("legacy overlay %s should be removed during migration: %v", name, err)
 		}
 		data, err := os.ReadFile(filepath.Join(sharedHome, name))
-		if err != nil {
-			t.Fatalf("read host %s after migration: %v", name, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("read host %s after migration: %v", name, err) })
 		if got, want := string(data), "HOST "+name; got != want {
 			t.Errorf("host %s changed during migration: got %q, want %q", name, got, want)
 		}
@@ -442,9 +419,7 @@ func TestResolveHermesProfile(t *testing.T) {
 		t.Parallel()
 		base := t.TempDir()
 		res := ResolveHermesProfile(base, "", false, false)
-		if res.Err != nil || res.SourceHome != base || res.MustExist {
-			t.Fatalf("got %+v, want SourceHome=%q MustExist=false Err=nil", res, base)
-		}
+		testassert.OnFailure(t, res.Err != nil || res.SourceHome != base || res.MustExist, func() { t.Fatalf("got %+v, want SourceHome=%q MustExist=false Err=nil", res, base) })
 	})
 
 	// The review's blocker 1: a sticky active_profile must be SELECTED as the
@@ -455,9 +430,7 @@ func TestResolveHermesProfile(t *testing.T) {
 		mustWrite(t, filepath.Join(root, "active_profile"), "coder\n")
 		res := ResolveHermesProfile(root, "", false, false)
 		want := filepath.Join(root, "profiles", "coder")
-		if res.Err != nil || res.SourceHome != want || !res.MustExist {
-			t.Fatalf("sticky: got %+v, want SourceHome=%q MustExist=true", res, want)
-		}
+		testassert.OnFailure(t, res.Err != nil || res.SourceHome != want || !res.MustExist, func() { t.Fatalf("sticky: got %+v, want SourceHome=%q MustExist=true", res, want) })
 	})
 
 	t.Run("sticky default is ignored", func(t *testing.T) {
@@ -465,9 +438,7 @@ func TestResolveHermesProfile(t *testing.T) {
 		root := t.TempDir()
 		mustWrite(t, filepath.Join(root, "active_profile"), "default\n")
 		res := ResolveHermesProfile(root, "", false, false)
-		if res.Err != nil || res.SourceHome != root || res.MustExist {
-			t.Fatalf("sticky default: got %+v, want SourceHome=%q MustExist=false", res, root)
-		}
+		testassert.OnFailure(t, res.Err != nil || res.SourceHome != root || res.MustExist, func() { t.Fatalf("sticky default: got %+v, want SourceHome=%q MustExist=false", res, root) })
 	})
 
 	t.Run("already-profile-scoped home with no flag is trusted", func(t *testing.T) {
@@ -477,9 +448,7 @@ func TestResolveHermesProfile(t *testing.T) {
 		// A sticky at the root must NOT override an explicit profile-scoped home.
 		mustWrite(t, filepath.Join(root, "active_profile"), "research\n")
 		res := ResolveHermesProfile(scoped, "", false, false)
-		if res.Err != nil || res.SourceHome != scoped || !res.MustExist {
-			t.Fatalf("profile-scoped: got %+v, want SourceHome=%q MustExist=true", res, scoped)
-		}
+		testassert.OnFailure(t, res.Err != nil || res.SourceHome != scoped || !res.MustExist, func() { t.Fatalf("profile-scoped: got %+v, want SourceHome=%q MustExist=true", res, scoped) })
 	})
 
 	t.Run("-p default from a profile-scoped home re-roots to the root", func(t *testing.T) {
@@ -487,9 +456,7 @@ func TestResolveHermesProfile(t *testing.T) {
 		root := t.TempDir()
 		scoped := filepath.Join(root, "profiles", "coder")
 		res := ResolveHermesProfile(scoped, "default", true, false)
-		if res.Err != nil || res.SourceHome != root || res.MustExist {
-			t.Fatalf("-p default: got %+v, want SourceHome=%q MustExist=false", res, root)
-		}
+		testassert.OnFailure(t, res.Err != nil || res.SourceHome != root || res.MustExist, func() { t.Fatalf("-p default: got %+v, want SourceHome=%q MustExist=false", res, root) })
 	})
 
 	t.Run("-p sibling from a profile-scoped home is a sibling, not nested", func(t *testing.T) {
@@ -498,9 +465,7 @@ func TestResolveHermesProfile(t *testing.T) {
 		scoped := filepath.Join(root, "profiles", "coder")
 		res := ResolveHermesProfile(scoped, "research", true, false)
 		want := filepath.Join(root, "profiles", "research")
-		if res.Err != nil || res.SourceHome != want || !res.MustExist {
-			t.Fatalf("-p sibling: got %+v, want SourceHome=%q MustExist=true", res, want)
-		}
+		testassert.OnFailure(t, res.Err != nil || res.SourceHome != want || !res.MustExist, func() { t.Fatalf("-p sibling: got %+v, want SourceHome=%q MustExist=true", res, want) })
 	})
 
 	t.Run("explicit named profile resolves under the root", func(t *testing.T) {
@@ -508,9 +473,7 @@ func TestResolveHermesProfile(t *testing.T) {
 		root := t.TempDir()
 		res := ResolveHermesProfile(root, "research", true, false)
 		want := filepath.Join(root, "profiles", "research")
-		if res.Err != nil || res.SourceHome != want || !res.MustExist {
-			t.Fatalf("named: got %+v, want SourceHome=%q MustExist=true", res, want)
-		}
+		testassert.OnFailure(t, res.Err != nil || res.SourceHome != want || !res.MustExist, func() { t.Fatalf("named: got %+v, want SourceHome=%q MustExist=true", res, want) })
 	})
 
 	t.Run("reserved names fail closed", func(t *testing.T) {
@@ -563,9 +526,7 @@ func TestHermesExternalDirsExpandsAgainstSelectedProfileHome(t *testing.T) {
 		filepath.Join(profileHome, "profile-skills"),
 		filepath.Join(profileHome, "skills"),
 	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("external_dirs =\n%v\nwant\n%v", got, want)
-	}
+	testassert.OnFailure(t, strings.Join(got, "\n") != strings.Join(want, "\n"), func() { t.Errorf("external_dirs =\n%v\nwant\n%v", got, want) })
 }
 
 // TestHermesOverlayEnvPinsHomeAfterDotenvOverride is the review's blocker 1: a
@@ -594,12 +555,10 @@ func TestHermesOverlayEnvPinsHomeAfterDotenvOverride(t *testing.T) {
 	}
 
 	env := applyDotenvOverride(t, envPath)
-	if env["HERMES_HOME"] != hermesHome {
+	testassert.OnFailure(t, env["HERMES_HOME"] != hermesHome, func() {
 		t.Errorf("after override=True dotenv load HERMES_HOME = %q, want the overlay %q", env["HERMES_HOME"], hermesHome)
-	}
-	if env["ANTHROPIC_API_KEY"] != "sk-source" {
-		t.Errorf("source credential dropped: ANTHROPIC_API_KEY = %q", env["ANTHROPIC_API_KEY"])
-	}
+	})
+	testassert.OnFailure(t, env["ANTHROPIC_API_KEY"] != "sk-source", func() { t.Errorf("source credential dropped: ANTHROPIC_API_KEY = %q", env["ANTHROPIC_API_KEY"]) })
 	// HERMES_HOME pinned to the overlay ⇒ skill discovery and memory use the
 	// overlay's own dirs.
 	if _, err := os.Stat(filepath.Join(hermesHome, "skills", "review-helper", "SKILL.md")); err != nil {
@@ -622,9 +581,9 @@ func TestHermesOverlayEnvCreatedWhenSourceHasNone(t *testing.T) {
 		t.Fatalf("prepareHermesHome failed: %v", err)
 	}
 	env := applyDotenvOverride(t, filepath.Join(hermesHome, ".env"))
-	if env["HERMES_HOME"] != hermesHome {
+	testassert.OnFailure(t, env["HERMES_HOME"] != hermesHome, func() {
 		t.Errorf("overlay .env must exist and pin HERMES_HOME even with no source .env; got %q", env["HERMES_HOME"])
-	}
+	})
 }
 
 // applyDotenvOverride replays python-dotenv's single-file override=True load over
@@ -633,9 +592,7 @@ func TestHermesOverlayEnvCreatedWhenSourceHasNone(t *testing.T) {
 func applyDotenvOverride(t *testing.T, path string) map[string]string {
 	t.Helper()
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read overlay .env: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read overlay .env: %v", err) })
 	env := map[string]string{}
 	for _, line := range strings.Split(string(data), "\n") {
 		s := strings.TrimSpace(line)
@@ -677,9 +634,7 @@ func TestHermesRootFromHomeResolvesSymlinks(t *testing.T) {
 	}
 
 	root := hermesRootFromHomeFor(link, native)
-	if root != native {
-		t.Fatalf("symlinked profile home: root = %q, want native %q", root, native)
-	}
+	testassert.OnFailure(t, root != native, func() { t.Fatalf("symlinked profile home: root = %q, want native %q", root, native) })
 	if home, _, err := hermesProfileDir(root, "default"); err != nil || home != native {
 		t.Fatalf("-p default: home=%q err=%v, want %q", home, err, native)
 	}
@@ -758,14 +713,10 @@ func TestPrepareHermesNoSkillsLeavesHomeUnset(t *testing.T) {
 		Provider:       "hermes",
 		Task:           TaskContextForEnv{IssueID: "no-skill"},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
-	if env.HermesHome != "" {
-		t.Errorf("skill-less Hermes task must not redirect HERMES_HOME, got %q", env.HermesHome)
-	}
+	testassert.OnFailure(t, env.HermesHome != "", func() { t.Errorf("skill-less Hermes task must not redirect HERMES_HOME, got %q", env.HermesHome) })
 	if _, err := os.Stat(filepath.Join(env.RootDir, "hermes-home")); !os.IsNotExist(err) {
 		t.Error("no hermes-home overlay should be created for a skill-less task")
 	}
@@ -791,14 +742,10 @@ func TestReuseHermesTearsDownWhenSkillsRemoved(t *testing.T) {
 		HermesSourceHome: sharedHome,
 		Task:             withSkill,
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
-	if env.HermesHome == "" {
-		t.Fatal("expected HERMES_HOME redirect for a task with a bound skill")
-	}
+	testassert.OnFailure(t, env.HermesHome == "", func() { t.Fatal("expected HERMES_HOME redirect for a task with a bound skill") })
 	overlayDir := filepath.Join(env.RootDir, "hermes-home")
 
 	if reused := Reuse(ReuseParams{WorkDir: env.WorkDir, Provider: "hermes", HermesSourceHome: sharedHome, Task: withSkill}, testLogger()); reused == nil {
@@ -809,12 +756,8 @@ func TestReuseHermesTearsDownWhenSkillsRemoved(t *testing.T) {
 
 	noSkill := TaskContextForEnv{IssueID: "hermes-resume"}
 	reused := Reuse(ReuseParams{WorkDir: env.WorkDir, Provider: "hermes", HermesSourceHome: sharedHome, Task: noSkill}, testLogger())
-	if reused == nil {
-		t.Fatal("Reuse without skill returned nil")
-	}
-	if reused.HermesHome != "" {
-		t.Errorf("removing the last skill should clear HERMES_HOME, got %q", reused.HermesHome)
-	}
+	testassert.OnFailure(t, reused == nil, func() { t.Fatal("Reuse without skill returned nil") })
+	testassert.OnFailure(t, reused.HermesHome != "", func() { t.Errorf("removing the last skill should clear HERMES_HOME, got %q", reused.HermesHome) })
 	if _, err := os.Stat(overlayDir); !os.IsNotExist(err) {
 		t.Error("stale hermes-home overlay should be removed on teardown")
 	}

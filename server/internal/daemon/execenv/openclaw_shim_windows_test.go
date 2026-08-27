@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // This file is the Windows half of the MUL-5422 / #6061 regression. The
@@ -74,9 +76,7 @@ func nodeDir(t *testing.T) string {
 		t.Skipf("no node on PATH, cannot exercise a real npm shim: %v", err)
 	}
 	abs, err := filepath.Abs(resolved)
-	if err != nil {
-		t.Fatalf("resolve node path: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("resolve node path: %v", err) })
 	return filepath.Dir(abs)
 }
 
@@ -108,19 +108,15 @@ func TestWindowsOpenclawShimMissingNodeSurfacesCmdStderr(t *testing.T) {
 	t.Setenv("PATH", systemPath(t))
 
 	out, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err == nil {
-		t.Fatalf("shim must fail without node on PATH, got output %q", out)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatalf("shim must fail without node on PATH, got output %q", out) })
 	msg := err.Error()
 	t.Logf("observed error: %s", msg)
 
-	if !strings.Contains(strings.ToLower(msg), "not recognized") {
+	testassert.OnFailure(t, !strings.Contains(strings.ToLower(msg), "not recognized"), func() {
 		t.Errorf("expected cmd.exe's own stderr to reach Go's pipe; if this now fails, "+
 			"the platform behaviour changed and the shim diagnostic is carrying this case instead\ngot: %s", msg)
-	}
-	if !strings.Contains(msg, "openclaw config file") {
-		t.Errorf("error should name the failing subcommand\ngot: %s", msg)
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(msg, "openclaw config file"), func() { t.Errorf("error should name the failing subcommand\ngot: %s", msg) })
 }
 
 // TestWindowsOpenclawShimSilentFailureIsDiagnosed is Sol-Boy's must-fix 4: prove
@@ -138,21 +134,13 @@ func TestWindowsOpenclawShimSilentFailureIsDiagnosed(t *testing.T) {
 	t.Setenv("PATH", systemPath(t)) // no Node anywhere, and none co-located
 
 	_, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the silent shim to fail")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the silent shim to fail") })
 	msg := err.Error()
 	t.Logf("observed error: %s", msg)
-	if !strings.Contains(msg, "resolves neither alongside the shim nor on the daemon PATH") {
-		t.Fatalf("the shim diagnostic must carry a silent failure\ngot: %s", msg)
-	}
+	testassert.OnFailure(t, !strings.Contains(msg, "resolves neither alongside the shim nor on the daemon PATH"), func() { t.Fatalf("the shim diagnostic must carry a silent failure\ngot: %s", msg) })
 	// Redaction holds on the platform where the path is actually sensitive.
-	if strings.Contains(msg, dir) {
-		t.Errorf("diagnostic leaked the absolute shim path\ngot: %s", msg)
-	}
-	if !strings.Contains(msg, "openclaw.cmd") {
-		t.Errorf("diagnostic should name the shim's base name\ngot: %s", msg)
-	}
+	testassert.OnFailure(t, strings.Contains(msg, dir), func() { t.Errorf("diagnostic leaked the absolute shim path\ngot: %s", msg) })
+	testassert.OnFailure(t, !strings.Contains(msg, "openclaw.cmd"), func() { t.Errorf("diagnostic should name the shim's base name\ngot: %s", msg) })
 }
 
 // TestWindowsOpenclawShimColocatedNodeIsCredited covers must-fix 2 on the real
@@ -174,16 +162,10 @@ func TestWindowsOpenclawShimColocatedNodeIsCredited(t *testing.T) {
 	t.Setenv("PATH", systemPath(t)) // nothing Node-ish on PATH
 
 	_, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the silent shim to fail")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the silent shim to fail") })
 	msg := err.Error()
-	if !strings.Contains(msg, "alongside the shim") {
-		t.Errorf("diagnostic should credit the co-located interpreter\ngot: %s", msg)
-	}
-	if strings.Contains(msg, "resolves neither") {
-		t.Errorf("diagnostic must not claim Node is unreachable\ngot: %s", msg)
-	}
+	testassert.OnFailure(t, !strings.Contains(msg, "alongside the shim"), func() { t.Errorf("diagnostic should credit the co-located interpreter\ngot: %s", msg) })
+	testassert.OnFailure(t, strings.Contains(msg, "resolves neither"), func() { t.Errorf("diagnostic must not claim Node is unreachable\ngot: %s", msg) })
 }
 
 // TestWindowsOpenclawShimTimeoutIsNotMisdiagnosed is must-fix 1 on Windows: a
@@ -209,18 +191,14 @@ func TestWindowsOpenclawShimTimeoutIsNotMisdiagnosed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	_, err := execOpenclawCLI(ctx, shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the timed-out invocation to fail")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the timed-out invocation to fail") })
 	msg := err.Error()
 	t.Logf("observed error: %s", msg)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("errors.Is(err, context.DeadlineExceeded) must hold\ngot: %s", msg)
-	}
+	testassert.OnFailure(t, !errors.Is(err, context.DeadlineExceeded), func() { t.Errorf("errors.Is(err, context.DeadlineExceeded) must hold\ngot: %s", msg) })
 	for _, forbidden := range []string{"install Node.js", "resolves neither", "the interpreter is reachable"} {
-		if strings.Contains(msg, forbidden) {
+		testassert.OnFailure(t, strings.Contains(msg, forbidden), func() {
 			t.Errorf("timeout must not be diagnosed as an interpreter problem (found %q)\ngot: %s", forbidden, msg)
-		}
+		})
 	}
 }
 
@@ -234,12 +212,8 @@ func TestWindowsOpenclawShimSucceedsWithNodeOnPath(t *testing.T) {
 	t.Setenv("PATH", strings.Join([]string{dir, systemPath(t)}, string(os.PathListSeparator)))
 
 	out, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err != nil {
-		t.Fatalf("shim should succeed with node on PATH: %v", err)
-	}
-	if !strings.Contains(out, `C:\openclaw\config.json`) {
-		t.Fatalf("expected the entrypoint's stdout, got %q", out)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("shim should succeed with node on PATH: %v", err) })
+	testassert.OnFailure(t, !strings.Contains(out, `C:\openclaw\config.json`), func() { t.Fatalf("expected the entrypoint's stdout, got %q", out) })
 }
 
 // TestWindowsOpenclawShimSucceedsWithoutTempVars closes out the root cause
@@ -255,12 +229,8 @@ func TestWindowsOpenclawShimSucceedsWithoutTempVars(t *testing.T) {
 	t.Setenv("TMP", "")
 
 	out, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err != nil {
-		t.Fatalf("shim must not depend on TEMP/TMP: %v", err)
-	}
-	if !strings.Contains(out, `C:\openclaw\config.json`) {
-		t.Fatalf("expected the entrypoint's stdout, got %q", out)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("shim must not depend on TEMP/TMP: %v", err) })
+	testassert.OnFailure(t, !strings.Contains(out, `C:\openclaw\config.json`), func() { t.Fatalf("expected the entrypoint's stdout, got %q", out) })
 }
 
 // TestWindowsOpenclawShimInPathWithSpacesAndUnicode covers the install
@@ -279,12 +249,8 @@ func TestWindowsOpenclawShimInPathWithSpacesAndUnicode(t *testing.T) {
 			t.Setenv("PATH", strings.Join([]string{nodeRoot, systemPath(t)}, string(os.PathListSeparator)))
 
 			out, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-			if err != nil {
-				t.Fatalf("shim in %q should be invocable: %v", dir, err)
-			}
-			if !strings.Contains(out, `C:\openclaw\config.json`) {
-				t.Fatalf("expected the entrypoint's stdout, got %q", out)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("shim in %q should be invocable: %v", dir, err) })
+			testassert.OnFailure(t, !strings.Contains(out, `C:\openclaw\config.json`), func() { t.Fatalf("expected the entrypoint's stdout, got %q", out) })
 		})
 	}
 }

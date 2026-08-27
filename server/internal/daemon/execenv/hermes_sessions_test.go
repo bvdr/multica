@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestHermesSessionStorePathLayout pins the on-disk layout an operator (and
@@ -23,9 +25,7 @@ func TestHermesSessionStorePathLayout(t *testing.T) {
 	got := HermesSessionStorePath("", agent, filepath.Join(platformDefaultHermesHome(), "profiles", "research"),
 		TaskContextForEnv{AgentID: agent, IssueID: issue})
 	want := filepath.Join(home, ".multica", hermesSessionStoreRoot, agent, "research", issue)
-	if got != want {
-		t.Fatalf("store path = %q, want %q", got, want)
-	}
+	testassert.OnFailure(t, got != want, func() { t.Fatalf("store path = %q, want %q", got, want) })
 }
 
 // TestHermesSessionStorePathScoping covers which tasks get a shard at all, and
@@ -38,14 +38,10 @@ func TestHermesSessionStorePathScoping(t *testing.T) {
 	const agent = "agent-1"
 	issueA := HermesSessionStorePath("", agent, "", TaskContextForEnv{IssueID: "issue-a"})
 	issueB := HermesSessionStorePath("", agent, "", TaskContextForEnv{IssueID: "issue-b"})
-	if issueA == "" || issueA == issueB {
-		t.Fatalf("two issues must get distinct stores, got %q and %q", issueA, issueB)
-	}
+	testassert.OnFailure(t, issueA == "" || issueA == issueB, func() { t.Fatalf("two issues must get distinct stores, got %q and %q", issueA, issueB) })
 
 	chat := HermesSessionStorePath("", agent, "", TaskContextForEnv{ChatSessionID: "sess-1"})
-	if filepath.Base(chat) != "chat_sess-1" {
-		t.Fatalf("chat conversation segment = %q, want chat_sess-1", filepath.Base(chat))
-	}
+	testassert.OnFailure(t, filepath.Base(chat) != "chat_sess-1", func() { t.Fatalf("chat conversation segment = %q, want chat_sess-1", filepath.Base(chat)) })
 	// An issue task and a chat task can never collide even on equal ids.
 	if same := HermesSessionStorePath("", agent, "", TaskContextForEnv{IssueID: "sess-1"}); same == chat {
 		t.Fatalf("issue and chat conversations collided on %q", chat)
@@ -74,15 +70,9 @@ func TestPrepareHermesHomeSessionStorePersistsAcrossTasks(t *testing.T) {
 
 	firstTask := filepath.Join(t.TempDir(), "hermes-home")
 	sessions, err := prepareHermesHome(firstTask, sharedHome, false, skills, nil, "", store, testLogger())
-	if err != nil {
-		t.Fatalf("prepare first task: %v", err)
-	}
-	if !sessions.Mounted {
-		t.Fatal("first task reported the session store as not mounted")
-	}
-	if sessions.HistoryPresent {
-		t.Fatal("HistoryPresent = true on a conversation's first turn, want false")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare first task: %v", err) })
+	testassert.OnFailure(t, !sessions.Mounted, func() { t.Fatal("first task reported the session store as not mounted") })
+	testassert.OnFailure(t, sessions.HistoryPresent, func() { t.Fatal("HistoryPresent = true on a conversation's first turn, want false") })
 	// Hermes creates state.db lazily and writes the transcript into it.
 	mustWrite(t, filepath.Join(firstTask, "state.db"), "transcript")
 
@@ -91,22 +81,14 @@ func TestPrepareHermesHomeSessionStorePersistsAcrossTasks(t *testing.T) {
 		t.Fatalf("prepare second task: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(secondTask, "state.db"))
-	if err != nil {
-		t.Fatalf("second task lost the conversation transcript: %v", err)
-	}
-	if string(got) != "transcript" {
-		t.Fatalf("transcript = %q, want %q", got, "transcript")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("second task lost the conversation transcript: %v", err) })
+	testassert.OnFailure(t, string(got) != "transcript", func() { t.Fatalf("transcript = %q, want %q", got, "transcript") })
 
 	// It must be a link into the store, not a copy — a copy would take this
 	// turn's writes and throw them away with the task directory.
 	fi, err := os.Lstat(filepath.Join(secondTask, "state.db"))
-	if err != nil {
-		t.Fatalf("lstat state.db: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("state.db is not a link (mode %v)", fi.Mode())
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("lstat state.db: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink == 0, func() { t.Fatalf("state.db is not a link (mode %v)", fi.Mode()) })
 }
 
 // TestPrepareHermesHomeSessionStoreIsolatesConversations guards the property
@@ -146,20 +128,12 @@ func TestPrepareHermesHomeWithoutSessionStoreKeepsStateTaskLocal(t *testing.T) {
 	skills := []SkillContextForEnv{{Name: "deploy", Content: "# Deploy"}}
 
 	sessions, err := prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", "", testLogger())
-	if err != nil {
-		t.Fatalf("prepare: %v", err)
-	}
-	if sessions.Mounted {
-		t.Fatal("Mounted = true without a session store")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare: %v", err) })
+	testassert.OnFailure(t, sessions.Mounted, func() { t.Fatal("Mounted = true without a session store") })
 	mustWrite(t, filepath.Join(hermesHome, "state.db"), "transcript")
 	fi, err := os.Lstat(filepath.Join(hermesHome, "state.db"))
-	if err != nil {
-		t.Fatalf("lstat state.db: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Fatal("state.db is a link with no store to point at")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("lstat state.db: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Fatal("state.db is a link with no store to point at") })
 }
 
 // TestPrepareHermesHomeMigratesTaskLocalSessionDB covers the upgrade path: a
@@ -184,19 +158,11 @@ func TestPrepareHermesHomeMigratesTaskLocalSessionDB(t *testing.T) {
 		t.Fatalf("prepare with store: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(store, "state.db"))
-	if err != nil {
-		t.Fatalf("in-flight transcript was dropped: %v", err)
-	}
-	if string(got) != "transcript" {
-		t.Fatalf("migrated transcript = %q, want %q", got, "transcript")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("in-flight transcript was dropped: %v", err) })
+	testassert.OnFailure(t, string(got) != "transcript", func() { t.Fatalf("migrated transcript = %q, want %q", got, "transcript") })
 	wal, err := os.ReadFile(filepath.Join(store, "state.db-wal"))
-	if err != nil {
-		t.Fatalf("write-ahead log was dropped: %v", err)
-	}
-	if string(wal) != "uncheckpointed tail" {
-		t.Fatalf("migrated wal = %q, want %q", wal, "uncheckpointed tail")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("write-ahead log was dropped: %v", err) })
+	testassert.OnFailure(t, string(wal) != "uncheckpointed tail", func() { t.Fatalf("migrated wal = %q, want %q", wal, "uncheckpointed tail") })
 }
 
 // TestPrepareHermesHomeMigrationNeverOverwritesStore is the other half of the
@@ -221,12 +187,8 @@ func TestPrepareHermesHomeMigrationNeverOverwritesStore(t *testing.T) {
 		t.Fatalf("prepare with store: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(store, "state.db"))
-	if err != nil {
-		t.Fatalf("read store db: %v", err)
-	}
-	if string(got) != "the real transcript" {
-		t.Fatalf("store db = %q, want the pre-existing transcript", got)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read store db: %v", err) })
+	testassert.OnFailure(t, string(got) != "the real transcript", func() { t.Fatalf("store db = %q, want the pre-existing transcript", got) })
 }
 
 // TestPrepareHermesHomeSessionMountIsIdempotent covers Reuse: rebuilding the
@@ -249,12 +211,8 @@ func TestPrepareHermesHomeSessionMountIsIdempotent(t *testing.T) {
 	}
 
 	got, err := os.ReadFile(filepath.Join(store, "state.db"))
-	if err != nil {
-		t.Fatalf("reuse dropped the transcript: %v", err)
-	}
-	if string(got) != "transcript" {
-		t.Fatalf("transcript = %q, want %q", got, "transcript")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("reuse dropped the transcript: %v", err) })
+	testassert.OnFailure(t, string(got) != "transcript", func() { t.Fatalf("transcript = %q, want %q", got, "transcript") })
 }
 
 func TestPruneHermesSessionStores(t *testing.T) {
@@ -289,12 +247,8 @@ func TestPruneHermesSessionStores(t *testing.T) {
 	}
 
 	removed, freed := PruneHermesSessionStores("", 14*24*time.Hour, now, reserve, testLogger())
-	if removed != 1 {
-		t.Fatalf("removed = %d, want 1", removed)
-	}
-	if freed <= 0 {
-		t.Fatalf("bytesFreed = %d, want > 0", freed)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("removed = %d, want 1", removed) })
+	testassert.OnFailure(t, freed <= 0, func() { t.Fatalf("bytesFreed = %d, want > 0", freed) })
 	if _, err := os.Stat(idle); !os.IsNotExist(err) {
 		t.Fatalf("idle conversation survived the prune (err = %v)", err)
 	}
@@ -352,12 +306,8 @@ func TestPrepareHermesHomeLinkFailureKeepsTaskLocalDB(t *testing.T) {
 	})
 
 	sessions, err := prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", store, testLogger())
-	if err != nil {
-		t.Fatalf("prepare with unlinkable store: %v", err)
-	}
-	if sessions.Mounted || sessions.HistoryPresent {
-		t.Fatalf("mount = %+v, want both false when the link could not be created", sessions)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare with unlinkable store: %v", err) })
+	testassert.OnFailure(t, sessions.Mounted || sessions.HistoryPresent, func() { t.Fatalf("mount = %+v, want both false when the link could not be created", sessions) })
 
 	// The database — and its un-checkpointed tail — must still be here.
 	for name, want := range map[string]string{
@@ -365,12 +315,8 @@ func TestPrepareHermesHomeLinkFailureKeepsTaskLocalDB(t *testing.T) {
 		"state.db-wal": "uncheckpointed tail",
 	} {
 		got, err := os.ReadFile(filepath.Join(hermesHome, name))
-		if err != nil {
-			t.Fatalf("%s was destroyed by a failed mount: %v", name, err)
-		}
-		if string(got) != want {
-			t.Fatalf("%s = %q, want %q", name, got, want)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("%s was destroyed by a failed mount: %v", name, err) })
+		testassert.OnFailure(t, string(got) != want, func() { t.Fatalf("%s = %q, want %q", name, got, want) })
 	}
 	if entries, err := os.ReadDir(store); err != nil {
 		t.Fatalf("read store: %v", err)
@@ -382,16 +328,10 @@ func TestPrepareHermesHomeLinkFailureKeepsTaskLocalDB(t *testing.T) {
 	// database over — nothing was lost in between.
 	restore()
 	sessions, err = prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", store, testLogger())
-	if err != nil {
-		t.Fatalf("prepare after link support returns: %v", err)
-	}
-	if !sessions.Mounted || !sessions.HistoryPresent {
-		t.Fatalf("mount = %+v, want mounted with history after recovery", sessions)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare after link support returns: %v", err) })
+	testassert.OnFailure(t, !sessions.Mounted || !sessions.HistoryPresent, func() { t.Fatalf("mount = %+v, want mounted with history after recovery", sessions) })
 	got, err := os.ReadFile(filepath.Join(store, "state.db"))
-	if err != nil || string(got) != "transcript" {
-		t.Fatalf("store db = %q (err %v), want the preserved transcript", got, err)
-	}
+	testassert.OnFailure(t, err != nil || string(got) != "transcript", func() { t.Fatalf("store db = %q (err %v), want the preserved transcript", got, err) })
 }
 
 // TestPrepareHermesHomeMigrationIsAtomic covers a migration that dies between
@@ -424,9 +364,7 @@ func TestPrepareHermesHomeMigrationIsAtomic(t *testing.T) {
 	}
 
 	// Nothing published, nothing deleted.
-	if hermesStoreHasSessionDB(store) {
-		t.Fatal("store holds a database after a half-failed migration")
-	}
+	testassert.OnFailure(t, hermesStoreHasSessionDB(store), func() { t.Fatal("store holds a database after a half-failed migration") })
 	for _, name := range []string{"state.db", "state.db-wal"} {
 		if _, err := os.Stat(filepath.Join(hermesHome, name)); err != nil {
 			t.Fatalf("source %s was removed after a failed migration: %v", name, err)
@@ -442,12 +380,8 @@ func TestPrepareHermesHomeMigrationIsAtomic(t *testing.T) {
 		"state.db-wal": "uncheckpointed tail",
 	} {
 		got, err := os.ReadFile(filepath.Join(store, name))
-		if err != nil {
-			t.Fatalf("retry did not carry %s over: %v", name, err)
-		}
-		if string(got) != want {
-			t.Fatalf("%s = %q, want %q", name, got, want)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("retry did not carry %s over: %v", name, err) })
+		testassert.OnFailure(t, string(got) != want, func() { t.Fatalf("%s = %q, want %q", name, got, want) })
 	}
 }
 
@@ -470,12 +404,8 @@ func TestPrepareHermesHomeMountedEmptyStoreReportsNoHistory(t *testing.T) {
 	mustWrite(t, filepath.Join(hermesHome, "state.db"), "transcript")
 
 	sessions, err := prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", store, testLogger())
-	if err != nil {
-		t.Fatalf("prepare second turn: %v", err)
-	}
-	if !sessions.HistoryPresent {
-		t.Fatal("HistoryPresent = false with a written transcript, want true")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare second turn: %v", err) })
+	testassert.OnFailure(t, !sessions.HistoryPresent, func() { t.Fatal("HistoryPresent = false with a written transcript, want true") })
 
 	// The GC reclaims the store between turns; the overlay's link survives and
 	// now dangles.
@@ -483,27 +413,19 @@ func TestPrepareHermesHomeMountedEmptyStoreReportsNoHistory(t *testing.T) {
 		t.Fatalf("simulate gc reclaim: %v", err)
 	}
 	sessions, err = prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", store, testLogger())
-	if err != nil {
-		t.Fatalf("prepare after gc reclaim: %v", err)
-	}
-	if !sessions.Mounted {
-		t.Fatal("Mounted = false after the store was recreated, want true")
-	}
-	if sessions.HistoryPresent {
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare after gc reclaim: %v", err) })
+	testassert.OnFailure(t, !sessions.Mounted, func() { t.Fatal("Mounted = false after the store was recreated, want true") })
+	testassert.OnFailure(t, sessions.HistoryPresent, func() {
 		t.Fatal("HistoryPresent = true over a reclaimed store — a dead session id would be forwarded")
-	}
+	})
 
 	// An empty file is the other shape of nothing: SQLite leaves one behind for
 	// an open that never wrote a page, and resuming against it is the same
 	// amnesia as resuming against an absent one.
 	mustWrite(t, filepath.Join(store, "state.db"), "")
 	sessions, err = prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", store, testLogger())
-	if err != nil {
-		t.Fatalf("prepare with an empty db: %v", err)
-	}
-	if sessions.HistoryPresent {
-		t.Fatal("HistoryPresent = true for a zero-length database, want false")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare with an empty db: %v", err) })
+	testassert.OnFailure(t, sessions.HistoryPresent, func() { t.Fatal("HistoryPresent = true for a zero-length database, want false") })
 }
 
 // TestPrepareHermesHomeMigrationIntoSemanticallyEmptyStore covers the store
@@ -572,40 +494,26 @@ func TestPrepareHermesHomeMigrationIntoSemanticallyEmptyStore(t *testing.T) {
 
 			sessions, err := prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", store, testLogger())
 			if err != nil {
-				if !tt.wantFailClosed {
-					t.Fatalf("prepare: %v", err)
-				}
+				testassert.OnFailure(t, !tt.wantFailClosed, func() { t.Fatalf("prepare: %v", err) })
 				// Failing closed is only acceptable with the source intact.
 				for _, name := range []string{"state.db", "state.db-wal"} {
 					got, statErr := os.ReadFile(filepath.Join(hermesHome, name))
-					if statErr != nil {
-						t.Fatalf("prepare failed (%v) AND dropped the source %s: %v", err, name, statErr)
-					}
-					if len(got) == 0 {
-						t.Fatalf("source %s was emptied by a failed migration", name)
-					}
+					testassert.OnFailure(t, statErr != nil, func() { t.Fatalf("prepare failed (%v) AND dropped the source %s: %v", err, name, statErr) })
+					testassert.OnFailure(t, len(got) == 0, func() { t.Fatalf("source %s was emptied by a failed migration", name) })
 				}
 				return
 			}
-			if tt.wantFailClosed {
-				t.Fatal("prepare succeeded on a store it cannot safely publish into, want an error")
-			}
-			if !sessions.Mounted || !sessions.HistoryPresent {
-				t.Fatalf("mount = %+v, want mounted with history", sessions)
-			}
+			testassert.OnFailure(t, tt.wantFailClosed, func() { t.Fatal("prepare succeeded on a store it cannot safely publish into, want an error") })
+			testassert.OnFailure(t, !sessions.Mounted || !sessions.HistoryPresent, func() { t.Fatalf("mount = %+v, want mounted with history", sessions) })
 
 			got, err := os.ReadFile(filepath.Join(store, "state.db"))
-			if err != nil {
-				t.Fatalf("read store db: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read store db: %v", err) })
 			if tt.wantMoved {
-				if string(got) != "transcript" {
+				testassert.OnFailure(t, string(got) != "transcript", func() {
 					t.Fatalf("store db = %q, want the migrated transcript — the source was dropped for an empty store", got)
-				}
+				})
 				wal, err := os.ReadFile(filepath.Join(store, "state.db-wal"))
-				if err != nil || string(wal) != "uncheckpointed tail" {
-					t.Fatalf("store wal = %q (err %v), want the migrated tail", wal, err)
-				}
+				testassert.OnFailure(t, err != nil || string(wal) != "uncheckpointed tail", func() { t.Fatalf("store wal = %q (err %v), want the migrated tail", wal, err) })
 			} else if string(got) != "the winner's transcript" {
 				t.Fatalf("store db = %q, want the pre-existing transcript left untouched", got)
 			}
@@ -629,9 +537,7 @@ func TestHermesSessionStorePublishSerializesCompetitors(t *testing.T) {
 
 	mkStaging := func(label string) string {
 		staging, err := newHermesStoreStaging(store)
-		if err != nil {
-			t.Fatalf("staging for %s: %v", label, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("staging for %s: %v", label, err) })
 		mustWrite(t, filepath.Join(staging, "state.db"), label+" transcript")
 		mustWrite(t, filepath.Join(staging, "state.db-wal"), label+" tail")
 		return staging
@@ -671,14 +577,12 @@ func TestHermesSessionStorePublishSerializesCompetitors(t *testing.T) {
 		byLabel[r.label] = r
 	}
 	for _, r := range byLabel {
-		if r.err != nil {
-			t.Fatalf("publish %s: %v", r.label, r.err)
-		}
+		testassert.OnFailure(t, r.err != nil, func() { t.Fatalf("publish %s: %v", r.label, r.err) })
 	}
-	if !byLabel["first"].promoted || byLabel["second"].promoted {
+	testassert.OnFailure(t, !byLabel["first"].promoted || byLabel["second"].promoted, func() {
 		t.Fatalf("promoted = first:%v second:%v, want the parked first publisher to win and the second to positively lose",
 			byLabel["first"].promoted, byLabel["second"].promoted)
-	}
+	})
 
 	// The loser never reached the destructive window: its occupancy check
 	// already saw the winner's published database.
@@ -694,9 +598,7 @@ func TestHermesSessionStorePublishSerializesCompetitors(t *testing.T) {
 		"state.db-wal": "first tail",
 	} {
 		got, err := os.ReadFile(filepath.Join(store, name))
-		if err != nil || string(got) != want {
-			t.Fatalf("store %s = %q (err %v), want the winner's %q untouched", name, got, err, want)
-		}
+		testassert.OnFailure(t, err != nil || string(got) != want, func() { t.Fatalf("store %s = %q (err %v), want the winner's %q untouched", name, got, err, want) })
 	}
 	// The loser's staging was not consumed, so its caller still holds a
 	// complete copy of the source it will now yield with.
@@ -760,12 +662,8 @@ func TestPrepareHermesHomeStoreCleanupHandlesUnexpectedEntryTypes(t *testing.T) 
 		mustWrite(t, filepath.Join(hermesHome, "state.db"), "transcript")
 
 		sessions, err := prepareHermesHome(hermesHome, sharedHome, false, skills, nil, "", store, testLogger())
-		if err != nil {
-			t.Fatalf("prepare: %v", err)
-		}
-		if !sessions.Mounted || !sessions.HistoryPresent {
-			t.Fatalf("mount = %+v, want mounted with history", sessions)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepare: %v", err) })
+		testassert.OnFailure(t, !sessions.Mounted || !sessions.HistoryPresent, func() { t.Fatalf("mount = %+v, want mounted with history", sessions) })
 		if got, err := os.ReadFile(filepath.Join(store, "state.db")); err != nil || string(got) != "transcript" {
 			t.Fatalf("store db = %q (err %v), want the migrated transcript", got, err)
 		}

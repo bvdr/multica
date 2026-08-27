@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestIsOpenclawShimPath locks the shim-detection surface. Case-insensitivity
@@ -67,9 +69,7 @@ func exitError(t *testing.T) error {
 	}
 	err := cmd.Run()
 	var exitErr *exec.ExitError
-	if !errors.As(err, &exitErr) {
-		t.Fatalf("expected *exec.ExitError, got %T (%v)", err, err)
-	}
+	testassert.OnFailure(t, !errors.As(err, &exitErr), func() { t.Fatalf("expected *exec.ExitError, got %T (%v)", err, err) })
 	return err
 }
 
@@ -112,18 +112,14 @@ func TestOpenclawShimDiagnosticNamesUnreachableInterpreter(t *testing.T) {
 	pathWithout(t)
 	shim := filepath.Join(t.TempDir(), "openclaw.cmd")
 	got := openclawShimDiagnostic(shim, exitError(t))
-	if got == "" {
-		t.Fatal("expected a diagnostic for a silent .cmd shim failure, got none")
-	}
+	testassert.OnFailure(t, got == "", func() { t.Fatal("expected a diagnostic for a silent .cmd shim failure, got none") })
 	for _, want := range []string{
 		"resolves neither alongside the shim nor on the daemon PATH",
 		openclawShimInterpreter,
 		"openclaw.cmd",
 		"install Node.js",
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("diagnostic missing %q\ngot: %s", want, got)
-		}
+		testassert.OnFailure(t, !strings.Contains(got, want), func() { t.Errorf("diagnostic missing %q\ngot: %s", want, got) })
 	}
 }
 
@@ -146,15 +142,9 @@ func TestOpenclawShimDiagnosticFindsColocatedInterpreter(t *testing.T) {
 	writeFakeInterpreter(t, dir, name)
 
 	got := openclawShimDiagnostic(shim, exitError(t))
-	if got == "" {
-		t.Fatal("expected a diagnostic, got none")
-	}
-	if !strings.Contains(got, "alongside the shim") {
-		t.Errorf("diagnostic should credit the co-located interpreter\ngot: %s", got)
-	}
-	if strings.Contains(got, "resolves neither") {
-		t.Errorf("diagnostic must not claim the interpreter is unreachable\ngot: %s", got)
-	}
+	testassert.OnFailure(t, got == "", func() { t.Fatal("expected a diagnostic, got none") })
+	testassert.OnFailure(t, !strings.Contains(got, "alongside the shim"), func() { t.Errorf("diagnostic should credit the co-located interpreter\ngot: %s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "resolves neither"), func() { t.Errorf("diagnostic must not claim the interpreter is unreachable\ngot: %s", got) })
 }
 
 // TestOpenclawShimDiagnosticReportsInterpreterOnPath guards the other
@@ -166,15 +156,9 @@ func TestOpenclawShimDiagnosticReportsInterpreterOnPath(t *testing.T) {
 	pathWithFakeNode(t)
 	shim := filepath.Join(t.TempDir(), "openclaw.cmd")
 	got := openclawShimDiagnostic(shim, exitError(t))
-	if got == "" {
-		t.Fatal("expected a diagnostic, got none")
-	}
-	if !strings.Contains(got, "on the daemon PATH") || !strings.Contains(got, "the interpreter is reachable") {
-		t.Errorf("diagnostic should clear PATH of blame\ngot: %s", got)
-	}
-	if strings.Contains(got, "resolves neither") {
-		t.Errorf("diagnostic must not claim the interpreter is unreachable\ngot: %s", got)
-	}
+	testassert.OnFailure(t, got == "", func() { t.Fatal("expected a diagnostic, got none") })
+	testassert.OnFailure(t, !strings.Contains(got, "on the daemon PATH") || !strings.Contains(got, "the interpreter is reachable"), func() { t.Errorf("diagnostic should clear PATH of blame\ngot: %s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "resolves neither"), func() { t.Errorf("diagnostic must not claim the interpreter is unreachable\ngot: %s", got) })
 }
 
 // TestOpenclawShimDiagnosticIsPhrasedConditionally is the rest of must-fix 2. A
@@ -185,12 +169,8 @@ func TestOpenclawShimDiagnosticIsPhrasedConditionally(t *testing.T) {
 	pathWithout(t)
 	shim := filepath.Join(t.TempDir(), "custom-wrapper.cmd")
 	got := openclawShimDiagnostic(shim, exitError(t))
-	if got == "" {
-		t.Fatal("expected a diagnostic, got none")
-	}
-	if !strings.Contains(got, "if custom-wrapper.cmd is an npm-generated shim") {
-		t.Errorf("diagnostic should be conditional about npm authorship\ngot: %s", got)
-	}
+	testassert.OnFailure(t, got == "", func() { t.Fatal("expected a diagnostic, got none") })
+	testassert.OnFailure(t, !strings.Contains(got, "if custom-wrapper.cmd is an npm-generated shim"), func() { t.Errorf("diagnostic should be conditional about npm authorship\ngot: %s", got) })
 }
 
 // TestOpenclawShimDiagnosticRedactsLocalPaths is Sol-Boy's must-fix 3, and the
@@ -216,20 +196,12 @@ func TestOpenclawShimDiagnosticRedactsLocalPaths(t *testing.T) {
 	t.Setenv("PATH", pathDir)
 
 	got := openclawShimDiagnostic(shim, exitError(t))
-	if got == "" {
-		t.Fatal("expected a diagnostic, got none")
-	}
+	testassert.OnFailure(t, got == "", func() { t.Fatal("expected a diagnostic, got none") })
 	for _, leak := range []string{secretDir, shim, pathDir, interpreter, "a-real-person", "another-private-location"} {
-		if strings.Contains(got, leak) {
-			t.Errorf("diagnostic leaked local path detail %q\ngot: %s", leak, got)
-		}
+		testassert.OnFailure(t, strings.Contains(got, leak), func() { t.Errorf("diagnostic leaked local path detail %q\ngot: %s", leak, got) })
 	}
-	if !strings.Contains(got, "openclaw.cmd") {
-		t.Errorf("diagnostic should still name the shim's base name\ngot: %s", got)
-	}
-	if !strings.Contains(got, "1 entry") {
-		t.Errorf("diagnostic should summarise PATH as a count\ngot: %s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "openclaw.cmd"), func() { t.Errorf("diagnostic should still name the shim's base name\ngot: %s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, "1 entry"), func() { t.Errorf("diagnostic should summarise PATH as a count\ngot: %s", got) })
 }
 
 // TestOpenclawShimDiagnosticStaysSilentOutOfScope pins the no-op cases. A
@@ -298,16 +270,10 @@ func TestExecOpenclawCLIAnnotatesSilentShimFailure(t *testing.T) {
 	pathWithout(t)
 
 	_, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the shim failure to surface as an error")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the shim failure to surface as an error") })
 	msg := err.Error()
-	if !strings.Contains(msg, "openclaw config file") {
-		t.Errorf("error should name the failing subcommand\ngot: %s", msg)
-	}
-	if !strings.Contains(msg, "resolves neither alongside the shim nor on the daemon PATH") {
-		t.Errorf("error should carry the shim diagnostic\ngot: %s", msg)
-	}
+	testassert.OnFailure(t, !strings.Contains(msg, "openclaw config file"), func() { t.Errorf("error should name the failing subcommand\ngot: %s", msg) })
+	testassert.OnFailure(t, !strings.Contains(msg, "resolves neither alongside the shim nor on the daemon PATH"), func() { t.Errorf("error should carry the shim diagnostic\ngot: %s", msg) })
 }
 
 // TestExecOpenclawCLITimeoutIsNotMisdiagnosedAsMissingInterpreter is Sol-Boy's
@@ -347,21 +313,17 @@ func TestExecOpenclawCLITimeoutIsNotMisdiagnosedAsMissingInterpreter(t *testing.
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	_, err = execOpenclawCLI(ctx, shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the timed-out invocation to fail")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the timed-out invocation to fail") })
 	msg := err.Error()
 	t.Logf("timeout error: %s", msg)
 
 	// The nit from round 2: the context error must be the wrapped cause, so
 	// standard cancellation checks work instead of only string matching.
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("errors.Is(err, context.DeadlineExceeded) must hold\ngot: %s", msg)
-	}
+	testassert.OnFailure(t, !errors.Is(err, context.DeadlineExceeded), func() { t.Errorf("errors.Is(err, context.DeadlineExceeded) must hold\ngot: %s", msg) })
 	for _, forbidden := range []string{"install Node.js", "resolves neither", "the interpreter is reachable"} {
-		if strings.Contains(msg, forbidden) {
+		testassert.OnFailure(t, strings.Contains(msg, forbidden), func() {
 			t.Errorf("timeout must not be diagnosed as an interpreter problem (found %q)\ngot: %s", forbidden, msg)
-		}
+		})
 	}
 }
 
@@ -386,12 +348,8 @@ func TestExecOpenclawCLICancellationIsWrapped(t *testing.T) {
 	defer cancel()
 
 	_, err = execOpenclawCLI(ctx, shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the cancelled invocation to fail")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("errors.Is(err, context.Canceled) must hold\ngot: %s", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the cancelled invocation to fail") })
+	testassert.OnFailure(t, !errors.Is(err, context.Canceled), func() { t.Errorf("errors.Is(err, context.Canceled) must hold\ngot: %s", err) })
 }
 
 // TestExecOpenclawCLIPrefersRealStderr guarantees the diagnostic never masks a
@@ -407,16 +365,10 @@ func TestExecOpenclawCLIPrefersRealStderr(t *testing.T) {
 	pathWithout(t)
 
 	_, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the shim failure to surface as an error")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the shim failure to surface as an error") })
 	msg := err.Error()
-	if !strings.Contains(msg, "openclaw doctor says hello") {
-		t.Errorf("real stderr must be preserved\ngot: %s", msg)
-	}
-	if strings.Contains(msg, "no stderr output") {
-		t.Errorf("diagnostic must not fire when stderr is present\ngot: %s", msg)
-	}
+	testassert.OnFailure(t, !strings.Contains(msg, "openclaw doctor says hello"), func() { t.Errorf("real stderr must be preserved\ngot: %s", msg) })
+	testassert.OnFailure(t, strings.Contains(msg, "no stderr output"), func() { t.Errorf("diagnostic must not fire when stderr is present\ngot: %s", msg) })
 }
 
 // TestExecOpenclawCLIPreservesFailedStdoutWithoutLeakingIt covers the process
@@ -432,15 +384,9 @@ func TestExecOpenclawCLIPreservesFailedStdoutWithoutLeakingIt(t *testing.T) {
 	)
 
 	out, err := execOpenclawCLI(context.Background(), shim, "config", "get", "agents.list", "--json")
-	if err == nil {
-		t.Fatalf("expected the shim failure to surface as an error, got output %q", out)
-	}
-	if !strings.Contains(out, marker) {
-		t.Fatalf("failed stdout was discarded; got %q", out)
-	}
-	if strings.Contains(err.Error(), marker) {
-		t.Fatalf("failed stdout leaked into the error text: %s", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatalf("expected the shim failure to surface as an error, got output %q", out) })
+	testassert.OnFailure(t, !strings.Contains(out, marker), func() { t.Fatalf("failed stdout was discarded; got %q", out) })
+	testassert.OnFailure(t, strings.Contains(err.Error(), marker), func() { t.Fatalf("failed stdout leaked into the error text: %s", err) })
 }
 
 // TestExecOpenclawCLIMissingTempDoesNotChangeOutcome pins the root cause #6061
@@ -458,12 +404,8 @@ func TestExecOpenclawCLIMissingTempDoesNotChangeOutcome(t *testing.T) {
 	t.Setenv("TMP", "")
 
 	out, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-	if err != nil {
-		t.Fatalf("invocation must not depend on TEMP/TMP: %v", err)
-	}
-	if strings.TrimSpace(out) == "" {
-		t.Fatal("expected the shim's stdout to be returned")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("invocation must not depend on TEMP/TMP: %v", err) })
+	testassert.OnFailure(t, strings.TrimSpace(out) == "", func() { t.Fatal("expected the shim's stdout to be returned") })
 }
 
 // TestExecOpenclawCLIHandlesShimInPathWithSpacesAndUnicode covers the install
@@ -479,12 +421,8 @@ func TestExecOpenclawCLIHandlesShimInPathWithSpacesAndUnicode(t *testing.T) {
 			}
 			shim := writeShim(t, dir, "#!/bin/sh\necho 'ok-marker'\n", "@echo off\r\necho ok-marker\r\n")
 			out, err := execOpenclawCLI(context.Background(), shim, "config", "file")
-			if err != nil {
-				t.Fatalf("shim in %q should be invocable: %v", dir, err)
-			}
-			if !strings.Contains(out, "ok-marker") {
-				t.Fatalf("expected shim stdout to survive intact, got %q", out)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("shim in %q should be invocable: %v", dir, err) })
+			testassert.OnFailure(t, !strings.Contains(out, "ok-marker"), func() { t.Fatalf("expected shim stdout to survive intact, got %q", out) })
 		})
 	}
 }

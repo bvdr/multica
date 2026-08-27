@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // walkRelative returns every relative path inside root (files and directories),
@@ -38,9 +40,7 @@ func walkRelative(t *testing.T, root string) []string {
 		entries = append(entries, rel)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("walk %s: %v", root, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("walk %s: %v", root, err) })
 	sort.Strings(entries)
 	return entries
 }
@@ -76,17 +76,15 @@ func snapshot(t *testing.T, root string) workdirSnapshot {
 		snap.files[rel] = string(data)
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("walk-for-content %s: %v", root, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("walk-for-content %s: %v", root, err) })
 	return snap
 }
 
 func assertSnapshotEqual(t *testing.T, label string, want, got workdirSnapshot) {
 	t.Helper()
-	if !reflect.DeepEqual(want.entries, got.entries) {
+	testassert.OnFailure(t, !reflect.DeepEqual(want.entries, got.entries), func() {
 		t.Errorf("[%s] directory listing differs\n want: %v\n  got: %v", label, want.entries, got.entries)
-	}
+	})
 	if !reflect.DeepEqual(want.files, got.files) {
 		// Find a small diff first so the failure is actionable.
 		for k, wv := range want.files {
@@ -95,9 +93,7 @@ func assertSnapshotEqual(t *testing.T, label string, want, got workdirSnapshot) 
 				t.Errorf("[%s] missing file %s after round-trip", label, k)
 				continue
 			}
-			if wv != gv {
-				t.Errorf("[%s] file %s differs\n want: %q\n  got: %q", label, k, wv, gv)
-			}
+			testassert.OnFailure(t, wv != gv, func() { t.Errorf("[%s] file %s differs\n want: %q\n  got: %q", label, k, wv, gv) })
 		}
 		for k := range got.files {
 			if _, ok := want.files[k]; !ok {
@@ -278,12 +274,8 @@ func TestPrepareThenCleanupSidecarsPreservesUserSkillSibling(t *testing.T) {
 			// Defensive: independently re-read the user skill to make
 			// sure no clever cleanup heuristic stripped its content.
 			got, err := os.ReadFile(filepath.Join(userDir, tc.userSkillFile))
-			if err != nil {
-				t.Fatalf("user skill went missing after round-trip: %v", err)
-			}
-			if string(got) != userBody {
-				t.Errorf("user skill content changed\n want: %q\n  got: %q", userBody, string(got))
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("user skill went missing after round-trip: %v", err) })
+			testassert.OnFailure(t, string(got) != userBody, func() { t.Errorf("user skill content changed\n want: %q\n  got: %q", userBody, string(got)) })
 		})
 	}
 }
@@ -471,12 +463,8 @@ func TestCleanupSidecarsLeavesUserContentInTrackedDirIntact(t *testing.T) {
 	// .multica still holds user-notes.txt, so rmdir must have been
 	// skipped silently — the directory must survive.
 	got, err := os.ReadFile(userFile)
-	if err != nil {
-		t.Fatalf("user file went missing: %v", err)
-	}
-	if string(got) != "hello" {
-		t.Errorf("user file content changed: %q", string(got))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("user file went missing: %v", err) })
+	testassert.OnFailure(t, string(got) != "hello", func() { t.Errorf("user file content changed: %q", string(got)) })
 }
 
 // TestCleanupSidecarsDoesNotRemovePreExistingDirs is the directed unit
@@ -501,9 +489,9 @@ func TestCleanupSidecarsDoesNotRemovePreExistingDirs(t *testing.T) {
 		t.Fatalf("recordMkdirAll: %v", err)
 	}
 	for _, d := range manifest.Dirs {
-		if d == userDir {
+		testassert.OnFailure(t, d == userDir, func() {
 			t.Fatalf("manifest must not record pre-existing user dir %s\nfull dirs: %v", userDir, manifest.Dirs)
-		}
+		})
 	}
 
 	if err := writeSidecarManifest(envRoot, manifest); err != nil {
@@ -537,23 +525,19 @@ func TestRecordWriteFileRefusesToOverwritePreExistingFile(t *testing.T) {
 
 	m := &sidecarManifest{}
 	err := recordWriteFile(target, []byte("ours"), 0o644, m)
-	if !errors.Is(err, errPathPreExists) {
+	testassert.OnFailure(t, !errors.Is(err, errPathPreExists), func() {
 		t.Fatalf("recordWriteFile must return errPathPreExists for a pre-existing target, got: %v", err)
-	}
+	})
 	for _, f := range m.Files {
-		if f == target {
-			t.Errorf("manifest must not record pre-existing user file %s", target)
-		}
+		testassert.OnFailure(t, f == target, func() { t.Errorf("manifest must not record pre-existing user file %s", target) })
 	}
 	// User bytes must survive the refused write — the whole point of
 	// the new behaviour is that pre-existing paths are NEVER mutated.
 	got, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if string(got) != "user bytes" {
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
+	testassert.OnFailure(t, string(got) != "user bytes", func() {
 		t.Errorf("user bytes must survive refused write\n want: %q\n  got: %q", "user bytes", string(got))
-	}
+	})
 }
 
 // TestRecordWriteFileRefusesToOverwriteSymlinkOrDir is the directed
@@ -602,13 +586,9 @@ func TestSidecarManifestRoundTripJSON(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(envRoot, sidecarManifestFile))
-	if err != nil {
-		t.Fatalf("read: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read: %v", err) })
 	for _, want := range []string{"files", "dirs", "issue_context.md", ".agent_context"} {
-		if !strings.Contains(string(raw), want) {
-			t.Errorf("manifest JSON missing %q\n got: %s", want, string(raw))
-		}
+		testassert.OnFailure(t, !strings.Contains(string(raw), want), func() { t.Errorf("manifest JSON missing %q\n got: %s", want, string(raw)) })
 	}
 }
 
@@ -704,19 +684,11 @@ func TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider(t *testing.T) {
 			// Defensive double-check: read the user's files
 			// directly to make sure their content survived.
 			gotBody, err := os.ReadFile(userSkillFile)
-			if err != nil {
-				t.Fatalf("user SKILL.md went missing: %v", err)
-			}
-			if string(gotBody) != userBody {
-				t.Errorf("user SKILL.md mutated\n want: %q\n  got: %q", userBody, string(gotBody))
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("user SKILL.md went missing: %v", err) })
+			testassert.OnFailure(t, string(gotBody) != userBody, func() { t.Errorf("user SKILL.md mutated\n want: %q\n  got: %q", userBody, string(gotBody)) })
 			gotExtra, err := os.ReadFile(userExtra)
-			if err != nil {
-				t.Fatalf("user extra file went missing: %v", err)
-			}
-			if string(gotExtra) != "private notes" {
-				t.Errorf("user extra file mutated\n want: %q\n  got: %q", "private notes", string(gotExtra))
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("user extra file went missing: %v", err) })
+			testassert.OnFailure(t, string(gotExtra) != "private notes", func() { t.Errorf("user extra file mutated\n want: %q\n  got: %q", "private notes", string(gotExtra)) })
 		})
 	}
 }
@@ -758,12 +730,8 @@ func TestPrepareThenCleanupSidecarsIssueContextCollisionPerProvider(t *testing.T
 			assertSnapshotEqual(t, provider, before, after)
 
 			got, err := os.ReadFile(userPath)
-			if err != nil {
-				t.Fatalf("user issue_context.md went missing: %v", err)
-			}
-			if string(got) != userBody {
-				t.Errorf("user issue_context.md mutated\n want: %q\n  got: %q", userBody, string(got))
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("user issue_context.md went missing: %v", err) })
+			testassert.OnFailure(t, string(got) != userBody, func() { t.Errorf("user issue_context.md mutated\n want: %q\n  got: %q", userBody, string(got)) })
 		})
 	}
 }
@@ -811,12 +779,8 @@ func TestPrepareThenCleanupSidecarsProjectResourcesCollisionPerProvider(t *testi
 			assertSnapshotEqual(t, provider, before, after)
 
 			got, err := os.ReadFile(userPath)
-			if err != nil {
-				t.Fatalf("user resources.json went missing: %v", err)
-			}
-			if string(got) != userBody {
-				t.Errorf("user resources.json mutated\n want: %q\n  got: %q", userBody, string(got))
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("user resources.json went missing: %v", err) })
+			testassert.OnFailure(t, string(got) != userBody, func() { t.Errorf("user resources.json mutated\n want: %q\n  got: %q", userBody, string(got)) })
 		})
 	}
 }
@@ -833,45 +797,27 @@ func TestAllocateCollisionFreeSkillDir(t *testing.T) {
 
 	// 1) No collision → use the base slug as-is.
 	slug, dir, err := allocateCollisionFreeSkillDir(parent, "issue-review")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if slug != "issue-review" {
-		t.Errorf("first allocation should use base slug; got %q", slug)
-	}
-	if dir != filepath.Join(parent, "issue-review") {
-		t.Errorf("first allocation path = %q, want under parent", dir)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("unexpected error: %v", err) })
+	testassert.OnFailure(t, slug != "issue-review", func() { t.Errorf("first allocation should use base slug; got %q", slug) })
+	testassert.OnFailure(t, dir != filepath.Join(parent, "issue-review"), func() { t.Errorf("first allocation path = %q, want under parent", dir) })
 
 	// 2) Pre-existing user dir at the base slug → bump to `-multica`.
 	if err := os.MkdirAll(filepath.Join(parent, "issue-review"), 0o755); err != nil {
 		t.Fatalf("seed user dir: %v", err)
 	}
 	slug, dir, err = allocateCollisionFreeSkillDir(parent, "issue-review")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if slug != "issue-review-multica" {
-		t.Errorf("second allocation should bump to `-multica`; got %q", slug)
-	}
-	if dir != filepath.Join(parent, "issue-review-multica") {
-		t.Errorf("second allocation path = %q, want under parent", dir)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("unexpected error: %v", err) })
+	testassert.OnFailure(t, slug != "issue-review-multica", func() { t.Errorf("second allocation should bump to `-multica`; got %q", slug) })
+	testassert.OnFailure(t, dir != filepath.Join(parent, "issue-review-multica"), func() { t.Errorf("second allocation path = %q, want under parent", dir) })
 
 	// 3) Pre-existing collision at the bumped slug too → bump again.
 	if err := os.MkdirAll(filepath.Join(parent, "issue-review-multica"), 0o755); err != nil {
 		t.Fatalf("seed bumped dir: %v", err)
 	}
 	slug, dir, err = allocateCollisionFreeSkillDir(parent, "issue-review")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if slug != "issue-review-multica-2" {
-		t.Errorf("third allocation should be `-multica-2`; got %q", slug)
-	}
-	if dir != filepath.Join(parent, "issue-review-multica-2") {
-		t.Errorf("third allocation path = %q, want under parent", dir)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("unexpected error: %v", err) })
+	testassert.OnFailure(t, slug != "issue-review-multica-2", func() { t.Errorf("third allocation should be `-multica-2`; got %q", slug) })
+	testassert.OnFailure(t, dir != filepath.Join(parent, "issue-review-multica-2"), func() { t.Errorf("third allocation path = %q, want under parent", dir) })
 }
 
 // TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation is
@@ -913,12 +859,8 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 		t.Errorf("Multica sibling skill should exist at %s: %v", multicaDir, err)
 	}
 	got, err := os.ReadFile(userFile)
-	if err != nil {
-		t.Fatalf("user SKILL.md went missing during inject: %v", err)
-	}
-	if string(got) != userBody {
-		t.Errorf("user SKILL.md mutated during inject\n want: %q\n  got: %q", userBody, string(got))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("user SKILL.md went missing during inject: %v", err) })
+	testassert.OnFailure(t, string(got) != userBody, func() { t.Errorf("user SKILL.md mutated during inject\n want: %q\n  got: %q", userBody, string(got)) })
 
 	// Now persist manifest + run cleanup. After cleanup the
 	// Multica sibling is gone; user's path survives.
@@ -932,12 +874,8 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 		t.Errorf("Multica sibling should be removed by Cleanup; stat err=%v", err)
 	}
 	got, err = os.ReadFile(userFile)
-	if err != nil {
-		t.Fatalf("user SKILL.md went missing after cleanup: %v", err)
-	}
-	if string(got) != userBody {
-		t.Errorf("user SKILL.md mutated after cleanup\n want: %q\n  got: %q", userBody, string(got))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("user SKILL.md went missing after cleanup: %v", err) })
+	testassert.OnFailure(t, string(got) != userBody, func() { t.Errorf("user SKILL.md mutated after cleanup\n want: %q\n  got: %q", userBody, string(got)) })
 }
 
 // TestCleanupSidecarsSwallowsMissingAndNonEmptyDirs pins the two
@@ -979,12 +917,8 @@ func TestCleanupSidecarsSwallowsMissingAndNonEmptyDirs(t *testing.T) {
 		t.Errorf("CleanupSidecars(non-empty dir) should swallow ENOTEMPTY silently, got: %v", err)
 	}
 	got, err := os.ReadFile(userFile)
-	if err != nil {
-		t.Fatalf("user content went missing: %v", err)
-	}
-	if string(got) != "user content" {
-		t.Errorf("user content mutated: %q", string(got))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("user content went missing: %v", err) })
+	testassert.OnFailure(t, string(got) != "user content", func() { t.Errorf("user content mutated: %q", string(got)) })
 }
 
 // TestCleanupSidecarsSurfacesEACCESOnEmptyRecordedDir is the directed
@@ -1026,15 +960,9 @@ func TestCleanupSidecarsSurfacesEACCESOnEmptyRecordedDir(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
 
 	err := CleanupSidecars(envRoot)
-	if err == nil {
-		t.Fatal("CleanupSidecars should surface the EACCES rmdir error, got nil")
-	}
-	if !strings.Contains(err.Error(), "empty-dir") {
-		t.Errorf("expected surfaced error to reference recorded path, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "rmdir") {
-		t.Errorf("expected surfaced error to come from rmdir branch, got: %v", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("CleanupSidecars should surface the EACCES rmdir error, got nil") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "empty-dir"), func() { t.Errorf("expected surfaced error to reference recorded path, got: %v", err) })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "rmdir"), func() { t.Errorf("expected surfaced error to come from rmdir branch, got: %v", err) })
 }
 
 // TestCleanupSidecarsSurfacesEACCESWhenReadDirFailsToo is the matching
@@ -1082,15 +1010,13 @@ func TestCleanupSidecarsSurfacesEACCESWhenReadDirFailsToo(t *testing.T) {
 	})
 
 	err := CleanupSidecars(envRoot)
-	if err == nil {
+	testassert.OnFailure(t, err == nil, func() {
 		t.Fatal("CleanupSidecars should surface the rmdir error even when ReadDir also fails, got nil")
-	}
-	if !strings.Contains(err.Error(), "locked-dir") {
-		t.Errorf("expected surfaced error to reference recorded path, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "rmdir") {
+	})
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "locked-dir"), func() { t.Errorf("expected surfaced error to reference recorded path, got: %v", err) })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "rmdir"), func() {
 		t.Errorf("expected surfaced error to be the ORIGINAL rmdir error, not the ReadDir failure, got: %v", err)
-	}
+	})
 }
 
 // TestDirHasEntries is the directed unit test for the helper Cleanup

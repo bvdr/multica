@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // setReasonixGOOS pins the platform the resolver targets so the Windows and
@@ -77,9 +79,7 @@ func TestReasonixUserConfigPathExpandsOverride(t *testing.T) {
 	home := t.TempDir()
 	root := t.TempDir()
 	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("getwd: %v", err) })
 
 	for _, tc := range []struct {
 		name     string

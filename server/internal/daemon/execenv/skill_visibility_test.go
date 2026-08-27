@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 func TestSkillModelInvocationVisibility(t *testing.T) {
@@ -78,9 +80,7 @@ body`,
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			got := skillModelInvocationVisible(SkillContextForEnv{Content: tc.content})
-			if got != tc.want {
-				t.Errorf("skillModelInvocationVisible = %v, want %v", got, tc.want)
-			}
+			testassert.OnFailure(t, got != tc.want, func() { t.Errorf("skillModelInvocationVisible = %v, want %v", got, tc.want) })
 		})
 	}
 }
@@ -126,15 +126,9 @@ Hidden body.`,
 	} {
 		out := buildMetaSkillContent("codex", kind)
 		// Listings carry the on-disk slug, not the display name (MUL-5529).
-		if !strings.Contains(out, "visible-skill") {
-			t.Errorf("brief missing visible skill:\n%s", out)
-		}
-		if strings.Contains(out, "Visible Skill") {
-			t.Errorf("brief lists the display name instead of the slug:\n%s", out)
-		}
-		if strings.Contains(out, "hidden-skill") || strings.Contains(out, "hidden description") {
-			t.Errorf("brief advertised disable-model-invocation skill:\n%s", out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, "visible-skill"), func() { t.Errorf("brief missing visible skill:\n%s", out) })
+		testassert.OnFailure(t, strings.Contains(out, "Visible Skill"), func() { t.Errorf("brief lists the display name instead of the slug:\n%s", out) })
+		testassert.OnFailure(t, strings.Contains(out, "hidden-skill") || strings.Contains(out, "hidden description"), func() { t.Errorf("brief advertised disable-model-invocation skill:\n%s", out) })
 	}
 
 	// issue_context.md and its quick-create / autopilot variants no longer
@@ -144,9 +138,7 @@ Hidden body.`,
 		"quick create":  renderQuickCreateContext(TaskContextForEnv{QuickCreatePrompt: ctx.QuickCreatePrompt, AgentSkills: ctx.AgentSkills}),
 		"autopilot":     renderAutopilotContext(TaskContextForEnv{AutopilotRunID: ctx.AutopilotRunID, AgentSkills: ctx.AgentSkills}),
 	} {
-		if strings.Contains(out, "## Agent Skills") || strings.Contains(out, "visible-skill") {
-			t.Errorf("%s still renders a skill list:\n%s", name, out)
-		}
+		testassert.OnFailure(t, strings.Contains(out, "## Agent Skills") || strings.Contains(out, "visible-skill"), func() { t.Errorf("%s still renders a skill list:\n%s", name, out) })
 	}
 }
 
@@ -175,9 +167,7 @@ func TestSkillListingNamesMatchDirectoriesOnBatchSlugCollision(t *testing.T) {
 
 	onDisk := map[string]struct{}{}
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("read skills dir: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read skills dir: %v", err) })
 	for _, e := range entries {
 		onDisk[e.Name()] = struct{}{}
 		if _, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err != nil {
@@ -193,9 +183,7 @@ func TestSkillListingNamesMatchDirectoriesOnBatchSlugCollision(t *testing.T) {
 		listed[s.Name] = struct{}{}
 	}
 
-	if len(listed) != len(skills) {
-		t.Errorf("listed %d distinct names for %d skills: %v", len(listed), len(skills), listed)
-	}
+	testassert.OnFailure(t, len(listed) != len(skills), func() { t.Errorf("listed %d distinct names for %d skills: %v", len(listed), len(skills), listed) })
 	for name := range listed {
 		if _, ok := onDisk[name]; !ok {
 			t.Errorf("listing advertises %q but no such directory exists; on disk: %v", name, onDisk)
@@ -225,14 +213,10 @@ func TestBatchSlugAllocationCountsHiddenSkills(t *testing.T) {
 	}
 
 	visible := modelVisibleSkills(skills)
-	if len(visible) != 1 {
-		t.Fatalf("expected 1 visible skill, got %d", len(visible))
-	}
+	testassert.OnFailure(t, len(visible) != 1, func() { t.Fatalf("expected 1 visible skill, got %d", len(visible)) })
 	// The hidden skill took `a-b`, so the visible one must be listed — and
 	// written — as `a-b-multica`.
-	if visible[0].Name != "a-b-multica" {
-		t.Errorf("visible skill listed as %q, want %q", visible[0].Name, "a-b-multica")
-	}
+	testassert.OnFailure(t, visible[0].Name != "a-b-multica", func() { t.Errorf("visible skill listed as %q, want %q", visible[0].Name, "a-b-multica") })
 	if _, err := os.Stat(filepath.Join(dir, "a-b-multica", "SKILL.md")); err != nil {
 		t.Errorf("listed name has no matching directory: %v", err)
 	}
@@ -257,14 +241,14 @@ Hidden body.`,
 	}
 
 	runtimeConfig := buildMetaSkillContent("codex", ctx)
-	if strings.Contains(runtimeConfig, "## Skills") {
+	testassert.OnFailure(t, strings.Contains(runtimeConfig, "## Skills"), func() {
 		t.Errorf("runtime config should omit Skills section when every skill disables model invocation:\n%s", runtimeConfig)
-	}
+	})
 
 	issueContext := renderIssueContext("codex", ctx)
-	if strings.Contains(issueContext, "## Agent Skills") {
+	testassert.OnFailure(t, strings.Contains(issueContext, "## Agent Skills"), func() {
 		t.Errorf("issue context should omit Agent Skills section when every skill disables model invocation:\n%s", issueContext)
-	}
+	})
 }
 
 func TestWriteContextFilesHydratesDisableModelInvocationSkillButDoesNotAdvertiseIt(t *testing.T) {
@@ -299,18 +283,10 @@ Hidden body.`,
 	}
 
 	issueContext, err := os.ReadFile(filepath.Join(dir, ".agent_context", "issue_context.md"))
-	if err != nil {
-		t.Fatalf("read issue_context.md: %v", err)
-	}
-	if strings.Contains(string(issueContext), "Hidden Skill") {
-		t.Fatalf("issue_context.md advertised hidden skill:\n%s", string(issueContext))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read issue_context.md: %v", err) })
+	testassert.OnFailure(t, strings.Contains(string(issueContext), "Hidden Skill"), func() { t.Fatalf("issue_context.md advertised hidden skill:\n%s", string(issueContext)) })
 
 	hiddenSkill, err := os.ReadFile(filepath.Join(dir, ".agent_context", "skills", "hidden-skill", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("disabled skill should still be hydrated on disk: %v", err)
-	}
-	if !strings.Contains(string(hiddenSkill), "disable-model-invocation: true") {
-		t.Errorf("hidden skill frontmatter should be preserved on disk:\n%s", string(hiddenSkill))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("disabled skill should still be hydrated on disk: %v", err) })
+	testassert.OnFailure(t, !strings.Contains(string(hiddenSkill), "disable-model-invocation: true"), func() { t.Errorf("hidden skill frontmatter should be preserved on disk:\n%s", string(hiddenSkill)) })
 }

@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestHermesMemoryProfileSegment covers the store segment derived from a
@@ -31,22 +33,14 @@ func TestHermesMemoryProfileSegment(t *testing.T) {
 	// Same profile name under a different root must not share a memory line.
 	root := t.TempDir()
 	foreign := hermesMemoryProfileSegment(filepath.Join(root, "profiles", "research"))
-	if foreign == "research" {
-		t.Fatalf("foreign-root profile collided with the native one on %q", foreign)
-	}
-	if !strings.HasPrefix(foreign, "research_") {
-		t.Fatalf("foreign-root profile segment = %q, want a research_<hash> form", foreign)
-	}
+	testassert.OnFailure(t, foreign == "research", func() { t.Fatalf("foreign-root profile collided with the native one on %q", foreign) })
+	testassert.OnFailure(t, !strings.HasPrefix(foreign, "research_"), func() { t.Fatalf("foreign-root profile segment = %q, want a research_<hash> form", foreign) })
 
 	custom := hermesMemoryProfileSegment(filepath.Join(root, "custom-home"))
-	if !strings.HasPrefix(custom, "h_") {
-		t.Fatalf("custom home segment = %q, want an h_ hash", custom)
-	}
+	testassert.OnFailure(t, !strings.HasPrefix(custom, "h_"), func() { t.Fatalf("custom home segment = %q, want an h_ hash", custom) })
 	// Same basename in a different location must not collide.
 	other := hermesMemoryProfileSegment(filepath.Join(root, "nested", "custom-home"))
-	if custom == other {
-		t.Fatalf("distinct custom homes collided on %q", custom)
-	}
+	testassert.OnFailure(t, custom == other, func() { t.Fatalf("distinct custom homes collided on %q", custom) })
 }
 
 // TestHermesMemoryStorePathLayout pins the on-disk layout the documented
@@ -59,9 +53,7 @@ func TestHermesMemoryStorePathLayout(t *testing.T) {
 	agent := "11111111-2222-3333-4444-555555555555"
 	got := HermesMemoryStorePath("", agent, filepath.Join(platformDefaultHermesHome(), "profiles", "research"))
 	want := filepath.Join(home, ".multica", hermesMemoryStoreRoot, agent, "research")
-	if got != want {
-		t.Fatalf("store path = %q, want %q", got, want)
-	}
+	testassert.OnFailure(t, got != want, func() { t.Fatalf("store path = %q, want %q", got, want) })
 }
 
 // TestHermesMemoryStorePathDisabled covers the task without an agent to key the
@@ -98,22 +90,14 @@ func TestPrepareHermesHomeMemoryStorePersistsAcrossTasks(t *testing.T) {
 		t.Fatalf("prepare second task: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(secondTask, "memories", "MEMORY.md"))
-	if err != nil {
-		t.Fatalf("second task lost the agent's memory: %v", err)
-	}
-	if string(got) != "prefers tabs" {
-		t.Fatalf("memory content = %q, want %q", got, "prefers tabs")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("second task lost the agent's memory: %v", err) })
+	testassert.OnFailure(t, string(got) != "prefers tabs", func() { t.Fatalf("memory content = %q, want %q", got, "prefers tabs") })
 
 	// The link must point at the store, not hold a copy — otherwise the next
 	// task's writes would diverge from it.
 	fi, err := os.Lstat(filepath.Join(secondTask, "memories"))
-	if err != nil {
-		t.Fatalf("lstat memories: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("memories is not a link (mode %v)", fi.Mode())
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("lstat memories: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink == 0, func() { t.Fatalf("memories is not a link (mode %v)", fi.Mode()) })
 }
 
 // TestPrepareHermesHomeMemoryStoreIsolatesAgents guards the isolation promise
@@ -152,15 +136,9 @@ func TestPrepareHermesHomeWithoutStore(t *testing.T) {
 		t.Fatalf("prepare: %v", err)
 	}
 	fi, err := os.Lstat(filepath.Join(hermesHome, "memories"))
-	if err != nil {
-		t.Fatalf("lstat memories: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Fatalf("memories should be a real dir without a store, got a link")
-	}
-	if !fi.IsDir() {
-		t.Fatalf("memories is not a directory (mode %v)", fi.Mode())
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("lstat memories: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Fatalf("memories should be a real dir without a store, got a link") })
+	testassert.OnFailure(t, !fi.IsDir(), func() { t.Fatalf("memories is not a directory (mode %v)", fi.Mode()) })
 }
 
 // TestPrepareHermesHomeWithoutStoreDetachesExistingStoreLink is the regression
@@ -188,12 +166,8 @@ func TestPrepareHermesHomeWithoutStoreDetachesExistingStoreLink(t *testing.T) {
 	}
 
 	fi, err := os.Lstat(filepath.Join(hermesHome, "memories"))
-	if err != nil {
-		t.Fatalf("lstat memories: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Fatalf("the store link is still in place; the task still writes to the persistent store")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("lstat memories: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Fatalf("the store link is still in place; the task still writes to the persistent store") })
 	if _, err := os.Stat(filepath.Join(hermesHome, "memories", "MEMORY.md")); !os.IsNotExist(err) {
 		t.Fatalf("a task without a store should get an empty memories dir (err = %v)", err)
 	}
@@ -250,9 +224,9 @@ func TestMigrateHermesTaskMemoriesFailureKeepsSource(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(blocked, 0o700) })
 
 	err := migrateHermesTaskMemories(taskDir, storeDir, testLogger())
-	if err == nil {
+	testassert.OnFailure(t, err == nil, func() {
 		t.Fatalf("migration reported success despite an unreadable entry; the caller would delete the source")
-	}
+	})
 
 	// Source intact.
 	for _, name := range []string{"MEMORY.md", "USER.md"} {
@@ -263,12 +237,8 @@ func TestMigrateHermesTaskMemoriesFailureKeepsSource(t *testing.T) {
 	// Store rolled back — a half-populated store would read as accumulated
 	// memory on the next run and block the retry.
 	left, readErr := os.ReadDir(storeDir)
-	if readErr != nil {
-		t.Fatalf("read store: %v", readErr)
-	}
-	if len(left) != 0 {
-		t.Fatalf("failed migration left %d entries in the store, want 0", len(left))
-	}
+	testassert.OnFailure(t, readErr != nil, func() { t.Fatalf("read store: %v", readErr) })
+	testassert.OnFailure(t, len(left) != 0, func() { t.Fatalf("failed migration left %d entries in the store, want 0", len(left)) })
 }
 
 // TestMountHermesMemoriesUnreadableStoreKeepsSource covers the entry-point I/O
@@ -366,22 +336,14 @@ func TestMigrateHermesTaskMemoriesConcurrentFirstWriterWins(t *testing.T) {
 	wg.Wait()
 
 	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("concurrent migration %d failed: %v", i, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("concurrent migration %d failed: %v", i, err) })
 	}
 
 	memory, err := os.ReadFile(filepath.Join(storeDir, "MEMORY.md"))
-	if err != nil {
-		t.Fatalf("store is missing MEMORY.md after concurrent migration: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("store is missing MEMORY.md after concurrent migration: %v", err) })
 	user, err := os.ReadFile(filepath.Join(storeDir, "USER.md"))
-	if err != nil {
-		t.Fatalf("store is missing USER.md after concurrent migration: %v", err)
-	}
-	if string(memory) != string(user) {
-		t.Fatalf("store interleaved two tasks: MEMORY.md=%q USER.md=%q", memory, user)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("store is missing USER.md after concurrent migration: %v", err) })
+	testassert.OnFailure(t, string(memory) != string(user), func() { t.Fatalf("store interleaved two tasks: MEMORY.md=%q USER.md=%q", memory, user) })
 
 	// Every source survives: a task that lost the race must not have had its
 	// directory reported as migrated.
@@ -392,12 +354,8 @@ func TestMigrateHermesTaskMemoriesConcurrentFirstWriterWins(t *testing.T) {
 	}
 	// No staging directories left behind next to the store.
 	siblings, err := os.ReadDir(filepath.Dir(storeDir))
-	if err != nil {
-		t.Fatalf("read store parent: %v", err)
-	}
-	if len(siblings) != 1 {
-		t.Fatalf("expected only the store next to itself, got %d entries", len(siblings))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read store parent: %v", err) })
+	testassert.OnFailure(t, len(siblings) != 1, func() { t.Fatalf("expected only the store next to itself, got %d entries", len(siblings)) })
 }
 
 // TestPromoteHermesMemoryStagingClassifiesRemoveFailures covers the publish
@@ -417,16 +375,10 @@ func TestPromoteHermesMemoryStagingClassifiesRemoveFailures(t *testing.T) {
 		mustWrite(t, filepath.Join(staging, "MEMORY.md"), "loser")
 
 		promoted, err := promoteHermesStoreStaging(staging, storeDir, hermesStorePopulated)
-		if err != nil {
-			t.Fatalf("a populated store should be a lost race, not an error: %v", err)
-		}
-		if promoted {
-			t.Fatalf("promote clobbered a store another task had published")
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("a populated store should be a lost race, not an error: %v", err) })
+		testassert.OnFailure(t, promoted, func() { t.Fatalf("promote clobbered a store another task had published") })
 		got, readErr := os.ReadFile(filepath.Join(storeDir, "MEMORY.md"))
-		if readErr != nil || string(got) != "winner" {
-			t.Fatalf("winner's store was modified: content=%q err=%v", got, readErr)
-		}
+		testassert.OnFailure(t, readErr != nil || string(got) != "winner", func() { t.Fatalf("winner's store was modified: content=%q err=%v", got, readErr) })
 	})
 
 	// An empty store that cannot be removed is an I/O failure, not a race.
@@ -449,12 +401,8 @@ func TestPromoteHermesMemoryStagingClassifiesRemoveFailures(t *testing.T) {
 		t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
 
 		promoted, err := promoteHermesStoreStaging(staging, storeDir, hermesStorePopulated)
-		if promoted {
-			t.Fatalf("promote reported success against an unremovable store")
-		}
-		if err == nil {
-			t.Fatalf("a permission error was reported as a lost race; the caller would delete the source")
-		}
+		testassert.OnFailure(t, promoted, func() { t.Fatalf("promote reported success against an unremovable store") })
+		testassert.OnFailure(t, err == nil, func() { t.Fatalf("a permission error was reported as a lost race; the caller would delete the source") })
 	})
 }
 
@@ -502,12 +450,8 @@ func TestPrepareHermesHomeMigratesTaskLocalMemories(t *testing.T) {
 		t.Fatalf("prepare with store: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(store, "MEMORY.md"))
-	if err != nil {
-		t.Fatalf("task-local memory was not migrated into the store: %v", err)
-	}
-	if string(got) != "carried over" {
-		t.Fatalf("migrated content = %q, want %q", got, "carried over")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("task-local memory was not migrated into the store: %v", err) })
+	testassert.OnFailure(t, string(got) != "carried over", func() { t.Fatalf("migrated content = %q, want %q", got, "carried over") })
 }
 
 // TestPrepareHermesHomeMigrationKeepsExistingStore is the other half of the
@@ -531,12 +475,8 @@ func TestPrepareHermesHomeMigrationKeepsExistingStore(t *testing.T) {
 		t.Fatalf("prepare with store: %v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(store, "MEMORY.md"))
-	if err != nil {
-		t.Fatalf("read store memory: %v", err)
-	}
-	if string(got) != "authoritative agent memory" {
-		t.Fatalf("store memory was overwritten by the task-local copy: %q", got)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read store memory: %v", err) })
+	testassert.OnFailure(t, string(got) != "authoritative agent memory", func() { t.Fatalf("store memory was overwritten by the task-local copy: %q", got) })
 }
 
 // TestPruneHermesMemoryStores covers the GC contract: stores idle past retention
@@ -574,12 +514,8 @@ func TestPruneHermesMemoryStores(t *testing.T) {
 	}
 
 	removed, freed := PruneHermesMemoryStores("", 14*24*time.Hour, now, reserve, testLogger())
-	if removed != 1 {
-		t.Fatalf("removed = %d, want 1", removed)
-	}
-	if freed <= 0 {
-		t.Fatalf("bytesFreed = %d, want > 0", freed)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("removed = %d, want 1", removed) })
+	testassert.OnFailure(t, freed <= 0, func() { t.Fatalf("bytesFreed = %d, want > 0", freed) })
 	if _, err := os.Stat(idle); !os.IsNotExist(err) {
 		t.Fatalf("idle store survived the prune (err = %v)", err)
 	}

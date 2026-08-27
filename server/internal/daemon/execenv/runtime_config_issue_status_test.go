@@ -3,6 +3,8 @@ package execenv
 import (
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // legacyStatusLine is the pre-MUL-6460 status bullet. Workspaces without
@@ -19,12 +21,8 @@ func TestBriefStatusCatalogAbsentKeepsLegacyLine(t *testing.T) {
 	t.Parallel()
 	base := TaskContextForEnv{IssueID: "issue-1", AgentID: "a-1", AgentName: "Eve"}
 	out := buildMetaSkillContent("claude", base)
-	if !strings.Contains(out, legacyStatusLine) {
-		t.Fatalf("brief without a catalog must keep the legacy status line\n---\n%s", out)
-	}
-	if strings.Contains(out, catalogBridgeBullet) {
-		t.Errorf("brief without a catalog must not carry the catalog bridge bullet")
-	}
+	testassert.OnFailure(t, !strings.Contains(out, legacyStatusLine), func() { t.Fatalf("brief without a catalog must keep the legacy status line\n---\n%s", out) })
+	testassert.OnFailure(t, strings.Contains(out, catalogBridgeBullet), func() { t.Errorf("brief without a catalog must not carry the catalog bridge bullet") })
 
 	withEmpty := base
 	withEmpty.IssueStatuses = []IssueStatusForEnv{}
@@ -44,9 +42,7 @@ func TestBriefStatusCatalogRendered(t *testing.T) {
 		},
 	}
 	out := buildMetaSkillContent("claude", ctx)
-	if strings.Contains(out, legacyStatusLine) {
-		t.Errorf("catalog brief must replace the legacy seven-value enumeration")
-	}
+	testassert.OnFailure(t, strings.Contains(out, legacyStatusLine), func() { t.Errorf("catalog brief must replace the legacy seven-value enumeration") })
 	for _, want := range []string{
 		"- `multica issue status <id> <status> [--no-start]` — flip status. This workspace's statuses by category — a custom status inherits its category's platform behavior in full:\n",
 		"  - `backlog`: `backlog` (built-in), `later` (Later — Deferred on purpose)\n",
@@ -55,13 +51,9 @@ func TestBriefStatusCatalogRendered(t *testing.T) {
 		"  - Built-in key only: `in_progress`, `done`, `blocked`, `cancelled`.\n",
 		catalogBridgeBullet,
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("catalog brief missing %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("catalog brief missing %q\n---\n%s", want, out) })
 	}
-	if strings.Contains(out, "more custom statuses not listed") {
-		t.Errorf("no truncation disclosure may appear when nothing was omitted")
-	}
+	testassert.OnFailure(t, strings.Contains(out, "more custom statuses not listed"), func() { t.Errorf("no truncation disclosure may appear when nothing was omitted") })
 }
 
 // TestBriefStatusCatalogSanitizesAndDiscloses pins the two safety properties:
@@ -84,11 +76,7 @@ func TestBriefStatusCatalogSanitizesAndDiscloses(t *testing.T) {
 		"  - Built-in key only: `backlog`, `todo`, `in_progress`, `done`, `blocked`, `cancelled`.\n",
 		"  - …and 4 more custom statuses not listed; an invalid status errors with the full valid list.\n",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("catalog brief missing %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("catalog brief missing %q\n---\n%s", want, out) })
 	}
-	if strings.Contains(out, "Evil") || strings.Contains(out, "bad key") {
-		t.Errorf("entry with an invalid key must be dropped entirely\n---\n%s", out)
-	}
+	testassert.OnFailure(t, strings.Contains(out, "Evil") || strings.Contains(out, "bad key"), func() { t.Errorf("entry with an invalid key must be dropped entirely\n---\n%s", out) })
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // slowestMeasuredOpenclawCall is the worst `openclaw config file` timing
@@ -25,16 +27,16 @@ const slowestMeasuredOpenclawCall = 10860 * time.Millisecond
 // there. Anything that lowers this default back under the measured range
 // re-breaks that host.
 func TestOpenclawCLIDefaultTimeoutCoversMeasuredSlowHosts(t *testing.T) {
-	if openclawCLITimeout <= slowestMeasuredOpenclawCall {
+	testassert.OnFailure(t, openclawCLITimeout <= slowestMeasuredOpenclawCall, func() {
 		t.Errorf("default openclaw CLI timeout %v must exceed the slowest measured call %v (#7112)",
 			openclawCLITimeout, slowestMeasuredOpenclawCall)
-	}
+	})
 	// Headroom, not a bare pass: a host at the measured worst case should not
 	// sit one scheduling hiccup away from failing again.
-	if openclawCLITimeout < 2*slowestMeasuredOpenclawCall {
+	testassert.OnFailure(t, openclawCLITimeout < 2*slowestMeasuredOpenclawCall, func() {
 		t.Errorf("default openclaw CLI timeout %v leaves less than 2x headroom over %v",
 			openclawCLITimeout, slowestMeasuredOpenclawCall)
-	}
+	})
 }
 
 func TestResolveOpenclawCLITimeout(t *testing.T) {
@@ -96,18 +98,10 @@ func TestExecOpenclawCLITimeoutIsTypedSentinel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	_, err = execOpenclawCLI(ctx, shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the timed-out invocation to fail")
-	}
-	if !errors.Is(err, ErrOpenclawCLITimeout) {
-		t.Errorf("errors.Is(err, ErrOpenclawCLITimeout) must hold\ngot: %s", err)
-	}
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("errors.Is(err, context.DeadlineExceeded) must keep holding\ngot: %s", err)
-	}
-	if !errors.Is(err, ErrOpenclawCLITimeout) || errors.Is(errors.New("openclaw config file: boom"), ErrOpenclawCLITimeout) {
-		t.Errorf("the sentinel must not match unrelated CLI failures")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the timed-out invocation to fail") })
+	testassert.OnFailure(t, !errors.Is(err, ErrOpenclawCLITimeout), func() { t.Errorf("errors.Is(err, ErrOpenclawCLITimeout) must hold\ngot: %s", err) })
+	testassert.OnFailure(t, !errors.Is(err, context.DeadlineExceeded), func() { t.Errorf("errors.Is(err, context.DeadlineExceeded) must keep holding\ngot: %s", err) })
+	testassert.OnFailure(t, !errors.Is(err, ErrOpenclawCLITimeout) || errors.Is(errors.New("openclaw config file: boom"), ErrOpenclawCLITimeout), func() { t.Errorf("the sentinel must not match unrelated CLI failures") })
 }
 
 // TestPrepareOpenclawConfigPropagatesTimeoutSentinel proves the sentinel
@@ -123,12 +117,8 @@ func TestPrepareOpenclawConfigPropagatesTimeoutSentinel(t *testing.T) {
 
 	envRoot := t.TempDir()
 	_, err := prepareOpenclawConfig(envRoot, envRoot, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err == nil {
-		t.Fatal("expected preparation to fail on a CLI timeout")
-	}
-	if !errors.Is(err, ErrOpenclawCLITimeout) {
-		t.Errorf("wrapped preparation error must keep the sentinel\ngot: %s", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected preparation to fail on a CLI timeout") })
+	testassert.OnFailure(t, !errors.Is(err, ErrOpenclawCLITimeout), func() { t.Errorf("wrapped preparation error must keep the sentinel\ngot: %s", err) })
 }
 
 // TestExecOpenclawCLICancellationIsNotATimeout keeps the sentinel honest. A
@@ -152,15 +142,9 @@ func TestExecOpenclawCLICancellationIsNotATimeout(t *testing.T) {
 	}()
 	defer cancel()
 	_, err = execOpenclawCLI(ctx, shim, "config", "file")
-	if err == nil {
-		t.Fatal("expected the cancelled invocation to fail")
-	}
-	if errors.Is(err, ErrOpenclawCLITimeout) {
-		t.Errorf("cancellation must not be reported as a CLI timeout\ngot: %s", err)
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Errorf("cancellation must keep the wrapped context cause\ngot: %s", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected the cancelled invocation to fail") })
+	testassert.OnFailure(t, errors.Is(err, ErrOpenclawCLITimeout), func() { t.Errorf("cancellation must not be reported as a CLI timeout\ngot: %s", err) })
+	testassert.OnFailure(t, !errors.Is(err, context.Canceled), func() { t.Errorf("cancellation must keep the wrapped context cause\ngot: %s", err) })
 }
 
 // TestOpenclawCLIMaxTimeoutFitsPreparationBudget is the arithmetic the
@@ -179,13 +163,13 @@ func TestOpenclawCLIMaxTimeoutFitsPreparationBudget(t *testing.T) {
 	const nonOpenclawPrepareSlack = time.Minute
 
 	worst := openclawMaxCLICallsPerPreparation * openclawCLIMaxTimeout
-	if worst+nonOpenclawPrepareSlack > taskPrepareBudget {
+	testassert.OnFailure(t, worst+nonOpenclawPrepareSlack > taskPrepareBudget, func() {
 		t.Errorf("worst-case openclaw discovery %v (%d calls x %v) leaves less than %v under the %v preparation budget",
 			worst, openclawMaxCLICallsPerPreparation, openclawCLIMaxTimeout, nonOpenclawPrepareSlack, taskPrepareBudget)
-	}
-	if openclawCLITimeout > openclawCLIMaxTimeout {
+	})
+	testassert.OnFailure(t, openclawCLITimeout > openclawCLIMaxTimeout, func() {
 		t.Errorf("default %v exceeds the override ceiling %v", openclawCLITimeout, openclawCLIMaxTimeout)
-	}
+	})
 }
 
 // TestPrepareOpenclawConfigWorstCaseCLICallCount pins the multiplier the

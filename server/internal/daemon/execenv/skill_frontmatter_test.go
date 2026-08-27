@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,14 +14,10 @@ import (
 // text between the leading `---` and the next `---`, and yaml.Unmarshal it.
 func parseFrontmatter(t *testing.T, content string) map[string]any {
 	t.Helper()
-	if !strings.HasPrefix(content, "---\n") {
-		t.Fatalf("content does not start with a frontmatter block:\n%s", content)
-	}
+	testassert.OnFailure(t, !strings.HasPrefix(content, "---\n"), func() { t.Fatalf("content does not start with a frontmatter block:\n%s", content) })
 	rest := content[len("---\n"):]
 	end := strings.Index(rest, "\n---")
-	if end < 0 {
-		t.Fatalf("frontmatter has no closing delimiter:\n%s", content)
-	}
+	testassert.OnFailure(t, end < 0, func() { t.Fatalf("frontmatter has no closing delimiter:\n%s", content) })
 	var m map[string]any
 	if err := yaml.Unmarshal([]byte(rest[:end]), &m); err != nil {
 		t.Fatalf("frontmatter is not valid YAML: %v\nblock:\n%s", err, rest[:end])
@@ -60,9 +57,7 @@ func TestEnsureSkillFrontmatterReSynthesizesInvalidYAML(t *testing.T) {
 			// the issue: the second `: ` makes YAML treat the tail as a
 			// nested mapping.
 			broken := "---\n" + tc.nameLine + "\ndescription: bad: value here\n---\n\n" + body
-			if isFrontmatterValidYAML(broken) {
-				t.Fatalf("fixture parses; it no longer exercises the malformed branch:\n%s", broken)
-			}
+			testassert.OnFailure(t, isFrontmatterValidYAML(broken), func() { t.Fatalf("fixture parses; it no longer exercises the malformed branch:\n%s", broken) })
 
 			got := ensureSkillFrontmatter(broken, "my-slug", "DB description: with a colon")
 
@@ -75,9 +70,7 @@ func TestEnsureSkillFrontmatterReSynthesizesInvalidYAML(t *testing.T) {
 			if desc, _ := fm["description"].(string); desc != "DB description: with a colon" {
 				t.Errorf("description = %#v, want the DB description verbatim\noutput:\n%s", fm["description"], got)
 			}
-			if !strings.Contains(got, "Real skill body.") {
-				t.Errorf("body was dropped during re-synthesis:\n%s", got)
-			}
+			testassert.OnFailure(t, !strings.Contains(got, "Real skill body."), func() { t.Errorf("body was dropped during re-synthesis:\n%s", got) })
 		})
 	}
 }
@@ -99,9 +92,7 @@ func TestEnsureSkillFrontmatterReSynthesizesInvalidYAMLWithEmptyDescription(t *t
 	if _, present := fm["description"]; present {
 		t.Errorf("description should be omitted when DB description is empty, got %#v", fm["description"])
 	}
-	if !strings.Contains(got, "body text") {
-		t.Errorf("body was dropped during re-synthesis:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "body text"), func() { t.Errorf("body was dropped during re-synthesis:\n%s", got) })
 }
 
 // Valid frontmatter survives re-synthesis: every key keeps its upstream
@@ -204,9 +195,7 @@ func TestEnsureSkillFrontmatterReplacesMultiLineNameValues(t *testing.T) {
 			if desc, _ := fm["description"].(string); desc != "kept" {
 				t.Errorf("description = %#v, want %q\noutput:\n%s", fm["description"], "kept", got)
 			}
-			if !strings.Contains(got, "body") {
-				t.Errorf("body was dropped:\n%s", got)
-			}
+			testassert.OnFailure(t, !strings.Contains(got, "body"), func() { t.Errorf("body was dropped:\n%s", got) })
 		})
 	}
 }
@@ -235,9 +224,9 @@ func TestEnsureSkillFrontmatterKeepsPolicyKeysWhenSurgicalRewriteFails(t *testin
 	if name, _ := fm["name"].(string); name != "my-slug" {
 		t.Errorf("name = %#v, want %q\noutput:\n%s", fm["name"], "my-slug", got)
 	}
-	if fm["disable-model-invocation"] != true {
+	testassert.OnFailure(t, fm["disable-model-invocation"] != true, func() {
 		t.Errorf("disable-model-invocation was dropped (%#v); the written skill would be exposed to native discovery\noutput:\n%s", fm["disable-model-invocation"], got)
-	}
+	})
 	if custom, _ := fm["custom-key"].(string); custom != "kept" {
 		t.Errorf("custom-key = %#v, want %q\noutput:\n%s", fm["custom-key"], "kept", got)
 	}
@@ -250,12 +239,8 @@ func TestEnsureSkillFrontmatterKeepsPolicyKeysWhenSurgicalRewriteFails(t *testin
 	}
 	// The written file must still read as hidden to the visibility check that
 	// gates whether a skill is advertised.
-	if !skillDisablesModelInvocation(got) {
-		t.Errorf("written skill no longer reads as disable-model-invocation:\n%s", got)
-	}
-	if !strings.Contains(got, "body") {
-		t.Errorf("body was dropped:\n%s", got)
-	}
+	testassert.OnFailure(t, !skillDisablesModelInvocation(got), func() { t.Errorf("written skill no longer reads as disable-model-invocation:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, "body"), func() { t.Errorf("body was dropped:\n%s", got) })
 }
 
 // lookupPath resolves a dotted key path through nested frontmatter mappings,
@@ -319,16 +304,12 @@ func TestEnsureSkillFrontmatterKeepsAliasedValuesWhenNameIsRenamed(t *testing.T)
 			parseFrontmatter(t, tc.content)
 
 			// The skill starts out hidden from model invocation...
-			if !skillDisablesModelInvocation(tc.content) {
-				t.Fatalf("fixture is not hidden to begin with; the test proves nothing")
-			}
+			testassert.OnFailure(t, !skillDisablesModelInvocation(tc.content), func() { t.Fatalf("fixture is not hidden to begin with; the test proves nothing") })
 
 			got := ensureSkillFrontmatter(tc.content, "my-slug", "")
 
 			// ...and must still be hidden afterwards.
-			if !skillDisablesModelInvocation(got) {
-				t.Errorf("rewrite exposed a hidden skill\noutput:\n%s", got)
-			}
+			testassert.OnFailure(t, !skillDisablesModelInvocation(got), func() { t.Errorf("rewrite exposed a hidden skill\noutput:\n%s", got) })
 
 			fm := parseFrontmatter(t, got)
 			if name, _ := fm["name"].(string); name != "my-slug" {
@@ -344,9 +325,7 @@ func TestEnsureSkillFrontmatterKeepsAliasedValuesWhenNameIsRenamed(t *testing.T)
 					t.Errorf("aliased %s = %#v, want %q\noutput:\n%s", path, v, "true", got)
 				}
 			}
-			if strings.Contains(got, "*shared") || strings.Contains(got, "&shared") {
-				t.Errorf("anchor/alias survived instead of being materialized\noutput:\n%s", got)
-			}
+			testassert.OnFailure(t, strings.Contains(got, "*shared") || strings.Contains(got, "&shared"), func() { t.Errorf("anchor/alias survived instead of being materialized\noutput:\n%s", got) })
 		})
 	}
 }
@@ -392,15 +371,13 @@ func TestEnsureSkillFrontmatterRecognizesQuotedAndEmptyNameKeys(t *testing.T) {
 			if name, _ := fm["name"].(string); name != "my-slug" {
 				t.Errorf("name = %#v, want %q\noutput:\n%s", fm["name"], "my-slug", got)
 			}
-			if fm["disable-model-invocation"] != true {
+			testassert.OnFailure(t, fm["disable-model-invocation"] != true, func() {
 				t.Errorf("disable-model-invocation = %#v, want true\noutput:\n%s", fm["disable-model-invocation"], got)
-			}
+			})
 			if custom, _ := fm["custom-key"].(string); custom != "kept" {
 				t.Errorf("custom-key = %#v, want %q\noutput:\n%s", fm["custom-key"], "kept", got)
 			}
-			if !skillDisablesModelInvocation(got) {
-				t.Errorf("written skill no longer reads as hidden:\n%s", got)
-			}
+			testassert.OnFailure(t, !skillDisablesModelInvocation(got), func() { t.Errorf("written skill no longer reads as hidden:\n%s", got) })
 		})
 	}
 }
@@ -434,9 +411,7 @@ func TestEnsureSkillFrontmatterHandlesHashInsideBlockScalarName(t *testing.T) {
 	if name, _ := fm["name"].(string); name != "my-slug" {
 		t.Errorf("parsed name = %#v, want %q\noutput:\n%s", fm["name"], "my-slug", got)
 	}
-	if strings.Contains(got, "# not a comment") {
-		t.Errorf("block scalar content was stranded outside the replaced span:\n%s", got)
-	}
+	testassert.OnFailure(t, strings.Contains(got, "# not a comment"), func() { t.Errorf("block scalar content was stranded outside the replaced span:\n%s", got) })
 }
 
 // The rewrite is byte-surgical: a CRLF block keeps its line endings instead of
@@ -514,10 +489,10 @@ func TestFrontmatterPartsClosingDelimiterVariants(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fm, body, ok := frontmatterParts(tc.content)
-			if ok != tc.wantOK || fm != tc.wantFM || body != tc.wantBody {
+			testassert.OnFailure(t, ok != tc.wantOK || fm != tc.wantFM || body != tc.wantBody, func() {
 				t.Errorf("frontmatterParts(%q) = (%q, %q, %v), want (%q, %q, %v)",
 					tc.content, fm, body, ok, tc.wantFM, tc.wantBody, tc.wantOK)
-			}
+			})
 		})
 	}
 }

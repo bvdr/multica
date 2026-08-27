@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -26,16 +27,10 @@ func parseTOML(t *testing.T, content string) map[string]any {
 func requireMultiAgentDisabled(t *testing.T, parsed map[string]any) {
 	t.Helper()
 	features, ok := parsed["features"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected `features` table in parsed config, got: %#v", parsed["features"])
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected `features` table in parsed config, got: %#v", parsed["features"]) })
 	v, ok := features["multi_agent"].(bool)
-	if !ok {
-		t.Fatalf("expected features.multi_agent to be a bool, got: %#v", features["multi_agent"])
-	}
-	if v {
-		t.Errorf("expected features.multi_agent = false, got true")
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected features.multi_agent to be a bool, got: %#v", features["multi_agent"]) })
+	testassert.OnFailure(t, v, func() { t.Errorf("expected features.multi_agent = false, got true") })
 }
 
 func TestStripUserMultiAgentDirectives(t *testing.T) {
@@ -160,9 +155,9 @@ something_else = "keep"
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := stripUserMultiAgentDirectives(tt.in)
-			if got != tt.want {
+			testassert.OnFailure(t, got != tt.want, func() {
 				t.Errorf("stripUserMultiAgentDirectives mismatch\n--- got ---\n%s\n--- want ---\n%s", got, tt.want)
-			}
+			})
 		})
 	}
 }
@@ -178,19 +173,11 @@ func TestEnsureCodexMultiAgentConfigEmptyFile(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read result: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read result: %v", err) })
 	got := string(data)
-	if !strings.Contains(got, "features.multi_agent = false") {
-		t.Errorf("expected managed block to set features.multi_agent = false at root, got:\n%s", got)
-	}
-	if !strings.Contains(got, multicaMultiAgentBeginMarker) {
-		t.Errorf("expected begin marker, got:\n%s", got)
-	}
-	if !strings.Contains(got, multicaMultiAgentEndMarker) {
-		t.Errorf("expected end marker, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "features.multi_agent = false"), func() { t.Errorf("expected managed block to set features.multi_agent = false at root, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, multicaMultiAgentBeginMarker), func() { t.Errorf("expected begin marker, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, multicaMultiAgentEndMarker), func() { t.Errorf("expected end marker, got:\n%s", got) })
 	requireMultiAgentDisabled(t, parseTOML(t, got))
 }
 
@@ -215,15 +202,9 @@ model = "o3"
 
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
-	if strings.Contains(got, "features.multi_agent = true") {
-		t.Errorf("expected user features.multi_agent = true to be stripped, got:\n%s", got)
-	}
-	if !strings.Contains(got, "features.multi_agent = false") {
-		t.Errorf("expected managed features.multi_agent = false at root, got:\n%s", got)
-	}
-	if !strings.Contains(got, `[profiles.default]`) || !strings.Contains(got, `model = "o3"`) {
-		t.Errorf("expected unrelated content preserved, got:\n%s", got)
-	}
+	testassert.OnFailure(t, strings.Contains(got, "features.multi_agent = true"), func() { t.Errorf("expected user features.multi_agent = true to be stripped, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, "features.multi_agent = false"), func() { t.Errorf("expected managed features.multi_agent = false at root, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, `[profiles.default]`) || !strings.Contains(got, `model = "o3"`), func() { t.Errorf("expected unrelated content preserved, got:\n%s", got) })
 	requireMultiAgentDisabled(t, parseTOML(t, got))
 }
 
@@ -245,9 +226,7 @@ features . multi_agent = true
 
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
-	if strings.Contains(got, "features . multi_agent = true") {
-		t.Errorf("expected user features . multi_agent = true to be stripped, got:\n%s", got)
-	}
+	testassert.OnFailure(t, strings.Contains(got, "features . multi_agent = true"), func() { t.Errorf("expected user features . multi_agent = true to be stripped, got:\n%s", got) })
 	requireMultiAgentDisabled(t, parseTOML(t, got))
 }
 
@@ -277,18 +256,12 @@ model = "o3"
 	// User's `multi_agent = true` must be gone, our managed `multi_agent = false`
 	// must be inside the [features] table (NOT at the root as a dotted key,
 	// which would redefine the table and break the strict TOML parser).
-	if strings.Contains(got, "multi_agent = true") {
-		t.Errorf("expected user multi_agent = true to be stripped, got:\n%s", got)
-	}
-	if strings.Contains(got, "features.multi_agent = false") {
+	testassert.OnFailure(t, strings.Contains(got, "multi_agent = true"), func() { t.Errorf("expected user multi_agent = true to be stripped, got:\n%s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "features.multi_agent = false"), func() {
 		t.Errorf("managed block must NOT use root dotted-key form when [features] table exists (would redefine the table); got:\n%s", got)
-	}
-	if !strings.Contains(got, "[features]") {
-		t.Errorf("expected [features] header preserved, got:\n%s", got)
-	}
-	if !strings.Contains(got, "experimental_thinking = true") {
-		t.Errorf("expected sibling features.* keys preserved, got:\n%s", got)
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(got, "[features]"), func() { t.Errorf("expected [features] header preserved, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, "experimental_thinking = true"), func() { t.Errorf("expected sibling features.* keys preserved, got:\n%s", got) })
 
 	// Output must parse as valid TOML and have features.multi_agent = false.
 	requireMultiAgentDisabled(t, parseTOML(t, got))
@@ -323,12 +296,10 @@ experimental_thinking = true
 
 			data, _ := os.ReadFile(configPath)
 			got := string(data)
-			if strings.Contains(got, "features.multi_agent = false") {
+			testassert.OnFailure(t, strings.Contains(got, "features.multi_agent = false"), func() {
 				t.Errorf("managed block must NOT use root dotted-key form when [features] table exists; got:\n%s", got)
-			}
-			if strings.Contains(got, "multi_agent = true") {
-				t.Errorf("expected user multi_agent = true to be stripped, got:\n%s", got)
-			}
+			})
+			testassert.OnFailure(t, strings.Contains(got, "multi_agent = true"), func() { t.Errorf("expected user multi_agent = true to be stripped, got:\n%s", got) })
 
 			parsed := parseTOML(t, got)
 			requireMultiAgentDisabled(t, parsed)
@@ -380,9 +351,7 @@ thinking = true
 
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
-	if !strings.Contains(got, "features.multi_agent = false") {
-		t.Errorf("expected root dotted-key form when only sub-tables exist, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, "features.multi_agent = false"), func() { t.Errorf("expected root dotted-key form when only sub-tables exist, got:\n%s", got) })
 
 	parsed := parseTOML(t, got)
 	requireMultiAgentDisabled(t, parsed)
@@ -432,12 +401,8 @@ model = "o3"
 			second, _ := os.ReadFile(configPath)
 			infoSecond, _ := os.Stat(configPath)
 
-			if string(first) != string(second) {
-				t.Errorf("expected idempotent rewrite\n--- first ---\n%s\n--- second ---\n%s", first, second)
-			}
-			if !infoSecond.ModTime().Equal(infoFirst.ModTime()) {
-				t.Errorf("expected no rewrite on second pass (file was touched)")
-			}
+			testassert.OnFailure(t, string(first) != string(second), func() { t.Errorf("expected idempotent rewrite\n--- first ---\n%s\n--- second ---\n%s", first, second) })
+			testassert.OnFailure(t, !infoSecond.ModTime().Equal(infoFirst.ModTime()), func() { t.Errorf("expected no rewrite on second pass (file was touched)") })
 			// Final output must parse as valid TOML.
 			requireMultiAgentDisabled(t, parseTOML(t, string(second)))
 		})
@@ -463,18 +428,16 @@ features.multi_agent = true
 
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
-	if got != original {
+	testassert.OnFailure(t, got != original, func() {
 		t.Errorf("expected file untouched when escape hatch set\n--- got ---\n%s\n--- want ---\n%s", got, original)
-	}
+	})
 }
 
 func TestCodexMultiAgentEnabledTruthy(t *testing.T) {
 	for _, v := range []string{"1", "true", "TRUE", "yes", "On"} {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv(MulticaCodexMultiAgentEnv, v)
-			if !codexMultiAgentEnabled() {
-				t.Errorf("expected %q to be truthy", v)
-			}
+			testassert.OnFailure(t, !codexMultiAgentEnabled(), func() { t.Errorf("expected %q to be truthy", v) })
 		})
 	}
 }
@@ -483,9 +446,7 @@ func TestCodexMultiAgentEnabledFalsy(t *testing.T) {
 	for _, v := range []string{"", "0", "false", "no", "off", "anything else"} {
 		t.Run(v, func(t *testing.T) {
 			t.Setenv(MulticaCodexMultiAgentEnv, v)
-			if codexMultiAgentEnabled() {
-				t.Errorf("expected %q to be falsy", v)
-			}
+			testassert.OnFailure(t, codexMultiAgentEnabled(), func() { t.Errorf("expected %q to be falsy", v) })
 		})
 	}
 }
@@ -512,15 +473,9 @@ features.multi_agent = true
 
 	data, _ := os.ReadFile(configPath)
 	got := string(data)
-	if !strings.Contains(got, multicaManagedBeginMarker) {
-		t.Errorf("expected sandbox managed block, got:\n%s", got)
-	}
-	if !strings.Contains(got, multicaMultiAgentBeginMarker) {
-		t.Errorf("expected multi-agent managed block, got:\n%s", got)
-	}
-	if strings.Contains(got, "features.multi_agent = true") {
-		t.Errorf("expected user features.multi_agent = true to be stripped, got:\n%s", got)
-	}
+	testassert.OnFailure(t, !strings.Contains(got, multicaManagedBeginMarker), func() { t.Errorf("expected sandbox managed block, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, multicaMultiAgentBeginMarker), func() { t.Errorf("expected multi-agent managed block, got:\n%s", got) })
+	testassert.OnFailure(t, strings.Contains(got, "features.multi_agent = true"), func() { t.Errorf("expected user features.multi_agent = true to be stripped, got:\n%s", got) })
 
 	// File must parse as valid TOML and have multi_agent disabled.
 	requireMultiAgentDisabled(t, parseTOML(t, got))
@@ -533,9 +488,9 @@ features.multi_agent = true
 		t.Fatalf("ensureCodexMultiAgentConfig (rerun) failed: %v", err)
 	}
 	dataAfter, _ := os.ReadFile(configPath)
-	if string(dataAfter) != got {
+	testassert.OnFailure(t, string(dataAfter) != got, func() {
 		t.Errorf("expected idempotent combined rewrite\n--- first ---\n%s\n--- second ---\n%s", got, dataAfter)
-	}
+	})
 }
 
 // Regression for PR #1845 review: when the user's config has a `[features]`

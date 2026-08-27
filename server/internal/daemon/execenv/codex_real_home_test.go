@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // Codex tasks keep the daemon user's real HOME on every platform. Earlier
@@ -34,9 +36,7 @@ func TestPrepareCodexKeepsRealHomeAndScopesOnlyCodexHome(t *testing.T) {
 		Provider:       "codex",
 		Task:           TaskContextForEnv{IssueID: "real-home-test"},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	if _, err := os.Lstat(filepath.Join(env.RootDir, legacyTaskHomeDirName)); !os.IsNotExist(err) {
@@ -73,9 +73,7 @@ func TestPrepareCodexLocalDirectoryChatKeepsRolloutAcrossTaskIDs(t *testing.T) {
 		LocalWorkDir:   localWorkDir,
 		Task:           task,
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("first Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("first Prepare failed: %v", err) })
 	sessionID := "019fe3de-56a2-7792-8913-ee53664dfa0e"
 	seedRolloutAt(t, filepath.Join(first.CodexHome, "sessions", "2026", "08", "09", "rollout-2026-08-09T09-13-47-"+sessionID+".jsonl"), 32)
 	if err := first.Cleanup(true); err != nil {
@@ -92,15 +90,11 @@ func TestPrepareCodexLocalDirectoryChatKeepsRolloutAcrossTaskIDs(t *testing.T) {
 		LocalWorkDir:   localWorkDir,
 		Task:           task,
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("second Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("second Prepare failed: %v", err) })
 	defer second.Cleanup(true)
 
 	// Then: the prior rollout is visible, so the daemon can resume the chat.
-	if !CodexResumeRolloutPresent(second.CodexHome, sessionID) {
-		t.Fatal("follow-up direct chat cannot see the prior rollout; context would be dropped")
-	}
+	testassert.OnFailure(t, !CodexResumeRolloutPresent(second.CodexHome, sessionID), func() { t.Fatal("follow-up direct chat cannot see the prior rollout; context would be dropped") })
 }
 
 func TestCodexSessionStoreKeyUsesChatSessionIDWhenIssueAbsent(t *testing.T) {
@@ -116,15 +110,9 @@ func TestCodexSessionStoreKeyUsesChatSessionIDWhenIssueAbsent(t *testing.T) {
 	keyB := codexSessionStoreKey("", TaskContextForEnv{AgentID: agentID, ChatSessionID: chatB})
 
 	// Then: the key is stable for one chat and isolated from another chat.
-	if keyA == "" {
-		t.Fatal("direct chat must have a persistent Codex session-store key")
-	}
-	if keyA != keyAAgain {
-		t.Fatalf("same chat produced unstable keys: %q and %q", keyA, keyAAgain)
-	}
-	if keyA == keyB {
-		t.Fatalf("different chats share one Codex session-store key: %q", keyA)
-	}
+	testassert.OnFailure(t, keyA == "", func() { t.Fatal("direct chat must have a persistent Codex session-store key") })
+	testassert.OnFailure(t, keyA != keyAAgain, func() { t.Fatalf("same chat produced unstable keys: %q and %q", keyA, keyAAgain) })
+	testassert.OnFailure(t, keyA == keyB, func() { t.Fatalf("different chats share one Codex session-store key: %q", keyA) })
 }
 
 // TestReuseCodexToleratesLegacyTaskHome covers an env root prepared by an older
@@ -144,9 +132,7 @@ func TestReuseCodexToleratesLegacyTaskHome(t *testing.T) {
 		Provider:       "codex",
 		Task:           TaskContextForEnv{IssueID: "legacy-home-test"},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	// Simulate what an older daemon left behind.
@@ -163,10 +149,6 @@ func TestReuseCodexToleratesLegacyTaskHome(t *testing.T) {
 		Provider: "codex",
 		Task:     TaskContextForEnv{IssueID: "legacy-home-test"},
 	}, testLogger())
-	if reused == nil {
-		t.Fatal("Reuse returned nil on an env root carrying a legacy task home")
-	}
-	if reused.CodexHome == "" {
-		t.Error("expected CodexHome to be restored on reuse")
-	}
+	testassert.OnFailure(t, reused == nil, func() { t.Fatal("Reuse returned nil on an env root carrying a legacy task home") })
+	testassert.OnFailure(t, reused.CodexHome == "", func() { t.Error("expected CodexHome to be restored on reuse") })
 }

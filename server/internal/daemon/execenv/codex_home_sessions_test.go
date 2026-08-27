@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // seedFakeRollout writes a fake Codex rollout for sessionID under
@@ -61,19 +63,11 @@ func TestPrepareCodexSessionsDir_FreshCreatesEmptyLocalDir(t *testing.T) {
 
 	sessions := filepath.Join(codexHome, "sessions")
 	fi, err := os.Lstat(sessions)
-	if err != nil {
-		t.Fatalf("sessions not created: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Error("fresh sessions must be a real dir, not a symlink")
-	}
-	if !fi.IsDir() {
-		t.Error("fresh sessions must be a directory")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("sessions not created: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Error("fresh sessions must be a real dir, not a symlink") })
+	testassert.OnFailure(t, !fi.IsDir(), func() { t.Error("fresh sessions must be a directory") })
 	entries, _ := os.ReadDir(sessions)
-	if len(entries) != 0 {
-		t.Errorf("fresh sessions must be empty, has %d entries", len(entries))
-	}
+	testassert.OnFailure(t, len(entries) != 0, func() { t.Errorf("fresh sessions must be empty, has %d entries", len(entries)) })
 }
 
 func TestPrepareCodexSessionsDir_RealDirIsAuthoritative(t *testing.T) {
@@ -98,9 +92,7 @@ func TestPrepareCodexSessionsDir_RealDirIsAuthoritative(t *testing.T) {
 		t.Errorf("task-local rollout must be preserved, got err=%v data=%q", err, data)
 	}
 	fi, _ := os.Lstat(filepath.Join(codexHome, "sessions"))
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Error("authoritative sessions must remain a real dir")
-	}
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Error("authoritative sessions must remain a real dir") })
 }
 
 func TestPrepareCodexSessionsDir_MigratesLegacySymlinkNoResume(t *testing.T) {
@@ -126,17 +118,13 @@ func TestPrepareCodexSessionsDir_MigratesLegacySymlinkNoResume(t *testing.T) {
 
 	sessions := filepath.Join(codexHome, "sessions")
 	fi, err := os.Lstat(sessions)
-	if err != nil {
-		t.Fatalf("sessions missing after migration: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Error("legacy symlink must be replaced with a real dir")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("sessions missing after migration: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Error("legacy symlink must be replaced with a real dir") })
 	// No resume requested -> none of the global history is pulled in.
 	entries, _ := os.ReadDir(sessions)
-	if len(entries) != 0 {
+	testassert.OnFailure(t, len(entries) != 0, func() {
 		t.Errorf("non-resume migration must yield an empty sessions dir, has %d entries", len(entries))
-	}
+	})
 	// The global history itself must be left intact.
 	if _, err := os.Stat(filepath.Join(sharedSessions, "2026", "07", "13", "rollout-2026-07-13T00-00-00-other-session-a.jsonl")); err != nil {
 		t.Errorf("shared history must not be deleted: %v", err)
@@ -163,9 +151,7 @@ func TestPrepareCodexSessionsDir_MigrateWithResumeRoutesThroughStore(t *testing.
 
 	key := filepath.Join("agent-1", "issue-1")
 	err := prepareCodexSessionsDir(codexHome, sharedHome, CodexHomeOptions{ResumeSessionID: resumeID, SessionStoreKey: key}, testLogger())
-	if err != nil {
-		t.Fatalf("prepareCodexSessionsDir: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareCodexSessionsDir: %v", err) })
 
 	// sessions/ is now a directory link to the per-issue store on the shared
 	// volume — the cross-volume-safe exposure (a same-volume hard link into the
@@ -175,15 +161,11 @@ func TestPrepareCodexSessionsDir_MigrateWithResumeRoutesThroughStore(t *testing.
 
 	// The resume rollout is present in the task home (through the link) and
 	// materialised as a zero-copy hard link from the shared history.
-	if !CodexResumeRolloutPresent(codexHome, resumeID) {
-		t.Fatal("resume rollout must be visible in the task CODEX_HOME after migration")
-	}
+	testassert.OnFailure(t, !CodexResumeRolloutPresent(codexHome, resumeID), func() { t.Fatal("resume rollout must be visible in the task CODEX_HOME after migration") })
 	stored := filepath.Join(codexSessionStoreDir(sharedHome, key), "2026", "07", "13", filepath.Base(resumeSrc))
 	assertZeroCopyLink(t, resumeSrc, stored)
 	// The unrelated session must NOT be pulled in.
-	if CodexResumeRolloutPresent(codexHome, "unrelated-session") {
-		t.Error("unrelated shared history must not be exposed to the task")
-	}
+	testassert.OnFailure(t, CodexResumeRolloutPresent(codexHome, "unrelated-session"), func() { t.Error("unrelated shared history must not be exposed to the task") })
 	// Stale state dropped so Codex rebuilds from the scoped store.
 	assertAbsent(t, filepath.Join(codexHome, "state_5.sqlite"))
 }
@@ -316,16 +298,10 @@ func TestCodexResumeRolloutPresent(t *testing.T) {
 	seedRolloutAt(t, filepath.Join(sessions, "rollout-2026-07-13T00-00-00-flat.jsonl.zst"), 8)
 
 	for _, id := range []string{"nested", "flat"} {
-		if !CodexResumeRolloutPresent(codexHome, id) {
-			t.Errorf("expected rollout %q to be found", id)
-		}
+		testassert.OnFailure(t, !CodexResumeRolloutPresent(codexHome, id), func() { t.Errorf("expected rollout %q to be found", id) })
 	}
-	if CodexResumeRolloutPresent(codexHome, "absent") {
-		t.Error("absent session must not be reported present")
-	}
-	if CodexResumeRolloutPresent("", "nested") || CodexResumeRolloutPresent(codexHome, "") {
-		t.Error("empty codexHome/sessionID must be reported absent")
-	}
+	testassert.OnFailure(t, CodexResumeRolloutPresent(codexHome, "absent"), func() { t.Error("absent session must not be reported present") })
+	testassert.OnFailure(t, CodexResumeRolloutPresent("", "nested") || CodexResumeRolloutPresent(codexHome, ""), func() { t.Error("empty codexHome/sessionID must be reported absent") })
 }
 
 func TestPrepareCodexSessionsDir_LocalDirectoryUsesPerIssueStore(t *testing.T) {
@@ -351,12 +327,10 @@ func TestPrepareCodexSessionsDir_LocalDirectoryUsesPerIssueStore(t *testing.T) {
 	// The store holds only this issue's history — the machine's global rollouts
 	// are invisible, so `initialize` never enumerates them (the MUL-4424 stall).
 	entries, _ := os.ReadDir(sessions)
-	if len(entries) != 0 {
+	testassert.OnFailure(t, len(entries) != 0, func() {
 		t.Errorf("per-issue store must start empty, has %d entries (whole-history leak?)", len(entries))
-	}
-	if CodexResumeRolloutPresent(codexHome, "other-a") {
-		t.Error("machine-global history must not be visible to a local_directory task")
-	}
+	})
+	testassert.OnFailure(t, CodexResumeRolloutPresent(codexHome, "other-a"), func() { t.Error("machine-global history must not be visible to a local_directory task") })
 }
 
 // With no stable per-issue key (e.g. a non-issue task), a local_directory task
@@ -377,15 +351,9 @@ func TestPrepareCodexSessionsDir_LocalDirectoryNoKeyFallsBackToEmptyDir(t *testi
 	}
 	sessions := filepath.Join(codexHome, "sessions")
 	fi, err := os.Lstat(sessions)
-	if err != nil {
-		t.Fatalf("sessions not created: %v", err)
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t.Error("no-key local_directory must not link the shared history")
-	}
-	if CodexResumeRolloutPresent(codexHome, "other") {
-		t.Error("machine-global history must not be visible")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("sessions not created: %v", err) })
+	testassert.OnFailure(t, fi.Mode()&os.ModeSymlink != 0, func() { t.Error("no-key local_directory must not link the shared history") })
+	testassert.OnFailure(t, CodexResumeRolloutPresent(codexHome, "other"), func() { t.Error("machine-global history must not be visible") })
 }
 
 // Two consecutive local_directory tasks share one project dir but get a fresh
@@ -421,9 +389,9 @@ func TestPrepareCodexSessionsDir_LocalDirectoryResumeAcrossTaskIDs(t *testing.T)
 
 	// The round-2 home must resolve the round-1 rollout through the shared store —
 	// otherwise the daemon would silently drop the conversation.
-	if !CodexResumeRolloutPresent(home2, sessionID) {
+	testassert.OnFailure(t, !CodexResumeRolloutPresent(home2, sessionID), func() {
 		t.Fatal("round-2 local_directory task cannot see round-1 rollout — context would be silently lost")
-	}
+	})
 }
 
 // A managed home migrated on a prior reuse already links the per-issue store; a
@@ -455,9 +423,7 @@ func TestPrepareCodexSessionsDir_ReusedStoreLinkIsAuthoritative(t *testing.T) {
 	}
 
 	assertSessionsLinkedToStore(t, filepath.Join(codexHome, "sessions"), storeDir)
-	if !CodexResumeRolloutPresent(codexHome, sessionID) {
-		t.Error("existing store rollout must remain resumable after reuse")
-	}
+	testassert.OnFailure(t, !CodexResumeRolloutPresent(codexHome, sessionID), func() { t.Error("existing store rollout must remain resumable after reuse") })
 }
 
 // PruneCodexSessionStores must reclaim per-issue stores idle past retention,
@@ -483,12 +449,8 @@ func TestPruneCodexSessionStores(t *testing.T) {
 	chtimesTree(t, staleStore, now.Add(-30*24*time.Hour))
 
 	removed, bytes := PruneCodexSessionStores("", retention, now, nil, testLogger())
-	if removed != 1 {
-		t.Fatalf("removed = %d, want 1 (only the store idle past retention)", removed)
-	}
-	if bytes <= 0 {
-		t.Errorf("bytesFreed = %d, want > 0", bytes)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("removed = %d, want 1 (only the store idle past retention)", removed) })
+	testassert.OnFailure(t, bytes <= 0, func() { t.Errorf("bytesFreed = %d, want > 0", bytes) })
 	// The stale store is gone; the fresh one and the other agent's store survive
 	// (per-issue isolation), and agent-1 stays because issue-fresh remains.
 	assertAbsent(t, staleStore)
@@ -525,18 +487,14 @@ func TestPruneCodexSessionStores_ReopenedStoreNotReclaimed(t *testing.T) {
 	if err := linkCodexSessionsToStore(filepath.Join(codexHome, "sessions"), storeDir, filepath.Join(home, "sessions"), sessionID, testLogger()); err != nil {
 		t.Fatalf("linkCodexSessionsToStore: %v", err)
 	}
-	if !CodexResumeRolloutPresent(codexHome, sessionID) {
-		t.Fatal("resume rollout must be visible after remount")
-	}
+	testassert.OnFailure(t, !CodexResumeRolloutPresent(codexHome, sessionID), func() { t.Fatal("resume rollout must be visible after remount") })
 
 	// A GC cycle now — before the resumed turn writes anything — must keep it.
 	if removed, _ := PruneCodexSessionStores("", 14*24*time.Hour, time.Now(), nil, testLogger()); removed != 0 {
 		t.Fatalf("removed = %d, want 0 (a just-reopened store must survive GC)", removed)
 	}
 	assertPresent(t, storeDir)
-	if !CodexResumeRolloutPresent(codexHome, sessionID) {
-		t.Error("resume rollout must still be present after GC")
-	}
+	testassert.OnFailure(t, !CodexResumeRolloutPresent(codexHome, sessionID), func() { t.Error("resume rollout must still be present after GC") })
 }
 
 // TestPruneCodexSessionStores_ActiveStoreNotReclaimed proves the reservation
@@ -616,9 +574,7 @@ func TestCodexSessionStoreNamespaceInjective(t *testing.T) {
 		}
 	}
 	// Deterministic for a fixed profile.
-	if codexSessionStoreNamespace("staging") != codexSessionStoreNamespace("staging") {
-		t.Error("namespace must be deterministic for a fixed profile")
-	}
+	testassert.OnFailure(t, codexSessionStoreNamespace("staging") != codexSessionStoreNamespace("staging"), func() { t.Error("namespace must be deterministic for a fixed profile") })
 }
 
 // TestCodexSessionStoreNamespace_FitsDirectorySegment guards Elon's round-8
@@ -631,9 +587,9 @@ func TestCodexSessionStoreNamespace_FitsDirectorySegment(t *testing.T) {
 	base := t.TempDir()
 	for _, profile := range []string{"", "staging", strings.Repeat("a", 127), strings.Repeat("z", 255)} {
 		ns := codexSessionStoreNamespace(profile)
-		if len(ns) > 255 {
+		testassert.OnFailure(t, len(ns) > 255, func() {
 			t.Errorf("profile (len %d) -> namespace (len %d) exceeds the 255-byte single-segment limit", len(profile), len(ns))
-		}
+		})
 		if err := os.MkdirAll(filepath.Join(base, ns), 0o755); err != nil {
 			t.Errorf("namespace for profile (len %d) could not be created: %v", len(profile), err)
 		}
@@ -698,9 +654,7 @@ func chtimesTree(t *testing.T, root string, ts time.Time) {
 		}
 		return os.Chtimes(path, ts, ts)
 	})
-	if err != nil {
-		t.Fatalf("chtimes tree %s: %v", root, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("chtimes tree %s: %v", root, err) })
 }
 
 func seedRolloutAt(t *testing.T, path string, size int) string {
@@ -724,28 +678,18 @@ func seedRolloutAt(t *testing.T, path string, size int) string {
 func assertSessionsLinkedToStore(t *testing.T, sessions, storeDir string) {
 	t.Helper()
 	fi, err := os.Lstat(sessions)
-	if err != nil {
-		t.Fatalf("sessions link missing: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("sessions link missing: %v", err) })
 	if runtime.GOOS != "windows" {
-		if fi.Mode()&os.ModeSymlink == 0 {
-			t.Fatalf("sessions must link the per-issue store, got mode %v", fi.Mode())
-		}
+		testassert.OnFailure(t, fi.Mode()&os.ModeSymlink == 0, func() { t.Fatalf("sessions must link the per-issue store, got mode %v", fi.Mode()) })
 		if target, _ := os.Readlink(sessions); filepath.Clean(target) != filepath.Clean(storeDir) {
 			t.Errorf("sessions link target = %q, want store %q", target, storeDir)
 		}
 	}
 	realSessions, err := filepath.EvalSymlinks(sessions)
-	if err != nil {
-		t.Fatalf("eval sessions link: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("eval sessions link: %v", err) })
 	realStore, err := filepath.EvalSymlinks(storeDir)
-	if err != nil {
-		t.Fatalf("eval store: %v", err)
-	}
-	if realSessions != realStore {
-		t.Errorf("sessions resolves to %q, want store %q", realSessions, realStore)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("eval store: %v", err) })
+	testassert.OnFailure(t, realSessions != realStore, func() { t.Errorf("sessions resolves to %q, want store %q", realSessions, realStore) })
 }
 
 // assertZeroCopyLink verifies dst resolves to the same inode as src — a hard
@@ -753,16 +697,10 @@ func assertSessionsLinkedToStore(t *testing.T, sessions, storeDir string) {
 func assertZeroCopyLink(t *testing.T, src, dst string) {
 	t.Helper()
 	si, err := os.Stat(src)
-	if err != nil {
-		t.Fatalf("stat src %s: %v", src, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("stat src %s: %v", src, err) })
 	di, err := os.Stat(dst)
-	if err != nil {
-		t.Fatalf("stat dst %s: %v", dst, err)
-	}
-	if !os.SameFile(si, di) {
-		t.Errorf("%s is a copy of %s, expected a zero-copy hard/sym link", dst, src)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("stat dst %s: %v", dst, err) })
+	testassert.OnFailure(t, !os.SameFile(si, di), func() { t.Errorf("%s is a copy of %s, expected a zero-copy hard/sym link", dst, src) })
 }
 
 func writeFile(t *testing.T, path, content string) {

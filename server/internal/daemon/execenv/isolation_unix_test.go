@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestPrepareIsolated_PermanentFIFOBlockThenImmediateRetry is the lifecycle
@@ -43,9 +45,7 @@ func TestPrepareIsolated_PermanentFIFOBlockThenImmediateRetry(t *testing.T) {
 
 	startedAt := time.Now()
 	_, err := PrepareIsolated(ctx, preparationHelperTestCommand(), params, logger)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("PrepareIsolated error = %v, want deadline exceeded", err)
-	}
+	testassert.OnFailure(t, !errors.Is(err, context.DeadlineExceeded), func() { t.Fatalf("PrepareIsolated error = %v, want deadline exceeded", err) })
 	if elapsed := time.Since(startedAt); elapsed > 3*time.Second {
 		t.Fatalf("PrepareIsolated took %s, want a bounded process termination", elapsed)
 	}
@@ -61,9 +61,7 @@ func TestPrepareIsolated_PermanentFIFOBlockThenImmediateRetry(t *testing.T) {
 		writer.Close()
 		t.Fatal("timed-out preparation helper still has the FIFO open for reading")
 	}
-	if !errors.Is(writerErr, syscall.ENXIO) {
-		t.Fatalf("probe FIFO reader: %v, want ENXIO", writerErr)
-	}
+	testassert.OnFailure(t, !errors.Is(writerErr, syscall.ENXIO), func() { t.Fatalf("probe FIFO reader: %v, want ENXIO", writerErr) })
 
 	// Retry immediately against the same root. It must be the sole writer and
 	// complete successfully after the pathological source is replaced.
@@ -76,10 +74,6 @@ func TestPrepareIsolated_PermanentFIFOBlockThenImmediateRetry(t *testing.T) {
 	retryCtx, retryCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer retryCancel()
 	env, err := PrepareIsolated(retryCtx, preparationHelperTestCommand(), params, logger)
-	if err != nil {
-		t.Fatalf("immediate retry PrepareIsolated: %v", err)
-	}
-	if env == nil || env.RootDir != PredictRootDir(RootDirParams{WorkspacesRoot: params.WorkspacesRoot, WorkspaceID: params.WorkspaceID, WorkspaceSlug: params.WorkspaceSlug, TaskID: params.TaskID, IssueIdentifier: params.IssueIdentifier}) {
-		t.Fatalf("retry environment = %#v, want the predicted root", env)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("immediate retry PrepareIsolated: %v", err) })
+	testassert.OnFailure(t, env == nil || env.RootDir != PredictRootDir(RootDirParams{WorkspacesRoot: params.WorkspacesRoot, WorkspaceID: params.WorkspaceID, WorkspaceSlug: params.WorkspaceSlug, TaskID: params.TaskID, IssueIdentifier: params.IssueIdentifier}), func() { t.Fatalf("retry environment = %#v, want the predicted root", env) })
 }

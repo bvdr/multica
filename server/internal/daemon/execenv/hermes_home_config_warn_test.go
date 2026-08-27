@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // captureLogger returns a logger writing into buf, for asserting on the
@@ -39,22 +41,14 @@ func TestHermesOverlayWarnsWhenSourceHomeCarriesNoConfig(t *testing.T) {
 		}
 
 		out := logs.String()
-		if !strings.Contains(out, "hermes source home does not exist") {
-			t.Errorf("missing source home must be warned about, got:\n%s", out)
-		}
-		if !strings.Contains(out, missing) {
-			t.Errorf("the warning must name the resolved source home %q, got:\n%s", missing, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, "hermes source home does not exist"), func() { t.Errorf("missing source home must be warned about, got:\n%s", out) })
+		testassert.OnFailure(t, !strings.Contains(out, missing), func() { t.Errorf("the warning must name the resolved source home %q, got:\n%s", missing, out) })
 
 		// The derived config is what the child actually reads: no provider,
 		// which is exactly why Hermes then refuses to start.
 		data, err := os.ReadFile(filepath.Join(hermesHome, "config.yaml"))
-		if err != nil {
-			t.Fatalf("overlay config.yaml unreadable: %v", err)
-		}
-		if strings.Contains(string(data), "provider:") {
-			t.Errorf("nothing to inherit, so the derived config should carry no provider, got:\n%s", data)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("overlay config.yaml unreadable: %v", err) })
+		testassert.OnFailure(t, strings.Contains(string(data), "provider:"), func() { t.Errorf("nothing to inherit, so the derived config should carry no provider, got:\n%s", data) })
 	})
 
 	t.Run("source home exists but has no config.yaml", func(t *testing.T) {
@@ -71,15 +65,9 @@ func TestHermesOverlayWarnsWhenSourceHomeCarriesNoConfig(t *testing.T) {
 		}
 
 		out := logs.String()
-		if !strings.Contains(out, "has no config.yaml") {
-			t.Errorf("a config-less source home must be warned about, got:\n%s", out)
-		}
-		if strings.Contains(out, "does not exist") {
-			t.Errorf("the home DOES exist; the two cases must not be conflated, got:\n%s", out)
-		}
-		if !strings.Contains(out, sharedHome) {
-			t.Errorf("the warning must name the resolved source home %q, got:\n%s", sharedHome, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, "has no config.yaml"), func() { t.Errorf("a config-less source home must be warned about, got:\n%s", out) })
+		testassert.OnFailure(t, strings.Contains(out, "does not exist"), func() { t.Errorf("the home DOES exist; the two cases must not be conflated, got:\n%s", out) })
+		testassert.OnFailure(t, !strings.Contains(out, sharedHome), func() { t.Errorf("the warning must name the resolved source home %q, got:\n%s", sharedHome, out) })
 	})
 }
 
@@ -103,13 +91,9 @@ func TestHermesOverlayKeepsProviderAndStaysQuiet(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(filepath.Join(hermesHome, "config.yaml"))
-	if err != nil {
-		t.Fatalf("overlay config.yaml unreadable: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("overlay config.yaml unreadable: %v", err) })
 	for _, want := range []string{"provider: custom:9router", "name: 9router", "api_key: sk-test"} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("derived config dropped %q, got:\n%s", want, data)
-		}
+		testassert.OnFailure(t, !strings.Contains(string(data), want), func() { t.Errorf("derived config dropped %q, got:\n%s", want, data) })
 	}
 	if out := logs.String(); strings.Contains(out, "source home") {
 		t.Errorf("a healthy source home must not warn, got:\n%s", out)

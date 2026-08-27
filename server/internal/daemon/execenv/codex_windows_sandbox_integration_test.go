@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/multica-ai/multica/server/pkg/agent"
 )
 
@@ -38,9 +39,7 @@ func TestWindowsSandboxHonorsShellQuotedCustomArg(t *testing.T) {
 			norm := agent.NormalizeCodexLaunchArgs(nil, tc.raw, nil, testLogger())
 			missing := filepath.Join(t.TempDir(), "config.toml")
 			state := resolveWindowsSandboxState(missing, nil, sharedConfigAbsent, norm, testLogger())
-			if state != windowsSandboxNative {
-				t.Fatalf("normalized %v -> state %v, want native", norm, state)
-			}
+			testassert.OnFailure(t, state != windowsSandboxNative, func() { t.Fatalf("normalized %v -> state %v, want native", norm, state) })
 			if p := codexSandboxPolicyForWindows(state); p.Mode != "workspace-write" {
 				t.Fatalf("policy mode = %q, want workspace-write (isolation preserved)", p.Mode)
 			}

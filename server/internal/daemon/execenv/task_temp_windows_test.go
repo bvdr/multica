@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 	"golang.org/x/sys/windows"
 )
 
@@ -30,9 +31,7 @@ func TestPruneTaskTempDirsSurvivesRealSharingViolation(t *testing.T) {
 		t.Fatalf("write payload: %v", err)
 	}
 	payloadPtr, err := windows.UTF16PtrFromString(payload)
-	if err != nil {
-		t.Fatalf("UTF16PtrFromString(): %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("UTF16PtrFromString(): %v", err) })
 	// No FILE_SHARE_DELETE: Windows now refuses to delete this file.
 	handle, err := windows.CreateFile(
 		payloadPtr,
@@ -43,9 +42,7 @@ func TestPruneTaskTempDirsSurvivesRealSharingViolation(t *testing.T) {
 		windows.FILE_ATTRIBUTE_NORMAL,
 		0,
 	)
-	if err != nil {
-		t.Fatalf("CreateFile(): %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("CreateFile(): %v", err) })
 	handleClosed := false
 	closeHandle := func() {
 		if handleClosed {
@@ -72,12 +69,8 @@ func TestPruneTaskTempDirsSurvivesRealSharingViolation(t *testing.T) {
 	closeHandle()
 
 	removed, bytesFreed := PruneTaskTempDirs(base, 0, time.Now(), testLogger())
-	if removed != 1 {
-		t.Fatalf("prune removed %d dirs after the handle closed, want 1", removed)
-	}
-	if bytesFreed < 2048 {
-		t.Fatalf("prune reported %d bytes freed, want at least 2048", bytesFreed)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("prune removed %d dirs after the handle closed, want 1", removed) })
+	testassert.OnFailure(t, bytesFreed < 2048, func() { t.Fatalf("prune reported %d bytes freed, want at least 2048", bytesFreed) })
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("task temp dir still present after prune: %v", err)
 	}

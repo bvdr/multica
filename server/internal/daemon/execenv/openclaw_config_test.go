@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // openclawCLIStub captures one or more (subcommand, response) pairs and
@@ -60,9 +62,7 @@ func (s *openclawCLIStub) exec(_ context.Context, bin string, args ...string) (s
 func mustReadJSON(t *testing.T, path string) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read synthesized cfg: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read synthesized cfg: %v", err) })
 	var got map[string]any
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("parse synthesized cfg: %v", err)
@@ -117,58 +117,44 @@ func TestPrepareOpenclawConfigDelegatesParsingToCLI(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	cfgPath := result.ConfigPath
-	if cfgPath != filepath.Join(envRoot, openclawConfigFile) {
-		t.Errorf("cfgPath = %q, want %q", cfgPath, filepath.Join(envRoot, openclawConfigFile))
-	}
+	testassert.OnFailure(t, cfgPath != filepath.Join(envRoot, openclawConfigFile), func() { t.Errorf("cfgPath = %q, want %q", cfgPath, filepath.Join(envRoot, openclawConfigFile)) })
 
 	got := mustReadJSON(t, cfgPath)
 
 	// $include must reference the user's active config so OpenClaw's own
 	// loader does the JSON5 / $include / env-substitution work.
 	include, ok := got["$include"].([]any)
-	if !ok || len(include) != 1 || include[0] != userConfigPath {
-		t.Errorf("$include = %v, want [%q]", got["$include"], userConfigPath)
-	}
+	testassert.OnFailure(t, !ok || len(include) != 1 || include[0] != userConfigPath, func() { t.Errorf("$include = %v, want [%q]", got["$include"], userConfigPath) })
 
 	// The wrapper $includes a path that lives outside envRoot. OpenClaw
 	// confines $include resolution to the wrapper file's own directory
 	// unless OPENCLAW_INCLUDE_ROOTS lists the target. Surface the user
 	// config's dirname so the daemon can grant it.
-	if result.IncludeRoot != userConfigDir {
+	testassert.OnFailure(t, result.IncludeRoot != userConfigDir, func() {
 		t.Errorf("IncludeRoot = %q, want %q (dirname of active config so wrapper can $include across dirs)", result.IncludeRoot, userConfigDir)
-	}
+	})
 
 	agents := got["agents"].(map[string]any)
 	defaults := agents["defaults"].(map[string]any)
-	if defaults["workspace"] != workDir {
-		t.Errorf("agents.defaults.workspace = %v, want %q", defaults["workspace"], workDir)
-	}
+	testassert.OnFailure(t, defaults["workspace"] != workDir, func() { t.Errorf("agents.defaults.workspace = %v, want %q", defaults["workspace"], workDir) })
 
 	// Per-agent workspaces must be rewritten so a host-scope agents.list[].
 	// workspace cannot silently win over our defaults override. This is
 	// intentional per-task isolation (see prepareOpenclawConfig doc).
 	list := agents["list"].([]any)
-	if len(list) != 2 {
-		t.Fatalf("agents.list length = %d, want 2", len(list))
-	}
+	testassert.OnFailure(t, len(list) != 2, func() { t.Fatalf("agents.list length = %d, want 2", len(list)) })
 	for i, item := range list {
 		entry := item.(map[string]any)
-		if entry["workspace"] != workDir {
+		testassert.OnFailure(t, entry["workspace"] != workDir, func() {
 			t.Errorf("agents.list[%d].workspace = %v, want %q (per-agent overrides must be rewritten so they don't beat defaults)", i, entry["workspace"], workDir)
-		}
+		})
 	}
 	// Non-workspace fields per entry are carried over so a sibling-replace
 	// merge in OpenClaw's $include semantics doesn't silently lose them.
-	if list[0].(map[string]any)["id"] != "scout" {
-		t.Errorf("agents.list[0].id lost in carryover: %v", list[0])
-	}
-	if list[1].(map[string]any)["model"] != "openai/gpt-5" {
-		t.Errorf("agents.list[1].model lost in carryover: %v", list[1])
-	}
+	testassert.OnFailure(t, list[0].(map[string]any)["id"] != "scout", func() { t.Errorf("agents.list[0].id lost in carryover: %v", list[0]) })
+	testassert.OnFailure(t, list[1].(map[string]any)["model"] != "openai/gpt-5", func() { t.Errorf("agents.list[1].model lost in carryover: %v", list[1]) })
 }
 
 // TestPrepareOpenclawConfigFailsClosedOnCLIError — the headline regression
@@ -188,12 +174,8 @@ func TestPrepareOpenclawConfigFailsClosedOnCLIError(t *testing.T) {
 	})
 
 	_, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err == nil {
-		t.Fatal("prepareOpenclawConfig succeeded on CLI failure; expected fail closed")
-	}
-	if !strings.Contains(err.Error(), "locate openclaw active config") {
-		t.Errorf("error message %q does not name the failed step", err.Error())
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("prepareOpenclawConfig succeeded on CLI failure; expected fail closed") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "locate openclaw active config"), func() { t.Errorf("error message %q does not name the failed step", err.Error()) })
 
 	// No stale wrapper left behind.
 	if _, err := os.Stat(filepath.Join(envRoot, openclawConfigFile)); !os.IsNotExist(err) {
@@ -229,29 +211,21 @@ func TestPrepareOpenclawConfigFallsBackWhenConfigFileUnsupported(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 
 	got := mustReadJSON(t, result.ConfigPath)
 	include, ok := got["$include"].([]any)
-	if !ok || len(include) != 1 || include[0] != userConfigPath {
+	testassert.OnFailure(t, !ok || len(include) != 1 || include[0] != userConfigPath, func() {
 		t.Errorf("$include = %v, want fallback OPENCLAW_CONFIG_PATH %q", got["$include"], userConfigPath)
-	}
-	if result.IncludeRoot != userConfigDir {
-		t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, userConfigDir)
-	}
+	})
+	testassert.OnFailure(t, result.IncludeRoot != userConfigDir, func() { t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, userConfigDir) })
 	agents := got["agents"].(map[string]any)
 	list := agents["list"].([]any)
-	if len(list) != 1 || list[0].(map[string]any)["workspace"] != workDir {
-		t.Errorf("agents.list workspace rewrite after fallback = %v, want workDir %q", list, workDir)
-	}
-	if len(stub.calls) != 2 {
-		t.Fatalf("openclaw calls = %d, want 2: %+v", len(stub.calls), stub.calls)
-	}
-	if strings.Join(stub.calls[1].args, " ") != "config get agents.list --json" {
+	testassert.OnFailure(t, len(list) != 1 || list[0].(map[string]any)["workspace"] != workDir, func() { t.Errorf("agents.list workspace rewrite after fallback = %v, want workDir %q", list, workDir) })
+	testassert.OnFailure(t, len(stub.calls) != 2, func() { t.Fatalf("openclaw calls = %d, want 2: %+v", len(stub.calls), stub.calls) })
+	testassert.OnFailure(t, strings.Join(stub.calls[1].args, " ") != "config get agents.list --json", func() {
 		t.Errorf("second openclaw call = %q, want config get agents.list --json", strings.Join(stub.calls[1].args, " "))
-	}
+	})
 }
 
 func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
@@ -345,15 +319,9 @@ func TestOpenclawActiveConfigPathFallbackSources(t *testing.T) {
 			})
 
 			got, exists, err := openclawActiveConfigPath(stub.bin, openclawCLITimeout)
-			if err != nil {
-				t.Fatalf("openclawActiveConfigPath: %v", err)
-			}
-			if !exists {
-				t.Fatal("exists = false, want true")
-			}
-			if got != want {
-				t.Errorf("path = %q, want %q", got, want)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("openclawActiveConfigPath: %v", err) })
+			testassert.OnFailure(t, !exists, func() { t.Fatal("exists = false, want true") })
+			testassert.OnFailure(t, got != want, func() { t.Errorf("path = %q, want %q", got, want) })
 		})
 	}
 }
@@ -367,16 +335,10 @@ func TestOpenclawActiveConfigPathFallbackFreshInstallUsesCanonicalPath(t *testin
 	})
 
 	got, exists, err := openclawActiveConfigPath(stub.bin, openclawCLITimeout)
-	if err != nil {
-		t.Fatalf("openclawActiveConfigPath: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("openclawActiveConfigPath: %v", err) })
 	want := filepath.Join(home, ".openclaw", "openclaw.json")
-	if got != want {
-		t.Errorf("path = %q, want canonical fresh-install path %q", got, want)
-	}
-	if exists {
-		t.Fatal("exists = true, want false for fresh install")
-	}
+	testassert.OnFailure(t, got != want, func() { t.Errorf("path = %q, want canonical fresh-install path %q", got, want) })
+	testassert.OnFailure(t, exists, func() { t.Fatal("exists = true, want false for fresh install") })
 }
 
 func TestOpenclawActiveConfigPathFallbackOpenclawConfigPathHardOverride(t *testing.T) {
@@ -397,15 +359,9 @@ func TestOpenclawActiveConfigPathFallbackOpenclawConfigPathHardOverride(t *testi
 	})
 
 	got, exists, err := openclawActiveConfigPath(stub.bin, openclawCLITimeout)
-	if err != nil {
-		t.Fatalf("openclawActiveConfigPath: %v", err)
-	}
-	if got != explicitPath {
-		t.Errorf("path = %q, want OPENCLAW_CONFIG_PATH hard override %q", got, explicitPath)
-	}
-	if exists {
-		t.Fatal("exists = true, want false when explicit OPENCLAW_CONFIG_PATH is missing")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("openclawActiveConfigPath: %v", err) })
+	testassert.OnFailure(t, got != explicitPath, func() { t.Errorf("path = %q, want OPENCLAW_CONFIG_PATH hard override %q", got, explicitPath) })
+	testassert.OnFailure(t, exists, func() { t.Fatal("exists = true, want false when explicit OPENCLAW_CONFIG_PATH is missing") })
 }
 
 func TestOpenclawActiveConfigPathFallbackErrorIncludesOriginalCLIError(t *testing.T) {
@@ -420,16 +376,10 @@ func TestOpenclawActiveConfigPathFallbackErrorIncludesOriginalCLIError(t *testin
 	})
 
 	_, _, err := openclawActiveConfigPath(stub.bin, openclawCLITimeout)
-	if err == nil {
-		t.Fatal("openclawActiveConfigPath succeeded with directory config path; expected error")
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("openclawActiveConfigPath succeeded with directory config path; expected error") })
 	msg := err.Error()
-	if !strings.Contains(msg, "too many arguments for 'config'") {
-		t.Errorf("error %q lost original unsupported CLI stderr", msg)
-	}
-	if !strings.Contains(msg, "is a directory") {
-		t.Errorf("error %q lost fallback failure detail", msg)
-	}
+	testassert.OnFailure(t, !strings.Contains(msg, "too many arguments for 'config'"), func() { t.Errorf("error %q lost original unsupported CLI stderr", msg) })
+	testassert.OnFailure(t, !strings.Contains(msg, "is a directory"), func() { t.Errorf("error %q lost fallback failure detail", msg) })
 }
 
 func TestIsOpenclawConfigFileUnsupportedMatchesKnownShapes(t *testing.T) {
@@ -497,12 +447,10 @@ func TestPrepareOpenclawConfigFailsClosedOnMalformedAgentsList(t *testing.T) {
 	})
 
 	_, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err == nil {
+	testassert.OnFailure(t, err == nil, func() {
 		t.Fatal("prepareOpenclawConfig succeeded on malformed agents.list output; expected fail closed")
-	}
-	if !strings.Contains(err.Error(), "agents.list") {
-		t.Errorf("error message %q does not name the failed step", err.Error())
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "agents.list"), func() { t.Errorf("error message %q does not name the failed step", err.Error()) })
 }
 
 // TestPrepareOpenclawConfigKeyMissingTreatedAsEmpty — `config get` exits
@@ -532,17 +480,13 @@ func TestPrepareOpenclawConfigKeyMissingTreatedAsEmpty(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	cfgPath := result.ConfigPath
 	got := mustReadJSON(t, cfgPath)
 	if _, present := got["agents"].(map[string]any)["list"]; present {
 		t.Errorf("agents.list should be omitted when user has none, got %v", got["agents"])
 	}
-	if got["agents"].(map[string]any)["defaults"].(map[string]any)["workspace"] != workDir {
-		t.Errorf("defaults.workspace not set when agents.list missing")
-	}
+	testassert.OnFailure(t, got["agents"].(map[string]any)["defaults"].(map[string]any)["workspace"] != workDir, func() { t.Errorf("defaults.workspace not set when agents.list missing") })
 }
 
 // TestPrepareOpenclawConfigFreshInstallNoOnDiskConfig — the only legitimate
@@ -566,23 +510,19 @@ func TestPrepareOpenclawConfigFreshInstallNoOnDiskConfig(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	cfgPath := result.ConfigPath
 	got := mustReadJSON(t, cfgPath)
 	if _, present := got["$include"]; present {
 		t.Errorf("$include should be absent for fresh install, got %v", got["$include"])
 	}
-	if got["agents"].(map[string]any)["defaults"].(map[string]any)["workspace"] != workDir {
-		t.Errorf("defaults.workspace not set on fresh-install wrapper")
-	}
+	testassert.OnFailure(t, got["agents"].(map[string]any)["defaults"].(map[string]any)["workspace"] != workDir, func() { t.Errorf("defaults.workspace not set on fresh-install wrapper") })
 	// Fresh install emits no $include, so no extra include root is needed
 	// — the wrapper never steps outside envRoot. Daemon should leave the
 	// user's OPENCLAW_INCLUDE_ROOTS alone.
-	if result.IncludeRoot != "" {
+	testassert.OnFailure(t, result.IncludeRoot != "", func() {
 		t.Errorf("IncludeRoot = %q on fresh install, want empty (no $include emitted)", result.IncludeRoot)
-	}
+	})
 }
 
 // TestPrepareOpenclawConfigExpandsTilde — `openclaw config file` reports
@@ -611,22 +551,20 @@ func TestPrepareOpenclawConfigExpandsTilde(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	cfgPath := result.ConfigPath
 	got := mustReadJSON(t, cfgPath)
 	include := got["$include"].([]any)
-	if include[0] != realPath {
+	testassert.OnFailure(t, include[0] != realPath, func() {
 		t.Errorf("$include[0] = %v, want %q (tilde must be expanded to absolute)", include[0], realPath)
-	}
+	})
 	// IncludeRoot must also use the expanded absolute dirname, otherwise
 	// the daemon would export a `~/.openclaw`-shaped root that OpenClaw
 	// would not match against the resolved absolute include target.
 	wantRoot := filepath.Join(fakeHome, ".openclaw")
-	if result.IncludeRoot != wantRoot {
+	testassert.OnFailure(t, result.IncludeRoot != wantRoot, func() {
 		t.Errorf("IncludeRoot = %q, want %q (must be expanded absolute dirname)", result.IncludeRoot, wantRoot)
-	}
+	})
 }
 
 // TestPrepareOpenclawConfigParsesPathFromUITerminalOutput — regression test
@@ -671,15 +609,13 @@ func TestPrepareOpenclawConfigParsesPathFromUITerminalOutput(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 
 	got := mustReadJSON(t, result.ConfigPath)
 	include := got["$include"].([]any)
-	if include[0] != userConfigPath {
+	testassert.OnFailure(t, include[0] != userConfigPath, func() {
 		t.Errorf("$include[0] = %v, want %q (path must be extracted from last non-empty line)", include[0], userConfigPath)
-	}
+	})
 }
 
 // TestPrepareOpenclawConfigWrapperLoadableUnderIncludeConfinement is the
@@ -723,15 +659,11 @@ func TestPrepareOpenclawConfigWrapperLoadableUnderIncludeConfinement(t *testing.
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 
 	got := mustReadJSON(t, result.ConfigPath)
 	rawIncludes, ok := got["$include"].([]any)
-	if !ok || len(rawIncludes) == 0 {
-		t.Fatalf("wrapper has no $include entries, but a user config is present: %v", got)
-	}
+	testassert.OnFailure(t, !ok || len(rawIncludes) == 0, func() { t.Fatalf("wrapper has no $include entries, but a user config is present: %v", got) })
 
 	// Mirror OpenClaw's confinement check: every cross-dir $include target
 	// must have its dirname covered by either the wrapper's own dir or the
@@ -743,9 +675,7 @@ func TestPrepareOpenclawConfigWrapperLoadableUnderIncludeConfinement(t *testing.
 	}
 	for _, raw := range rawIncludes {
 		target, ok := raw.(string)
-		if !ok {
-			t.Fatalf("$include entry is not a string: %T %v", raw, raw)
-		}
+		testassert.OnFailure(t, !ok, func() { t.Fatalf("$include entry is not a string: %T %v", raw, raw) })
 		targetDir := filepath.Dir(target)
 		allowed := false
 		for _, g := range granted {
@@ -754,10 +684,10 @@ func TestPrepareOpenclawConfigWrapperLoadableUnderIncludeConfinement(t *testing.
 				break
 			}
 		}
-		if !allowed {
+		testassert.OnFailure(t, !allowed, func() {
 			t.Errorf("$include target %q has dirname %q which is not in granted include roots %v — OpenClaw would refuse to load it",
 				target, targetDir, granted)
-		}
+		})
 	}
 }
 
@@ -806,22 +736,16 @@ func TestPrepareOpenclawConfigStrictReplacesUserMcpServers(t *testing.T) {
 		OpenclawBin: stub.bin,
 		McpConfig:   mcpConfig,
 	})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 
 	got := mustReadJSON(t, result.ConfigPath)
 	mcp, ok := got["mcp"].(map[string]any)
-	if !ok {
-		t.Fatalf("wrapper missing mcp block: %v", got)
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("wrapper missing mcp block: %v", got) })
 	servers, ok := mcp["servers"].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp.servers is not an object: %v", mcp)
-	}
-	if len(servers) != 2 {
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("mcp.servers is not an object: %v", mcp) })
+	testassert.OnFailure(t, len(servers) != 2, func() {
 		t.Errorf("mcp.servers has %d entries, want 2 (managed only — global_one must not leak): %v", len(servers), servers)
-	}
+	})
 	if _, leaked := servers["global_one"]; leaked {
 		t.Errorf("mcp.servers.global_one leaked into wrapper from user config: %v", servers)
 	}
@@ -835,17 +759,13 @@ func TestPrepareOpenclawConfigStrictReplacesUserMcpServers(t *testing.T) {
 	// The wrapper's $include must point at the sanitized snapshot, NOT the
 	// live user config — otherwise OpenClaw would deep-merge user.mcp back in.
 	include, _ := got["$include"].([]any)
-	if len(include) != 1 {
-		t.Fatalf("wrapper $include has %d entries, want 1: %v", len(include), include)
-	}
+	testassert.OnFailure(t, len(include) != 1, func() { t.Fatalf("wrapper $include has %d entries, want 1: %v", len(include), include) })
 	snapshotPath, _ := include[0].(string)
-	if snapshotPath == userCfgPath {
+	testassert.OnFailure(t, snapshotPath == userCfgPath, func() {
 		t.Fatalf("wrapper $includes the live user config (%q) — strict replace requires the sanitized snapshot", userCfgPath)
-	}
+	})
 	wantSnapshot := filepath.Join(envRoot, openclawUserSnapshotFile)
-	if snapshotPath != wantSnapshot {
-		t.Errorf("$include = %q, want sanitized snapshot %q", snapshotPath, wantSnapshot)
-	}
+	testassert.OnFailure(t, snapshotPath != wantSnapshot, func() { t.Errorf("$include = %q, want sanitized snapshot %q", snapshotPath, wantSnapshot) })
 
 	// Snapshot must exist, must drop the `mcp` block, and must preserve the
 	// non-mcp keys (gateway, providers, secrets) so OpenClaw still has API
@@ -863,9 +783,9 @@ func TestPrepareOpenclawConfigStrictReplacesUserMcpServers(t *testing.T) {
 
 	// The snapshot lives in envRoot alongside the wrapper, so the daemon
 	// does NOT need to grant an OPENCLAW_INCLUDE_ROOTS entry for it.
-	if result.IncludeRoot != "" {
+	testassert.OnFailure(t, result.IncludeRoot != "", func() {
 		t.Errorf("IncludeRoot = %q, want empty (snapshot lives in envRoot, no cross-dir include)", result.IncludeRoot)
-	}
+	})
 }
 
 // TestPrepareOpenclawConfigStrictPreservesNonServerMcpKeys — Elon's
@@ -909,16 +829,14 @@ func TestPrepareOpenclawConfigStrictPreservesNonServerMcpKeys(t *testing.T) {
 		OpenclawBin: stub.bin,
 		McpConfig:   mcpConfig,
 	})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 
 	snapPath := filepath.Join(envRoot, openclawUserSnapshotFile)
 	snap := mustReadJSON(t, snapPath)
 	snapMcp, ok := snap["mcp"].(map[string]any)
-	if !ok {
+	testassert.OnFailure(t, !ok, func() {
 		t.Fatalf("snapshot lost the mcp block entirely; mcp.sessionIdleTtlMs should have survived: %v", snap)
-	}
+	})
 	if _, leaked := snapMcp["servers"]; leaked {
 		t.Errorf("snapshot still has mcp.servers; strict scope must drop it: %v", snapMcp)
 	}
@@ -972,21 +890,15 @@ func TestPrepareOpenclawConfigStrictEmptyManagedSetDropsUserMcp(t *testing.T) {
 				OpenclawBin: stub.bin,
 				McpConfig:   raw,
 			})
-			if err != nil {
-				t.Fatalf("prepareOpenclawConfig: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 			got := mustReadJSON(t, result.ConfigPath)
 			mcp, ok := got["mcp"].(map[string]any)
-			if !ok {
-				t.Fatalf("wrapper missing mcp block (managed empty must still be present): %v", got)
-			}
+			testassert.OnFailure(t, !ok, func() { t.Fatalf("wrapper missing mcp block (managed empty must still be present): %v", got) })
 			servers, ok := mcp["servers"].(map[string]any)
-			if !ok {
-				t.Fatalf("mcp.servers is not an object: %v", mcp)
-			}
-			if len(servers) != 0 {
+			testassert.OnFailure(t, !ok, func() { t.Fatalf("mcp.servers is not an object: %v", mcp) })
+			testassert.OnFailure(t, len(servers) != 0, func() {
 				t.Errorf("mcp.servers has %d entries on managed-empty, want 0 (global_one must not leak): %v", len(servers), servers)
-			}
+			})
 			// And the snapshot must have dropped the user's mcp block, so the
 			// $include resolves with no mcp at all.
 			snapPath := filepath.Join(envRoot, openclawUserSnapshotFile)
@@ -1033,23 +945,21 @@ func TestPrepareOpenclawConfigNullMcpConfigKeepsUserInclude(t *testing.T) {
 				OpenclawBin: stub.bin,
 				McpConfig:   raw,
 			})
-			if err != nil {
-				t.Fatalf("prepareOpenclawConfig: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 			got := mustReadJSON(t, result.ConfigPath)
 			if _, present := got["mcp"]; present {
 				t.Errorf("wrapper has mcp block when mcp_config = %q: %v", name, got["mcp"])
 			}
 			include, _ := got["$include"].([]any)
-			if len(include) != 1 || include[0] != userCfgPath {
+			testassert.OnFailure(t, len(include) != 1 || include[0] != userCfgPath, func() {
 				t.Errorf("$include = %v, want live user config %q on inherit path", got["$include"], userCfgPath)
-			}
+			})
 			if _, err := os.Stat(filepath.Join(envRoot, openclawUserSnapshotFile)); !os.IsNotExist(err) {
 				t.Errorf("inherit path wrote a snapshot file (should not): err=%v", err)
 			}
-			if result.IncludeRoot != userCfgDir {
+			testassert.OnFailure(t, result.IncludeRoot != userCfgDir, func() {
 				t.Errorf("IncludeRoot = %q, want %q (cross-dir hop for live $include)", result.IncludeRoot, userCfgDir)
-			}
+			})
 		})
 	}
 }
@@ -1075,26 +985,16 @@ func TestPrepareOpenclawConfigManagedSetFreshInstall(t *testing.T) {
 		OpenclawBin: stub.bin,
 		McpConfig:   mcpConfig,
 	})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	got := mustReadJSON(t, result.ConfigPath)
 	mcp, ok := got["mcp"].(map[string]any)
-	if !ok {
-		t.Fatalf("wrapper missing mcp block: %v", got)
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("wrapper missing mcp block: %v", got) })
 	servers, ok := mcp["servers"].(map[string]any)
-	if !ok {
-		t.Fatalf("mcp.servers is not an object: %v", mcp)
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("mcp.servers is not an object: %v", mcp) })
 	entry, _ := servers["context7"].(map[string]any)
-	if entry == nil || entry["command"] != "uvx" {
-		t.Errorf("context7 entry missing/wrong on fresh install: %v", servers)
-	}
+	testassert.OnFailure(t, entry == nil || entry["command"] != "uvx", func() { t.Errorf("context7 entry missing/wrong on fresh install: %v", servers) })
 	args, _ := entry["args"].([]any)
-	if len(args) != 1 || args[0] != "context7-mcp" {
-		t.Errorf("context7.args = %v", args)
-	}
+	testassert.OnFailure(t, len(args) != 1 || args[0] != "context7-mcp", func() { t.Errorf("context7.args = %v", args) })
 	if _, present := got["$include"]; present {
 		t.Errorf("fresh install should not emit $include: %v", got["$include"])
 	}
@@ -1129,18 +1029,12 @@ func TestPrepareOpenclawConfigFailsClosedOnResolvedConfigError(t *testing.T) {
 		OpenclawBin: stub.bin,
 		McpConfig:   mcpConfig,
 	})
-	if err == nil {
+	testassert.OnFailure(t, err == nil, func() {
 		t.Fatal("prepareOpenclawConfig succeeded when `config get --json` errored; expected fail closed")
-	}
-	if !strings.Contains(err.Error(), "resolved config") {
-		t.Errorf("error %q does not name the resolved-config step", err.Error())
-	}
-	if !strings.Contains(err.Error(), "json error: schema validation failed") {
-		t.Errorf("error %q omits the structured CLI diagnostic", err.Error())
-	}
-	if strings.Contains(err.Error(), "must-not-leak") {
-		t.Errorf("error leaked a non-diagnostic JSON field: %q", err.Error())
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "resolved config"), func() { t.Errorf("error %q does not name the resolved-config step", err.Error()) })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "json error: schema validation failed"), func() { t.Errorf("error %q omits the structured CLI diagnostic", err.Error()) })
+	testassert.OnFailure(t, strings.Contains(err.Error(), "must-not-leak"), func() { t.Errorf("error leaked a non-diagnostic JSON field: %q", err.Error()) })
 	// No stale wrapper / snapshot left behind.
 	if _, err := os.Stat(filepath.Join(envRoot, openclawConfigFile)); !os.IsNotExist(err) {
 		t.Errorf("wrapper exists after fail-closed: %v", err)
@@ -1181,12 +1075,8 @@ func TestPrepareOpenclawConfigFailsClosedOnMalformedMcpConfig(t *testing.T) {
 				OpenclawBin: stub.bin,
 				McpConfig:   raw,
 			})
-			if err == nil {
-				t.Fatalf("prepareOpenclawConfig succeeded on %s; expected fail closed", name)
-			}
-			if !strings.Contains(err.Error(), "mcp_config") && !strings.Contains(err.Error(), "mcp_servers") {
-				t.Errorf("error %q does not name the mcp_config step", err.Error())
-			}
+			testassert.OnFailure(t, err == nil, func() { t.Fatalf("prepareOpenclawConfig succeeded on %s; expected fail closed", name) })
+			testassert.OnFailure(t, !strings.Contains(err.Error(), "mcp_config") && !strings.Contains(err.Error(), "mcp_servers"), func() { t.Errorf("error %q does not name the mcp_config step", err.Error()) })
 		})
 	}
 }
@@ -1220,9 +1110,7 @@ func TestPrepareOpenclawSkillWriteMatchesScanPath(t *testing.T) {
 	}
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	cfgPath := result.ConfigPath
 	if err := writeContextFiles(workDir, "openclaw", TaskContextForEnv{
 		IssueID:     "issue-1",
@@ -1264,23 +1152,15 @@ func TestPrepareEnvironmentOpenclawWiresConfigPath(t *testing.T) {
 			IssueID: "issue-1",
 		},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatalf("Prepare: %v", err)
-	}
-	if env.OpenclawConfigPath == "" {
-		t.Fatal("Prepare(openclaw) did not set OpenclawConfigPath")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare: %v", err) })
+	testassert.OnFailure(t, env.OpenclawConfigPath == "", func() { t.Fatal("Prepare(openclaw) did not set OpenclawConfigPath") })
 	got := mustReadJSON(t, env.OpenclawConfigPath)
 	workspace := got["agents"].(map[string]any)["defaults"].(map[string]any)["workspace"]
-	if workspace != env.WorkDir {
-		t.Errorf("agents.defaults.workspace = %v, want %q", workspace, env.WorkDir)
-	}
+	testassert.OnFailure(t, workspace != env.WorkDir, func() { t.Errorf("agents.defaults.workspace = %v, want %q", workspace, env.WorkDir) })
 	// Fresh install path emits no $include, so the Environment should
 	// leave OpenclawIncludeRoot empty — the daemon must NOT spuriously
 	// grant include roots when no cross-dir hop is being made.
-	if env.OpenclawIncludeRoot != "" {
-		t.Errorf("OpenclawIncludeRoot = %q on fresh install, want empty", env.OpenclawIncludeRoot)
-	}
+	testassert.OnFailure(t, env.OpenclawIncludeRoot != "", func() { t.Errorf("OpenclawIncludeRoot = %q on fresh install, want empty", env.OpenclawIncludeRoot) })
 }
 
 // TestPrepareEnvironmentOpenclawWiresIncludeRoot — when the user has an
@@ -1310,12 +1190,10 @@ func TestPrepareEnvironmentOpenclawWiresIncludeRoot(t *testing.T) {
 		OpenclawBin:    stub.bin,
 		Task:           TaskContextForEnv{IssueID: "issue-1"},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err != nil {
-		t.Fatalf("Prepare: %v", err)
-	}
-	if env.OpenclawIncludeRoot != userCfgDir {
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare: %v", err) })
+	testassert.OnFailure(t, env.OpenclawIncludeRoot != userCfgDir, func() {
 		t.Errorf("OpenclawIncludeRoot = %q, want %q (dirname of active config so daemon can grant OPENCLAW_INCLUDE_ROOTS)", env.OpenclawIncludeRoot, userCfgDir)
-	}
+	})
 }
 
 // TestPrepareEnvironmentOpenclawFailsClosed — when the openclaw CLI errors
@@ -1337,12 +1215,8 @@ func TestPrepareEnvironmentOpenclawFailsClosed(t *testing.T) {
 		OpenclawBin:    stub.bin,
 		Task:           TaskContextForEnv{IssueID: "issue-1"},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	if err == nil {
-		t.Fatal("Prepare(openclaw) succeeded when CLI errored; expected fail closed")
-	}
-	if !strings.Contains(err.Error(), "prepare openclaw config") {
-		t.Errorf("error message %q does not name the openclaw config step", err.Error())
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("Prepare(openclaw) succeeded when CLI errored; expected fail closed") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "prepare openclaw config"), func() { t.Errorf("error message %q does not name the openclaw config step", err.Error()) })
 }
 
 // TestPrepareEnvironmentNonOpenclawSkipsConfig — non-openclaw providers
@@ -1371,20 +1245,18 @@ func TestPrepareEnvironmentNonOpenclawSkipsConfig(t *testing.T) {
 				Provider:       provider,
 				Task:           TaskContextForEnv{IssueID: "issue-1"},
 			}, slog.New(slog.NewTextHandler(io.Discard, nil)))
-			if err != nil {
-				t.Fatalf("Prepare(%s): %v", provider, err)
-			}
-			if env.OpenclawConfigPath != "" {
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare(%s): %v", provider, err) })
+			testassert.OnFailure(t, env.OpenclawConfigPath != "", func() {
 				t.Errorf("provider %s should not get an OpenclawConfigPath, got %q", provider, env.OpenclawConfigPath)
-			}
+			})
 			if _, err := os.Stat(filepath.Join(env.RootDir, openclawConfigFile)); !os.IsNotExist(err) {
 				t.Errorf("provider %s left a stray openclaw-config.json", provider)
 			}
 		})
 	}
-	if len(stub.calls) != 0 {
+	testassert.OnFailure(t, len(stub.calls) != 0, func() {
 		t.Errorf("non-openclaw providers shelled out to openclaw CLI %d times: %+v", len(stub.calls), stub.calls)
-	}
+	})
 }
 
 // ── Gateway endpoint pinning (issue #3260) ──
@@ -1422,30 +1294,16 @@ func TestBuildPerTaskOpenclawConfigWritesGatewayBlock(t *testing.T) {
 	)
 
 	gw, ok := cfg["gateway"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected gateway map, got %T: %v", cfg["gateway"], cfg["gateway"])
-	}
-	if gw["host"] != "gw.internal" {
-		t.Errorf("gateway.host = %v, want %q", gw["host"], "gw.internal")
-	}
-	if gw["port"] != 18789 {
-		t.Errorf("gateway.port = %v, want %d", gw["port"], 18789)
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected gateway map, got %T: %v", cfg["gateway"], cfg["gateway"]) })
+	testassert.OnFailure(t, gw["host"] != "gw.internal", func() { t.Errorf("gateway.host = %v, want %q", gw["host"], "gw.internal") })
+	testassert.OnFailure(t, gw["port"] != 18789, func() { t.Errorf("gateway.port = %v, want %d", gw["port"], 18789) })
 	// Token nests under gateway.auth.{mode,token} to match OpenClaw's own
 	// config shape (see ~/.openclaw/openclaw.json `gateway.auth`).
 	auth, ok := gw["auth"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected gateway.auth map, got %T: %v", gw["auth"], gw["auth"])
-	}
-	if auth["mode"] != "token" {
-		t.Errorf("gateway.auth.mode = %v, want %q", auth["mode"], "token")
-	}
-	if auth["token"] != "secret-token" {
-		t.Errorf("gateway.auth.token = %v, want %q", auth["token"], "secret-token")
-	}
-	if gw["tls"] != true {
-		t.Errorf("gateway.tls = %v, want true", gw["tls"])
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatalf("expected gateway.auth map, got %T: %v", gw["auth"], gw["auth"]) })
+	testassert.OnFailure(t, auth["mode"] != "token", func() { t.Errorf("gateway.auth.mode = %v, want %q", auth["mode"], "token") })
+	testassert.OnFailure(t, auth["token"] != "secret-token", func() { t.Errorf("gateway.auth.token = %v, want %q", auth["token"], "secret-token") })
+	testassert.OnFailure(t, gw["tls"] != true, func() { t.Errorf("gateway.tls = %v, want true", gw["tls"]) })
 }
 
 func TestBuildPerTaskOpenclawConfigPartialGatewayOmitsZeroFields(t *testing.T) {
@@ -1583,15 +1441,9 @@ func TestAnnotateOpenclawJSONError(t *testing.T) {
 			cause,
 			`{"error":"  schema\nvalidation failed  ","resolved":{"apiKey":"must-not-leak"}}`,
 		)
-		if !errors.Is(got, cause) {
-			t.Fatalf("annotated error lost its cause: %v", got)
-		}
-		if !strings.Contains(got.Error(), "json error: schema validation failed") {
-			t.Fatalf("annotated error omitted or failed to normalize the diagnostic: %v", got)
-		}
-		if strings.Contains(got.Error(), "must-not-leak") {
-			t.Fatalf("annotated error leaked a sibling JSON field: %v", got)
-		}
+		testassert.OnFailure(t, !errors.Is(got, cause), func() { t.Fatalf("annotated error lost its cause: %v", got) })
+		testassert.OnFailure(t, !strings.Contains(got.Error(), "json error: schema validation failed"), func() { t.Fatalf("annotated error omitted or failed to normalize the diagnostic: %v", got) })
+		testassert.OnFailure(t, strings.Contains(got.Error(), "must-not-leak"), func() { t.Fatalf("annotated error leaked a sibling JSON field: %v", got) })
 	})
 
 	t.Run("bounds the diagnostic", func(t *testing.T) {
@@ -1602,12 +1454,8 @@ func TestAnnotateOpenclawJSONError(t *testing.T) {
 			cause,
 			`{"error":"`+prefix+`extra"}`,
 		)
-		if !strings.Contains(got.Error(), "json error: "+prefix+"…") {
-			t.Fatalf("annotated error was not truncated at the rune limit: %v", got)
-		}
-		if strings.Contains(got.Error(), "extra") {
-			t.Fatalf("annotated error exceeded its bound: %v", got)
-		}
+		testassert.OnFailure(t, !strings.Contains(got.Error(), "json error: "+prefix+"…"), func() { t.Fatalf("annotated error was not truncated at the rune limit: %v", got) })
+		testassert.OnFailure(t, strings.Contains(got.Error(), "extra"), func() { t.Fatalf("annotated error exceeded its bound: %v", got) })
 	})
 
 	t.Run("ignores malformed envelopes", func(t *testing.T) {
@@ -1662,14 +1510,10 @@ func TestPrepareOpenclawConfigNewSchemaOmitsAgentsList(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	got := mustReadJSON(t, result.ConfigPath)
 	agents := got["agents"].(map[string]any)
-	if agents["defaults"].(map[string]any)["workspace"] != workDir {
-		t.Errorf("defaults.workspace not pinned to workDir")
-	}
+	testassert.OnFailure(t, agents["defaults"].(map[string]any)["workspace"] != workDir, func() { t.Errorf("defaults.workspace not pinned to workDir") })
 	if _, present := agents["list"]; present {
 		t.Fatalf("agents.list must be omitted for a registry-sourced (2026.6.x) host — OpenClaw rejects it; got %v", agents["list"])
 	}
@@ -1696,17 +1540,13 @@ func TestPrepareOpenclawConfigNewSchemaEmptyRegistry(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	got := mustReadJSON(t, result.ConfigPath)
 	agents := got["agents"].(map[string]any)
 	if _, present := agents["list"]; present {
 		t.Errorf("agents.list should be omitted for empty registry, got %v", agents["list"])
 	}
-	if agents["defaults"].(map[string]any)["workspace"] != workDir {
-		t.Errorf("defaults.workspace not set")
-	}
+	testassert.OnFailure(t, agents["defaults"].(map[string]any)["workspace"] != workDir, func() { t.Errorf("defaults.workspace not set") })
 }
 
 // TestExpandOpenclawPathTildeSeparators — `openclaw config file` shortens the
@@ -1733,15 +1573,13 @@ func TestExpandOpenclawPathTildeSeparators(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := expandOpenclawPath(tc.in)
-			if err != nil {
-				t.Fatalf("expandOpenclawPath(%q): %v", tc.in, err)
-			}
-			if strings.Contains(got, "~") {
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("expandOpenclawPath(%q): %v", tc.in, err) })
+			testassert.OnFailure(t, strings.Contains(got, "~"), func() {
 				t.Errorf("expandOpenclawPath(%q) = %q, want the tilde expanded (a literal ~ can never stat)", tc.in, got)
-			}
-			if !strings.HasPrefix(got, fakeHome) {
+			})
+			testassert.OnFailure(t, !strings.HasPrefix(got, fakeHome), func() {
 				t.Errorf("expandOpenclawPath(%q) = %q, want it rooted at the home dir %q", tc.in, got, fakeHome)
-			}
+			})
 		})
 	}
 }
@@ -1767,12 +1605,8 @@ func TestExpandOpenclawPathOpenclawHome(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := expandOpenclawPath(tc.in)
-			if err != nil {
-				t.Fatalf("expandOpenclawPath(%q): %v", tc.in, err)
-			}
-			if got != tc.want {
-				t.Errorf("expandOpenclawPath(%q) = %q, want %q", tc.in, got, tc.want)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("expandOpenclawPath(%q): %v", tc.in, err) })
+			testassert.OnFailure(t, got != tc.want, func() { t.Errorf("expandOpenclawPath(%q) = %q, want %q", tc.in, got, tc.want) })
 		})
 	}
 }
@@ -1787,16 +1621,10 @@ func TestExpandOpenclawPathOpenclawHomeUnsetFailsLoudly(t *testing.T) {
 	t.Setenv("OPENCLAW_HOME", "")
 
 	got, err := expandOpenclawPath(`$OPENCLAW_HOME/.openclaw/openclaw.json`)
-	if err == nil {
-		t.Fatalf("expandOpenclawPath returned %q, want an error when OPENCLAW_HOME is empty", got)
-	}
-	if !strings.Contains(err.Error(), "OPENCLAW_HOME") {
-		t.Errorf("error %q does not name the variable that could not be expanded", err.Error())
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatalf("expandOpenclawPath returned %q, want an error when OPENCLAW_HOME is empty", got) })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "OPENCLAW_HOME"), func() { t.Errorf("error %q does not name the variable that could not be expanded", err.Error()) })
 	// The path is what the reader of a daemon log needs in order to act.
-	if !strings.Contains(err.Error(), `"$OPENCLAW_HOME/.openclaw/openclaw.json"`) {
-		t.Errorf("error %q does not name the path being expanded", err.Error())
-	}
+	testassert.OnFailure(t, !strings.Contains(err.Error(), `"$OPENCLAW_HOME/.openclaw/openclaw.json"`), func() { t.Errorf("error %q does not name the path being expanded", err.Error()) })
 }
 
 // TestPrepareOpenclawConfigExpandsOpenclawHome — end-to-end guard, mirroring
@@ -1834,20 +1662,14 @@ func TestPrepareOpenclawConfigExpandsOpenclawHome(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	got := mustReadJSON(t, result.ConfigPath)
 	include, ok := got["$include"].([]any)
-	if !ok {
+	testassert.OnFailure(t, !ok, func() {
 		t.Fatalf("wrapper has no $include — the user's models and auth profiles would be lost: %#v", got)
-	}
-	if include[0] != wantPath {
-		t.Errorf("$include[0] = %v, want %q", include[0], wantPath)
-	}
-	if result.IncludeRoot != filepath.Dir(wantPath) {
-		t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, filepath.Dir(wantPath))
-	}
+	})
+	testassert.OnFailure(t, include[0] != wantPath, func() { t.Errorf("$include[0] = %v, want %q", include[0], wantPath) })
+	testassert.OnFailure(t, result.IncludeRoot != filepath.Dir(wantPath), func() { t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, filepath.Dir(wantPath)) })
 }
 
 // TestExpandOpenclawPathOpenclawHomeIsItselfATilde — the variable's *value* may
@@ -1905,15 +1727,13 @@ func TestExpandOpenclawPathOpenclawHomeIsItselfATilde(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("OPENCLAW_HOME", tc.env)
 			got, err := expandOpenclawPath(tc.in)
-			if err != nil {
-				t.Fatalf("expandOpenclawPath(%q) with OPENCLAW_HOME=%q: %v", tc.in, tc.env, err)
-			}
-			if strings.Contains(got, "~") {
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("expandOpenclawPath(%q) with OPENCLAW_HOME=%q: %v", tc.in, tc.env, err) })
+			testassert.OnFailure(t, strings.Contains(got, "~"), func() {
 				t.Errorf("expandOpenclawPath(%q) = %q, want the value's `~` expanded (a literal ~ can never stat)", tc.in, got)
-			}
-			if got != tc.want {
+			})
+			testassert.OnFailure(t, got != tc.want, func() {
 				t.Errorf("expandOpenclawPath(%q) with OPENCLAW_HOME=%q = %q, want %q", tc.in, tc.env, got, tc.want)
-			}
+			})
 		})
 	}
 }
@@ -1932,18 +1752,12 @@ func TestExpandOpenclawPathLeavesLookalikePrefixesAlone(t *testing.T) {
 	} {
 		t.Run(in, func(t *testing.T) {
 			got, err := expandOpenclawPath(in)
-			if err != nil {
-				t.Fatalf("expandOpenclawPath(%q): %v", in, err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("expandOpenclawPath(%q): %v", in, err) })
 			// Untouched by the new branch: still resolved as an ordinary
 			// relative path, exactly as on `main`.
 			want, aerr := filepath.Abs(in)
-			if aerr != nil {
-				t.Fatalf("filepath.Abs(%q): %v", in, aerr)
-			}
-			if got != want {
-				t.Errorf("expandOpenclawPath(%q) = %q, want it left as a relative path -> %q", in, got, want)
-			}
+			testassert.OnFailure(t, aerr != nil, func() { t.Fatalf("filepath.Abs(%q): %v", in, aerr) })
+			testassert.OnFailure(t, got != want, func() { t.Errorf("expandOpenclawPath(%q) = %q, want it left as a relative path -> %q", in, got, want) })
 		})
 	}
 }
@@ -1979,20 +1793,14 @@ func TestPrepareOpenclawConfigExpandsTildeValuedOpenclawHome(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	got := mustReadJSON(t, result.ConfigPath)
 	include, ok := got["$include"].([]any)
-	if !ok {
+	testassert.OnFailure(t, !ok, func() {
 		t.Fatalf("wrapper has no $include — the user's models and auth profiles would be lost: %#v", got)
-	}
-	if include[0] != wantPath {
-		t.Errorf("$include[0] = %v, want %q", include[0], wantPath)
-	}
-	if result.IncludeRoot != filepath.Dir(wantPath) {
-		t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, filepath.Dir(wantPath))
-	}
+	})
+	testassert.OnFailure(t, include[0] != wantPath, func() { t.Errorf("$include[0] = %v, want %q", include[0], wantPath) })
+	testassert.OnFailure(t, result.IncludeRoot != filepath.Dir(wantPath), func() { t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, filepath.Dir(wantPath)) })
 }
 
 // TestPrepareOpenclawConfigExpandsWindowsTilde — end-to-end guard for #6630:
@@ -2032,20 +1840,14 @@ func TestPrepareOpenclawConfigExpandsWindowsTilde(t *testing.T) {
 	})
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	got := mustReadJSON(t, result.ConfigPath)
 	include, ok := got["$include"].([]any)
-	if !ok {
+	testassert.OnFailure(t, !ok, func() {
 		t.Fatalf("wrapper has no $include — the user's models and auth profiles would be lost: %#v", got)
-	}
-	if include[0] != wantPath {
-		t.Errorf("$include[0] = %v, want %q", include[0], wantPath)
-	}
-	if result.IncludeRoot != filepath.Dir(wantPath) {
-		t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, filepath.Dir(wantPath))
-	}
+	})
+	testassert.OnFailure(t, include[0] != wantPath, func() { t.Errorf("$include[0] = %v, want %q", include[0], wantPath) })
+	testassert.OnFailure(t, result.IncludeRoot != filepath.Dir(wantPath), func() { t.Errorf("IncludeRoot = %q, want %q", result.IncludeRoot, filepath.Dir(wantPath)) })
 }
 
 // TestPrepareOpenclawConfigWarnsWhenActiveConfigMissing — discovery used to be
@@ -2066,17 +1868,9 @@ func TestPrepareOpenclawConfigWarnsWhenActiveConfigMissing(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	result, err := prepareOpenclawConfig(envRoot, workDir, OpenclawConfigPrep{OpenclawBin: stub.bin, Logger: logger})
-	if err != nil {
-		t.Fatalf("prepareOpenclawConfig: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prepareOpenclawConfig: %v", err) })
 	out := logs.String()
-	if !strings.Contains(out, "openclaw active config not found") {
-		t.Errorf("missing active config was not warned about; log was:\n%s", out)
-	}
-	if !strings.Contains(out, "include_target=none") {
-		t.Errorf("prepared-config log should record include_target=none; log was:\n%s", out)
-	}
-	if result.IncludeRoot != "" {
-		t.Errorf("IncludeRoot = %q, want empty", result.IncludeRoot)
-	}
+	testassert.OnFailure(t, !strings.Contains(out, "openclaw active config not found"), func() { t.Errorf("missing active config was not warned about; log was:\n%s", out) })
+	testassert.OnFailure(t, !strings.Contains(out, "include_target=none"), func() { t.Errorf("prepared-config log should record include_target=none; log was:\n%s", out) })
+	testassert.OnFailure(t, result.IncludeRoot != "", func() { t.Errorf("IncludeRoot = %q, want empty", result.IncludeRoot) })
 }

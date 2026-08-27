@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // Room audience belongs to the per-turn message, not the cached brief. The
@@ -21,9 +23,7 @@ func TestBriefChatWorkflowDoesNotAssertAudience(t *testing.T) {
 		AgentID:         "9df55bf2-67de-4ae6-803f-4de2fbd45df1",
 		AgentName:       "Eve",
 	})
-	if !strings.Contains(out, "**You are in chat mode.**") {
-		t.Fatal("chat brief must still identify chat mode")
-	}
+	testassert.OnFailure(t, !strings.Contains(out, "**You are in chat mode.**"), func() { t.Fatal("chat brief must still identify chat mode") })
 	for _, retired := range []string{
 		"## Conversation Channel",
 		"Audience:",
@@ -31,9 +31,7 @@ func TestBriefChatWorkflowDoesNotAssertAudience(t *testing.T) {
 		"group room",
 		"direct room",
 	} {
-		if strings.Contains(out, retired) {
-			t.Errorf("cached brief must not contain per-session audience text %q", retired)
-		}
+		testassert.OnFailure(t, strings.Contains(out, retired), func() { t.Errorf("cached brief must not contain per-session audience text %q", retired) })
 	}
 }
 

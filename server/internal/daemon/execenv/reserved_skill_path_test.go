@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestWriteSkillFilesIgnoresBundledSkillMd is the daemon-side regression guard
@@ -45,15 +47,9 @@ func TestWriteSkillFilesIgnoresBundledSkillMd(t *testing.T) {
 
 	// SKILL.md must hold the primary content, never a bundled duplicate.
 	got, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
-	if err != nil {
-		t.Fatalf("read SKILL.md: %v", err)
-	}
-	if !strings.Contains(string(got), "Primary skill body.") {
-		t.Errorf("SKILL.md = %q, want primary content", string(got))
-	}
-	if strings.Contains(string(got), "must be skipped") {
-		t.Error("SKILL.md was overwritten by a bundled duplicate")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read SKILL.md: %v", err) })
+	testassert.OnFailure(t, !strings.Contains(string(got), "Primary skill body."), func() { t.Errorf("SKILL.md = %q, want primary content", string(got)) })
+	testassert.OnFailure(t, strings.Contains(string(got), "must be skipped"), func() { t.Error("SKILL.md was overwritten by a bundled duplicate") })
 
 	// Unique supporting files are still written — this also proves the loop
 	// continued past the skipped duplicates instead of aborting on them.

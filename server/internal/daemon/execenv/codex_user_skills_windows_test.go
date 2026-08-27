@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // On Windows createDirLink falls back to a directory junction (mklink /J) when
@@ -41,11 +43,7 @@ func TestHydrateCodexSkillsWipeKeepsJunctionTarget(t *testing.T) {
 	}
 
 	body, err := os.ReadFile(filepath.Join(userSkill, "SKILL.md"))
-	if err != nil {
-		t.Fatalf("the skills wipe reached through the junction: %v", err)
-	}
-	if string(body) != "alpha v1" {
-		t.Errorf("user SKILL.md = %q, want %q", body, "alpha v1")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("the skills wipe reached through the junction: %v", err) })
+	testassert.OnFailure(t, string(body) != "alpha v1", func() { t.Errorf("user SKILL.md = %q, want %q", body, "alpha v1") })
 	assertIsLink(t, junction)
 }

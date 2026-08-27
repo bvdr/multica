@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 func TestStripSkillsConfigEntries(t *testing.T) {
@@ -109,9 +111,9 @@ enabled = false
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got := stripSkillsConfigEntries(tt.in)
-			if got != tt.want {
+			testassert.OnFailure(t, got != tt.want, func() {
 				t.Errorf("stripSkillsConfigEntries result mismatch\n--- got ---\n%s\n--- want ---\n%s", got, tt.want)
-			}
+			})
 		})
 	}
 }
@@ -143,19 +145,11 @@ model = "o3"
 	}
 
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read result: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read result: %v", err) })
 	got := string(data)
-	if strings.Contains(got, "[[skills.config]]") {
-		t.Errorf("expected all [[skills.config]] entries to be removed, got:\n%s", got)
-	}
-	if !strings.Contains(got, `[profiles.default]`) {
-		t.Errorf("unrelated tables should be preserved, got:\n%s", got)
-	}
-	if !strings.Contains(got, `model = "o3"`) {
-		t.Errorf("top-level keys should be preserved, got:\n%s", got)
-	}
+	testassert.OnFailure(t, strings.Contains(got, "[[skills.config]]"), func() { t.Errorf("expected all [[skills.config]] entries to be removed, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, `[profiles.default]`), func() { t.Errorf("unrelated tables should be preserved, got:\n%s", got) })
+	testassert.OnFailure(t, !strings.Contains(got, `model = "o3"`), func() { t.Errorf("top-level keys should be preserved, got:\n%s", got) })
 }
 
 func TestSanitizeCopiedCodexConfigNoop(t *testing.T) {
@@ -168,25 +162,17 @@ func TestSanitizeCopiedCodexConfigNoop(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	infoBefore, err := os.Stat(configPath)
-	if err != nil {
-		t.Fatalf("stat before: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("stat before: %v", err) })
 
 	if err := sanitizeCopiedCodexConfig(configPath); err != nil {
 		t.Fatalf("sanitizeCopiedCodexConfig failed: %v", err)
 	}
 
 	infoAfter, err := os.Stat(configPath)
-	if err != nil {
-		t.Fatalf("stat after: %v", err)
-	}
-	if !infoAfter.ModTime().Equal(infoBefore.ModTime()) {
-		t.Errorf("file should not be rewritten when there is nothing to strip")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("stat after: %v", err) })
+	testassert.OnFailure(t, !infoAfter.ModTime().Equal(infoBefore.ModTime()), func() { t.Errorf("file should not be rewritten when there is nothing to strip") })
 	data, _ := os.ReadFile(configPath)
-	if string(data) != original {
-		t.Errorf("content drifted: got %q, want %q", data, original)
-	}
+	testassert.OnFailure(t, string(data) != original, func() { t.Errorf("content drifted: got %q, want %q", data, original) })
 }
 
 func TestSanitizeCopiedCodexConfigMissingFile(t *testing.T) {

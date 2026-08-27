@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -75,9 +76,7 @@ func TestCodexShellEnvAllowlistUsesExactTaskAndSafeInheritedNames(t *testing.T) 
 		"SystemRoot",
 		"USERPROFILE",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("CodexShellEnvAllowlist() = %#v, want %#v", got, want)
-	}
+	testassert.OnFailure(t, !reflect.DeepEqual(got, want), func() { t.Fatalf("CodexShellEnvAllowlist() = %#v, want %#v", got, want) })
 }
 
 func TestCodexShellEnvAllowlistOnlyAuthorizesExplicitCustomSecrets(t *testing.T) {
@@ -111,9 +110,7 @@ func TestCodexShellEnvAllowlistOnlyAuthorizesExplicitCustomSecrets(t *testing.T)
 		"x_secret",
 		"Y_KEY",
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("CodexShellEnvAllowlist() = %#v, want %#v", got, want)
-	}
+	testassert.OnFailure(t, !reflect.DeepEqual(got, want), func() { t.Fatalf("CodexShellEnvAllowlist() = %#v, want %#v", got, want) })
 }
 
 func TestEnsureCodexShellEnvPolicyConfigReplacesAllLegalPolicyForms(t *testing.T) {
@@ -215,34 +212,22 @@ foo = true
 				t.Fatalf("EnsureCodexShellEnvPolicyConfig: %v", err)
 			}
 			data, err := os.ReadFile(configPath)
-			if err != nil {
-				t.Fatalf("read config.toml: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read config.toml: %v", err) })
 			s := string(data)
 			assertValidToml(t, s)
 			for _, want := range tt.kept {
-				if !strings.Contains(s, want) {
-					t.Errorf("lost unrelated content %q:\n%s", want, s)
-				}
+				testassert.OnFailure(t, !strings.Contains(s, want), func() { t.Errorf("lost unrelated content %q:\n%s", want, s) })
 			}
 			for _, unwanted := range tt.removed {
-				if strings.Contains(s, unwanted) {
-					t.Errorf("stale policy content %q remains:\n%s", unwanted, s)
-				}
+				testassert.OnFailure(t, strings.Contains(s, unwanted), func() { t.Errorf("stale policy content %q remains:\n%s", unwanted, s) })
 			}
-			if strings.Contains(s, `"MULTICA_*"`) {
-				t.Fatalf("managed policy must not use a MULTICA_* wildcard:\n%s", s)
-			}
+			testassert.OnFailure(t, strings.Contains(s, `"MULTICA_*"`), func() { t.Fatalf("managed policy must not use a MULTICA_* wildcard:\n%s", s) })
 			if n := strings.Count(s, "[shell_environment_policy]"); n != 1 {
 				t.Fatalf("expected exactly one managed policy table, got %d:\n%s", n, s)
 			}
 			policy := parsedShellEnvPolicy(t, s)
-			if policy.Inherit != "all" || !policy.IgnoreDefaultExcludes {
-				t.Fatalf("unexpected managed policy: %#v", policy)
-			}
-			if !reflect.DeepEqual(policy.IncludeOnly, includeOnly) {
-				t.Fatalf("include_only = %#v, want %#v", policy.IncludeOnly, includeOnly)
-			}
+			testassert.OnFailure(t, policy.Inherit != "all" || !policy.IgnoreDefaultExcludes, func() { t.Fatalf("unexpected managed policy: %#v", policy) })
+			testassert.OnFailure(t, !reflect.DeepEqual(policy.IncludeOnly, includeOnly), func() { t.Fatalf("include_only = %#v, want %#v", policy.IncludeOnly, includeOnly) })
 		})
 	}
 }
@@ -259,12 +244,8 @@ func TestEnsureCodexShellEnvPolicyConfigRejectsInvalidInputWithoutWriting(t *tes
 		t.Fatal("expected malformed input to fail")
 	}
 	got, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read config.toml: %v", err)
-	}
-	if !reflect.DeepEqual(got, existing) {
-		t.Fatalf("invalid input was modified: got %q, want %q", got, existing)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read config.toml: %v", err) })
+	testassert.OnFailure(t, !reflect.DeepEqual(got, existing), func() { t.Fatalf("invalid input was modified: got %q, want %q", got, existing) })
 }
 
 func TestEnsureCodexShellEnvPolicyConfigIsIdempotent(t *testing.T) {
@@ -279,9 +260,7 @@ func TestEnsureCodexShellEnvPolicyConfigIsIdempotent(t *testing.T) {
 	}
 
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read config.toml: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read config.toml: %v", err) })
 	s := string(data)
 	assertValidToml(t, s)
 	if n := strings.Count(s, multicaShellEnvBeginMarker); n != 1 {

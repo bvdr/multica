@@ -3,6 +3,8 @@ package execenv
 import (
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestClassifyTask pins the precedence rule on classifyTask. All four
@@ -68,12 +70,8 @@ func TestBuildMetaSkillContentBriefContent(t *testing.T) {
 		AgentID:          "eve-1",
 	})
 
-	if !strings.Contains(out, "- `multica issue get <id> --output json` — full issue.\n") {
-		t.Errorf("brief is missing the `issue get` one-liner\n---\n%s", out)
-	}
-	if strings.Contains(out, "Get full issue details.") {
-		t.Errorf("brief still carries the retired legacy `issue get` description\n---\n%s", out)
-	}
+	testassert.OnFailure(t, !strings.Contains(out, "- `multica issue get <id> --output json` — full issue.\n"), func() { t.Errorf("brief is missing the `issue get` one-liner\n---\n%s", out) })
+	testassert.OnFailure(t, strings.Contains(out, "Get full issue details."), func() { t.Errorf("brief still carries the retired legacy `issue get` description\n---\n%s", out) })
 }
 
 // TestBuildMetaSkillContentIssueBodyFormatting pins the shared issue-body
@@ -103,9 +101,7 @@ func TestBuildMetaSkillContentIssueBodyFormatting(t *testing.T) {
 				"start with prose or `##` subheadings",
 				"Only add an H1 when the user specifically requests one",
 			} {
-				if !strings.Contains(out, want) {
-					t.Errorf("brief is missing issue-body formatting guidance %q\n---\n%s", want, out)
-				}
+				testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("brief is missing issue-body formatting guidance %q\n---\n%s", want, out) })
 			}
 		})
 	}
@@ -171,12 +167,10 @@ func TestBuildMetaSkillContentSlimKindMatrix(t *testing.T) {
 			firstLine := c.heading + "\n"
 			present := strings.HasPrefix(out, firstLine) || strings.Contains(out, needle)
 			want := c.mustHave[kind]
-			if want && !present {
-				t.Errorf("kind=%d: expected heading %q in slim brief", kind, c.heading)
-			}
-			if !want && present {
+			testassert.OnFailure(t, want && !present, func() { t.Errorf("kind=%d: expected heading %q in slim brief", kind, c.heading) })
+			testassert.OnFailure(t, !want && present, func() {
 				t.Errorf("kind=%d: heading %q should NOT be in slim brief (matrix gating regression)", kind, c.heading)
-			}
+			})
 		}
 	}
 }
@@ -193,12 +187,10 @@ func TestBriefDueDateTeachesCalendarDayFormat(t *testing.T) {
 		"quick-create": {QuickCreatePrompt: "create an issue"},
 	} {
 		out := buildMetaSkillContent("claude", ctx)
-		if !strings.Contains(out, "--due-date <YYYY-MM-DD>") {
-			t.Errorf("%s brief missing the calendar-day --due-date synopsis", name)
-		}
-		if strings.Contains(out, "--due-date <RFC3339>") {
+		testassert.OnFailure(t, !strings.Contains(out, "--due-date <YYYY-MM-DD>"), func() { t.Errorf("%s brief missing the calendar-day --due-date synopsis", name) })
+		testassert.OnFailure(t, strings.Contains(out, "--due-date <RFC3339>"), func() {
 			t.Errorf("%s brief still teaches --due-date <RFC3339>, which the server rejects except at UTC midnight (MUL-5696)", name)
-		}
+		})
 	}
 }
 
@@ -208,9 +200,9 @@ func TestBriefDueDateTeachesCalendarDayFormat(t *testing.T) {
 // the deferral side). MUL-5696.
 func TestBriefOwnsAutopilotIssueCommandsGuard(t *testing.T) {
 	out := buildMetaSkillContent("claude", TaskContextForEnv{AutopilotRunID: "run-1"})
-	if !strings.Contains(out, AutopilotIssueCommandsGuard) {
+	testassert.OnFailure(t, !strings.Contains(out, AutopilotIssueCommandsGuard), func() {
 		t.Errorf("autopilot brief missing AutopilotIssueCommandsGuard — the per-turn prompt defers to this single emission point")
-	}
+	})
 }
 
 // TestSlimQuickCreateAvailableCommands locks the minimal-variant content
@@ -228,9 +220,7 @@ func TestSlimQuickCreateAvailableCommands(t *testing.T) {
 		"multica issue create --title",
 		"`multica --help`",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("quick_create slim Available Commands missing %q", want)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("quick_create slim Available Commands missing %q", want) })
 	}
 
 	for _, banned := range []string{
@@ -247,9 +237,9 @@ func TestSlimQuickCreateAvailableCommands(t *testing.T) {
 		"### Squad maintenance",
 		"multica squad member set-role",
 	} {
-		if strings.Contains(out, banned) {
+		testassert.OnFailure(t, strings.Contains(out, banned), func() {
 			t.Errorf("quick_create slim Available Commands should NOT advertise %q (hard guardrails forbid the call)", banned)
-		}
+		})
 	}
 }
 
@@ -300,9 +290,7 @@ func TestBackgroundTaskSafetySlimHardPins(t *testing.T) {
 		"URL, logs, and stop instructions",
 		"survival as best-effort, not guaranteed",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("slim Background Task Safety missing hardened pin %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("slim Background Task Safety missing hardened pin %q\n---\n%s", want, out) })
 	}
 	// Exactly one exception (see the execenv provider-agnostic test for
 	// the incident this guards).
@@ -311,13 +299,13 @@ func TestBackgroundTaskSafetySlimHardPins(t *testing.T) {
 	}
 	// `gh run watch` may only appear as a banned command, never as the
 	// section's example of how to wait properly.
-	if strings.Contains(out, "e.g. `gh run watch`") {
+	testassert.OnFailure(t, strings.Contains(out, "e.g. `gh run watch`"), func() {
 		t.Errorf("slim Background Task Safety should not suggest waiting for external GitHub CI\n---\n%s", out)
-	}
+	})
 	// MUL-5274 review: with the persistent-service exception in the list, a
 	// "The rules above ..." scoping sentence would sweep in work that is
 	// precisely no longer run-owned after handoff.
-	if strings.Contains(out, "The rules above") {
+	testassert.OnFailure(t, strings.Contains(out, "The rules above"), func() {
 		t.Errorf("slim Background Task Safety must not reintroduce the ambiguous \"The rules above\" scoping sentence\n---\n%s", out)
-	}
+	})
 }

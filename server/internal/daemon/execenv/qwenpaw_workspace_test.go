@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestPrepareQwenpawWorkspace verifies that the workspace is created with the
@@ -48,51 +50,33 @@ func TestPrepareQwenpawWorkspace(t *testing.T) {
 			t.Fatalf("skill dir %q is not a directory", slug)
 		}
 		body, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
-		if err != nil {
-			t.Fatalf("read SKILL.md for %q: %v", slug, err)
-		}
-		if !strings.Contains(string(body), slug) {
-			t.Errorf("SKILL.md for %q should contain its slug in frontmatter", slug)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("read SKILL.md for %q: %v", slug, err) })
+		testassert.OnFailure(t, !strings.Contains(string(body), slug), func() { t.Errorf("SKILL.md for %q should contain its slug in frontmatter", slug) })
 	}
 
 	// Check that skill.json manifest exists with enabled: true
 	manifestPath := filepath.Join(workspaceDir, "skill.json")
 	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		t.Fatalf("read skill.json: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read skill.json: %v", err) })
 
 	var manifest map[string]any
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("unmarshal skill.json: %v", err)
 	}
 
-	if manifest["schema_version"] != "workspace-skill-manifest.v1" {
-		t.Errorf("schema_version = %q, want workspace-skill-manifest.v1", manifest["schema_version"])
-	}
+	testassert.OnFailure(t, manifest["schema_version"] != "workspace-skill-manifest.v1", func() { t.Errorf("schema_version = %q, want workspace-skill-manifest.v1", manifest["schema_version"]) })
 
 	skillsMap, ok := manifest["skills"].(map[string]any)
-	if !ok {
-		t.Fatal("skills is not a map")
-	}
-	if len(skillsMap) != 2 {
-		t.Fatalf("expected 2 skills in manifest, got %d", len(skillsMap))
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatal("skills is not a map") })
+	testassert.OnFailure(t, len(skillsMap) != 2, func() { t.Fatalf("expected 2 skills in manifest, got %d", len(skillsMap)) })
 
 	for _, slug := range []string{"review-helper", "bug-finder"} {
 		entry, ok := skillsMap[slug].(map[string]any)
-		if !ok {
-			t.Fatalf("skill entry %q is not a map", slug)
-		}
+		testassert.OnFailure(t, !ok, func() { t.Fatalf("skill entry %q is not a map", slug) })
 		enabled, ok := entry["enabled"].(bool)
-		if !ok || !enabled {
-			t.Errorf("skill %q enabled = %v, want true", slug, enabled)
-		}
+		testassert.OnFailure(t, !ok || !enabled, func() { t.Errorf("skill %q enabled = %v, want true", slug, enabled) })
 		channels, ok := entry["channels"].([]any)
-		if !ok || len(channels) != 1 || channels[0] != "all" {
-			t.Errorf("skill %q channels = %v, want [\"all\"]", slug, channels)
-		}
+		testassert.OnFailure(t, !ok || len(channels) != 1 || channels[0] != "all", func() { t.Errorf("skill %q channels = %v, want [\"all\"]", slug, channels) })
 	}
 }
 
@@ -115,45 +99,27 @@ func TestPrepareQwenpawWorkspacePreservesCollidingSkillSlugs(t *testing.T) {
 	}
 	for slug, wantBody := range expectedSkills {
 		data, err := os.ReadFile(filepath.Join(workspaceDir, "skills", slug, "SKILL.md"))
-		if err != nil {
-			t.Fatalf("read SKILL.md for %q: %v", slug, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("read SKILL.md for %q: %v", slug, err) })
 		body := string(data)
-		if !frontmatterNameIs(body, slug) {
-			t.Errorf("SKILL.md for %q does not use its directory slug in frontmatter", slug)
-		}
-		if !strings.Contains(body, wantBody) {
-			t.Errorf("SKILL.md for %q does not contain %q", slug, wantBody)
-		}
+		testassert.OnFailure(t, !frontmatterNameIs(body, slug), func() { t.Errorf("SKILL.md for %q does not use its directory slug in frontmatter", slug) })
+		testassert.OnFailure(t, !strings.Contains(body, wantBody), func() { t.Errorf("SKILL.md for %q does not contain %q", slug, wantBody) })
 	}
 
 	data, err := os.ReadFile(filepath.Join(workspaceDir, "skill.json"))
-	if err != nil {
-		t.Fatalf("read skill.json: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read skill.json: %v", err) })
 	var manifest map[string]any
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("unmarshal skill.json: %v", err)
 	}
 	skillsMap, ok := manifest["skills"].(map[string]any)
-	if !ok {
-		t.Fatal("skills is not a map")
-	}
-	if len(skillsMap) != len(expectedSkills) {
-		t.Fatalf("manifest has %d skills, want %d", len(skillsMap), len(expectedSkills))
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatal("skills is not a map") })
+	testassert.OnFailure(t, len(skillsMap) != len(expectedSkills), func() { t.Fatalf("manifest has %d skills, want %d", len(skillsMap), len(expectedSkills)) })
 	for slug := range expectedSkills {
 		entry, ok := skillsMap[slug].(map[string]any)
-		if !ok {
-			t.Fatalf("skill entry %q is not a map", slug)
-		}
+		testassert.OnFailure(t, !ok, func() { t.Fatalf("skill entry %q is not a map", slug) })
 		metadata, ok := entry["metadata"].(map[string]any)
-		if !ok {
-			t.Fatalf("metadata for %q is not a map", slug)
-		}
-		if metadata["name"] != slug {
-			t.Errorf("metadata name for %q = %v, want %q", slug, metadata["name"], slug)
-		}
+		testassert.OnFailure(t, !ok, func() { t.Fatalf("metadata for %q is not a map", slug) })
+		testassert.OnFailure(t, metadata["name"] != slug, func() { t.Errorf("metadata name for %q = %v, want %q", slug, metadata["name"], slug) })
 	}
 }
 
@@ -224,12 +190,8 @@ func TestPrepareQwenpawWorkspaceWithFiles(t *testing.T) {
 
 	// Verify content
 	body, err := os.ReadFile(filepath.Join(skillDir, "scripts", "analyze.py"))
-	if err != nil {
-		t.Fatalf("read scripts/analyze.py: %v", err)
-	}
-	if string(body) != "print('analyzing')" {
-		t.Errorf("scripts/analyze.py content = %q, want %q", string(body), "print('analyzing')")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read scripts/analyze.py: %v", err) })
+	testassert.OnFailure(t, string(body) != "print('analyzing')", func() { t.Errorf("scripts/analyze.py content = %q, want %q", string(body), "print('analyzing')") })
 }
 
 // TestPrepareQwenpawWorkspacePermissions verifies workspace directory
@@ -341,20 +303,14 @@ func TestPrepareQwenpawWorkspaceReplace(t *testing.T) {
 	// Verify manifest has exactly 2 skills
 	manifestPath := filepath.Join(workspaceDir, "skill.json")
 	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		t.Fatalf("read skill.json: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read skill.json: %v", err) })
 	var manifest map[string]any
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("unmarshal skill.json: %v", err)
 	}
 	skillsMap, ok := manifest["skills"].(map[string]any)
-	if !ok {
-		t.Fatal("skills is not a map")
-	}
-	if len(skillsMap) != 2 {
-		t.Errorf("expected 2 skills in manifest after replace, got %d", len(skillsMap))
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatal("skills is not a map") })
+	testassert.OnFailure(t, len(skillsMap) != 2, func() { t.Errorf("expected 2 skills in manifest after replace, got %d", len(skillsMap)) })
 }
 
 // TestPrepareQwenpawWorkspaceRepeatedReuse verifies that preparing the same
@@ -395,28 +351,18 @@ func TestPrepareQwenpawWorkspaceRepeatedReuse(t *testing.T) {
 
 	// Verify only the two expected dirs exist in skills
 	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		t.Fatalf("read skills dir: %v", err)
-	}
-	if len(entries) != 2 {
-		t.Errorf("expected 2 entries in skills, got %d", len(entries))
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read skills dir: %v", err) })
+	testassert.OnFailure(t, len(entries) != 2, func() { t.Errorf("expected 2 entries in skills, got %d", len(entries)) })
 
 	// Verify manifest has exactly 2 skills
 	manifestPath := filepath.Join(workspaceDir, "skill.json")
 	data, err := os.ReadFile(manifestPath)
-	if err != nil {
-		t.Fatalf("read skill.json: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read skill.json: %v", err) })
 	var manifest map[string]any
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatalf("unmarshal skill.json: %v", err)
 	}
 	skillsMap, ok := manifest["skills"].(map[string]any)
-	if !ok {
-		t.Fatal("skills is not a map")
-	}
-	if len(skillsMap) != 2 {
-		t.Errorf("expected 2 skills in manifest after repeated reuse, got %d", len(skillsMap))
-	}
+	testassert.OnFailure(t, !ok, func() { t.Fatal("skills is not a map") })
+	testassert.OnFailure(t, len(skillsMap) != 2, func() { t.Errorf("expected 2 skills in manifest after repeated reuse, got %d", len(skillsMap)) })
 }

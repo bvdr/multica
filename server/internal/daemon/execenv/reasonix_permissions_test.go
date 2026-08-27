@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -36,9 +37,7 @@ func assertTaskDenyList(t *testing.T, path string, want []string) {
 func taskDenyList(t *testing.T, path string) []string {
 	t.Helper()
 	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", reasonixProjectConfigFile, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read %s: %v", reasonixProjectConfigFile, err) })
 	var cfg struct {
 		Permissions struct {
 			Deny  []string `toml:"deny"`
@@ -62,9 +61,7 @@ func TestPrepareDeniesReasonixAskTool(t *testing.T) {
 		ReasonixEnv:    reasonixEnvWith(t, ""),
 		Task:           TaskContextForEnv{IssueID: "b1b2c3d4-e5f6-7890-abcd-ef1234567890"},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	configPath := filepath.Join(env.WorkDir, reasonixProjectConfigFile)
@@ -94,9 +91,7 @@ func TestReuseRewritesReasonixAskDeny(t *testing.T) {
 		Task:           TaskContextForEnv{IssueID: "c1b2c3d4-e5f6-7890-abcd-ef1234567890"},
 	}
 	env, err := Prepare(params, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	// Reuse rolls back the prior run's sidecars before rebuilding them, so the
@@ -109,13 +104,9 @@ func TestReuseRewritesReasonixAskDeny(t *testing.T) {
 		ReasonixEnv:    params.ReasonixEnv,
 		Task:           params.Task,
 	}, testLogger())
-	if reused == nil {
-		t.Fatal("Reuse returned nil")
-	}
+	testassert.OnFailure(t, reused == nil, func() { t.Fatal("Reuse returned nil") })
 	got := taskDenyList(t, filepath.Join(reused.WorkDir, reasonixProjectConfigFile))
-	if !slices.Equal(got, []string{"bash", "ask"}) {
-		t.Fatalf("deny after reuse = %v, want [bash ask]", got)
-	}
+	testassert.OnFailure(t, !slices.Equal(got, []string{"bash", "ask"}), func() { t.Fatalf("deny after reuse = %v, want [bash ask]", got) })
 }
 
 // TestReasonixProjectConfigMergesOwnerPermissions is the regression test for the
@@ -136,9 +127,7 @@ default = "some-model"
 		t.Fatalf("writeReasonixProjectConfig: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(workDir, reasonixProjectConfigFile))
-	if err != nil {
-		t.Fatalf("read %s: %v", reasonixProjectConfigFile, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read %s: %v", reasonixProjectConfigFile, err) })
 	var cfg struct {
 		Permissions struct {
 			Deny  []string `toml:"deny"`
@@ -148,19 +137,13 @@ default = "some-model"
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		t.Fatalf("parse written %s: %v\n%s", reasonixProjectConfigFile, err, data)
 	}
-	if !slices.Equal(cfg.Permissions.Deny, []string{"bash", "config_write", "ask"}) {
-		t.Fatalf("deny = %v, want the owner's rules plus ask", cfg.Permissions.Deny)
-	}
+	testassert.OnFailure(t, !slices.Equal(cfg.Permissions.Deny, []string{"bash", "config_write", "ask"}), func() { t.Fatalf("deny = %v, want the owner's rules plus ask", cfg.Permissions.Deny) })
 	// The rest of the owner's table is restated too: the project file overrides
 	// what it declares, so dropping allow here would widen the task as well.
-	if !slices.Equal(cfg.Permissions.Allow, []string{"read"}) {
-		t.Fatalf("allow = %v, want the owner's [read]", cfg.Permissions.Allow)
-	}
+	testassert.OnFailure(t, !slices.Equal(cfg.Permissions.Allow, []string{"read"}), func() { t.Fatalf("allow = %v, want the owner's [read]", cfg.Permissions.Allow) })
 	// Only permissions are restated; unrelated owner settings stay in their own
 	// config, where the task still inherits them.
-	if strings.Contains(string(data), "some-model") {
-		t.Fatalf("project config copied unrelated owner settings:\n%s", data)
-	}
+	testassert.OnFailure(t, strings.Contains(string(data), "some-model"), func() { t.Fatalf("project config copied unrelated owner settings:\n%s", data) })
 }
 
 // TestReasonixProjectConfigKeepsOwnerAskDeny checks the already-denied case: the
@@ -174,9 +157,7 @@ func TestReasonixProjectConfigKeepsOwnerAskDeny(t *testing.T) {
 		t.Fatalf("writeReasonixProjectConfig: %v", err)
 	}
 	got := taskDenyList(t, filepath.Join(workDir, reasonixProjectConfigFile))
-	if !slices.Equal(got, []string{"ask", "bash"}) {
-		t.Fatalf("deny = %v, want the owner's list unchanged", got)
-	}
+	testassert.OnFailure(t, !slices.Equal(got, []string{"ask", "bash"}), func() { t.Fatalf("deny = %v, want the owner's list unchanged", got) })
 }
 
 // TestReasonixProjectConfigSkipsUnreadableOwnerConfig covers the fail-closed
@@ -203,9 +184,7 @@ func TestReasonixProjectConfigSkipsUnreadableOwnerConfig(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(workDir, reasonixProjectConfigFile)); !os.IsNotExist(err) {
 				t.Fatalf("wrote a project config from an owner config it could not restate (stat err = %v)", err)
 			}
-			if len(manifest.Files) != 0 {
-				t.Fatalf("manifest recorded a file it did not write: %+v", manifest.Files)
-			}
+			testassert.OnFailure(t, len(manifest.Files) != 0, func() { t.Fatalf("manifest recorded a file it did not write: %+v", manifest.Files) })
 		})
 	}
 }
@@ -228,16 +207,10 @@ func TestReasonixProjectConfigKeepsRepositoryFile(t *testing.T) {
 		t.Fatalf("writeReasonixProjectConfig: %v", err)
 	}
 	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("read %s: %v", reasonixProjectConfigFile, err)
-	}
-	if string(data) != repoConfig {
-		t.Fatalf("repository reasonix.toml was rewritten:\n%s", data)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read %s: %v", reasonixProjectConfigFile, err) })
+	testassert.OnFailure(t, string(data) != repoConfig, func() { t.Fatalf("repository reasonix.toml was rewritten:\n%s", data) })
 	// Nothing was created, so cleanup must not claim the user's file.
-	if len(manifest.Files) != 0 {
-		t.Fatalf("manifest recorded a file it did not write: %+v", manifest.Files)
-	}
+	testassert.OnFailure(t, len(manifest.Files) != 0, func() { t.Fatalf("manifest recorded a file it did not write: %+v", manifest.Files) })
 }
 
 func TestReasonixProjectConfigSkippedForOtherProviders(t *testing.T) {
@@ -250,9 +223,7 @@ func TestReasonixProjectConfigSkippedForOtherProviders(t *testing.T) {
 		Provider:       "hermes",
 		Task:           TaskContextForEnv{IssueID: "d1b2c3d4-e5f6-7890-abcd-ef1234567890"},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	if _, err := os.Stat(filepath.Join(env.WorkDir, reasonixProjectConfigFile)); !os.IsNotExist(err) {

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestBuildCommentReplyInstructionsCodexLinux pins that the Linux/macOS
@@ -37,9 +39,7 @@ func TestBuildCommentReplyInstructionsCodexLinux(t *testing.T) {
 		"Do NOT write literal `\\n` escapes to simulate line breaks",
 		"do NOT reuse --parent values from previous turns",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("codex/linux reply instructions missing %q\n---\n%s", want, got)
-		}
+		testassert.OnFailure(t, !strings.Contains(got, want), func() { t.Fatalf("codex/linux reply instructions missing %q\n---\n%s", want, got) })
 	}
 
 	for _, banned := range []string{
@@ -48,9 +48,7 @@ func TestBuildCommentReplyInstructionsCodexLinux(t *testing.T) {
 		"cat <<",
 		"--parent " + triggerID + " --content-stdin",
 	} {
-		if strings.Contains(got, banned) {
-			t.Fatalf("codex/linux reply instructions should not contain %q\n---\n%s", banned, got)
-		}
+		testassert.OnFailure(t, strings.Contains(got, banned), func() { t.Fatalf("codex/linux reply instructions should not contain %q\n---\n%s", banned, got) })
 	}
 }
 
@@ -96,9 +94,7 @@ func TestBuildCommentReplyInstructionsNonCodexLinux(t *testing.T) {
 					"do NOT reuse --parent values from previous turns",
 					"Post your reply as a comment",
 				} {
-					if !strings.Contains(got, want) {
-						t.Errorf("%s reply instructions missing %q\n---\n%s", name, want, got)
-					}
+					testassert.OnFailure(t, !strings.Contains(got, want), func() { t.Errorf("%s reply instructions missing %q\n---\n%s", name, want, got) })
 				}
 
 				// The two regressions: agent-authored comments must never be
@@ -110,9 +106,7 @@ func TestBuildCommentReplyInstructionsNonCodexLinux(t *testing.T) {
 					"cat <<",
 					"--parent " + triggerID + " --content-stdin",
 				} {
-					if strings.Contains(got, banned) {
-						t.Errorf("%s reply instructions still contains %q\n---\n%s", name, banned, got)
-					}
+					testassert.OnFailure(t, strings.Contains(got, banned), func() { t.Errorf("%s reply instructions still contains %q\n---\n%s", name, banned, got) })
 				}
 			})
 		}
@@ -150,18 +144,16 @@ func TestBuildCommentReplyInstructionsWindowsUsesContentFile(t *testing.T) {
 				"PowerShell drops non-ASCII",
 				"## Comment Formatting",
 			} {
-				if !strings.Contains(got, want) {
-					t.Errorf("%s reply instructions missing %q\n---\n%s", provider, want, got)
-				}
+				testassert.OnFailure(t, !strings.Contains(got, want), func() { t.Errorf("%s reply instructions missing %q\n---\n%s", provider, want, got) })
 			}
 			for _, banned := range []string{
 				"<<'COMMENT'",
 				"--parent " + triggerID + " --content-stdin",
 				"cat <<",
 			} {
-				if strings.Contains(got, banned) {
+				testassert.OnFailure(t, strings.Contains(got, banned), func() {
 					t.Errorf("%s/windows reply instructions should not contain %q\n---\n%s", provider, banned, got)
-				}
+				})
 			}
 		})
 	}
@@ -195,14 +187,10 @@ func TestInjectRuntimeConfigKeepsTriggerCommentOutOfBrief(t *testing.T) {
 		t.Fatalf("InjectRuntimeConfig failed: %v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatalf("read CLAUDE.md: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read CLAUDE.md: %v", err) })
 	s := string(content)
 
-	if strings.Contains(s, triggerID) {
-		t.Errorf("CLAUDE.md must not carry the trigger comment id (MUL-5377)\n---\n%s", s)
-	}
+	testassert.OnFailure(t, strings.Contains(s, triggerID), func() { t.Errorf("CLAUDE.md must not carry the trigger comment id (MUL-5377)\n---\n%s", s) })
 	for _, want := range []string{
 		// MUL-6417 retired the turn-mode router: one workflow, delivery
 		// routed on what the per-turn message carries. Pin the routing RULE
@@ -216,16 +204,12 @@ func TestInjectRuntimeConfigKeepsTriggerCommentOutOfBrief(t *testing.T) {
 		// turn that moved nothing writes nothing (MUL-6300 → MUL-6417).
 		"questions, discussion, and acknowledgements never touch status",
 	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("CLAUDE.md missing %q\n---\n%s", want, s)
-		}
+		testassert.OnFailure(t, !strings.Contains(s, want), func() { t.Errorf("CLAUDE.md missing %q\n---\n%s", want, s) })
 	}
 
 	// The retired router must not come back in any phrasing.
 	for _, banned := range []string{"Turn mode", "mode block", "No mode line"} {
-		if strings.Contains(s, banned) {
-			t.Errorf("CLAUDE.md still carries retired mode-router text %q (MUL-6417)\n---\n%s", banned, s)
-		}
+		testassert.OnFailure(t, strings.Contains(s, banned), func() { t.Errorf("CLAUDE.md still carries retired mode-router text %q (MUL-6417)\n---\n%s", banned, s) })
 	}
 }
 
@@ -246,17 +230,15 @@ func TestWindowsCommentReplyInstructionsHaveNoStdin(t *testing.T) {
 				"multica issue comment add " + issueID + " --parent " + triggerID + " --content-file",
 				"--content-file",
 			} {
-				if !strings.Contains(s, want) {
-					t.Errorf("%s reply instructions missing %q\n---\n%s", provider, want, s)
-				}
+				testassert.OnFailure(t, !strings.Contains(s, want), func() { t.Errorf("%s reply instructions missing %q\n---\n%s", provider, want, s) })
 			}
 			for _, banned := range []string{
 				"--parent " + triggerID + " --content-stdin",
 				"always use `--content-stdin` with a HEREDOC, even for short single-line replies",
 			} {
-				if strings.Contains(s, banned) {
+				testassert.OnFailure(t, strings.Contains(s, banned), func() {
 					t.Errorf("%s reply instructions must not prescribe stdin on Windows: %q\n---\n%s", provider, banned, s)
-				}
+				})
 			}
 		})
 	}
@@ -292,9 +274,7 @@ func TestInjectRuntimeConfigWindowsAssignmentBriefStaysFileOnly(t *testing.T) {
 				fileName = "AGENTS.md"
 			}
 			data, err := os.ReadFile(filepath.Join(dir, fileName))
-			if err != nil {
-				t.Fatalf("read %s: %v", fileName, err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read %s: %v", fileName, err) })
 			s := string(data)
 
 			// The Windows Comment Formatting section is file-only.
@@ -303,9 +283,7 @@ func TestInjectRuntimeConfigWindowsAssignmentBriefStaysFileOnly(t *testing.T) {
 				"On Windows, **always write the comment body to a UTF-8 file",
 				"do NOT pipe via `--content-stdin`",
 			} {
-				if !strings.Contains(s, want) {
-					t.Errorf("%s missing Windows file-only guidance %q\n---\n%s", fileName, want, s)
-				}
+				testassert.OnFailure(t, !strings.Contains(s, want), func() { t.Errorf("%s missing Windows file-only guidance %q\n---\n%s", fileName, want, s) })
 			}
 
 			// No prose may RECOMMEND stdin on Windows. The flag synopsis may
@@ -316,9 +294,7 @@ func TestInjectRuntimeConfigWindowsAssignmentBriefStaysFileOnly(t *testing.T) {
 				"using `--content-file` or `--content-stdin`",
 				"use `--content-file <path>` or `--content-stdin`",
 			} {
-				if strings.Contains(s, banned) {
-					t.Errorf("%s recommends stdin on Windows: %q\n---\n%s", fileName, banned, s)
-				}
+				testassert.OnFailure(t, strings.Contains(s, banned), func() { t.Errorf("%s recommends stdin on Windows: %q\n---\n%s", fileName, banned, s) })
 			}
 		})
 	}
@@ -333,18 +309,12 @@ func TestBuildCommentReplyInstructionsSquadLeaderCarveOut(t *testing.T) {
 	t.Parallel()
 
 	leader := BuildCommentReplyInstructions("claude", "issue-1", "comment-1", true)
-	if !strings.Contains(leader, "Unless your outcome is `no_action`, post your reply as a comment") {
-		t.Errorf("leader reply instructions missing the no_action carve-out\n---\n%s", leader)
-	}
-	if strings.Contains(leader, "Post your reply as a comment") {
+	testassert.OnFailure(t, !strings.Contains(leader, "Unless your outcome is `no_action`, post your reply as a comment"), func() { t.Errorf("leader reply instructions missing the no_action carve-out\n---\n%s", leader) })
+	testassert.OnFailure(t, strings.Contains(leader, "Post your reply as a comment"), func() {
 		t.Errorf("leader reply instructions still carry the unconditional imperative\n---\n%s", leader)
-	}
+	})
 
 	ordinary := BuildCommentReplyInstructions("claude", "issue-1", "comment-1", false)
-	if !strings.Contains(ordinary, "Post your reply as a comment") {
-		t.Errorf("ordinary reply instructions missing the imperative\n---\n%s", ordinary)
-	}
-	if strings.Contains(ordinary, "Unless your outcome is") {
-		t.Errorf("ordinary reply instructions leaked the leader carve-out\n---\n%s", ordinary)
-	}
+	testassert.OnFailure(t, !strings.Contains(ordinary, "Post your reply as a comment"), func() { t.Errorf("ordinary reply instructions missing the imperative\n---\n%s", ordinary) })
+	testassert.OnFailure(t, strings.Contains(ordinary, "Unless your outcome is"), func() { t.Errorf("ordinary reply instructions leaked the leader carve-out\n---\n%s", ordinary) })
 }

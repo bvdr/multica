@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 const preparationHelperTestMode = "execenv-preparation-helper"
@@ -54,9 +56,7 @@ func TestPreparationHelperRoundTripsReuse(t *testing.T) {
 		Task:           TaskContextForEnv{IssueID: "issue-helper-reuse"},
 	}
 	env, err := PrepareIsolated(ctx, preparationHelperTestCommand(), params, logger)
-	if err != nil {
-		t.Fatalf("PrepareIsolated: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("PrepareIsolated: %v", err) })
 	reused, err := ReuseIsolated(ctx, preparationHelperTestCommand(), ReuseParams{
 		WorkspacesRoot: params.WorkspacesRoot,
 		WorkDir:        env.WorkDir,
@@ -74,12 +74,10 @@ func TestPreparationHelperRoundTripsReuse(t *testing.T) {
 			},
 		},
 	}, logger)
-	if err != nil {
-		t.Fatalf("ReuseIsolated: %v", err)
-	}
-	if reused == nil || reused.RootDir != env.RootDir || reused.WorkDir != env.WorkDir {
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("ReuseIsolated: %v", err) })
+	testassert.OnFailure(t, reused == nil || reused.RootDir != env.RootDir || reused.WorkDir != env.WorkDir, func() {
 		t.Fatalf("reused environment = %#v, want root %q workdir %q", reused, env.RootDir, env.WorkDir)
-	}
+	})
 }
 
 func TestPreparationHelperRoundTripsProjectResources(t *testing.T) {
@@ -106,22 +104,16 @@ func TestPreparationHelperRoundTripsProjectResources(t *testing.T) {
 	}
 
 	env, err := PrepareIsolated(ctx, preparationHelperTestCommand(), params, logger)
-	if err != nil {
-		t.Fatalf("PrepareIsolated: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("PrepareIsolated: %v", err) })
 	defer env.Cleanup(true)
 
 	data, err := os.ReadFile(filepath.Join(env.WorkDir, ".multica", "project", "resources.json"))
-	if err != nil {
-		t.Fatalf("read project resources: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read project resources: %v", err) })
 	var got projectResourceFile
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("decode project resources: %v", err)
 	}
-	if len(got.Resources) != 1 {
-		t.Fatalf("project resources = %#v, want one resource", got.Resources)
-	}
+	testassert.OnFailure(t, len(got.Resources) != 1, func() { t.Fatalf("project resources = %#v, want one resource", got.Resources) })
 	resource := got.Resources[0]
 	var ref struct {
 		URL string `json:"url"`
@@ -129,12 +121,10 @@ func TestPreparationHelperRoundTripsProjectResources(t *testing.T) {
 	if err := json.Unmarshal(resource.ResourceRef, &ref); err != nil {
 		t.Fatalf("decode resource ref: %v", err)
 	}
-	if resource.ID != "resource-helper-project-resource" ||
+	testassert.OnFailure(t, resource.ID != "resource-helper-project-resource" ||
 		resource.ResourceType != "github_repo" ||
 		ref.URL != "https://github.com/multica-ai/multica" ||
-		resource.Label != "Multica" {
-		t.Fatalf("project resource = %#v, want all fields preserved", resource)
-	}
+		resource.Label != "Multica", func() { t.Fatalf("project resource = %#v, want all fields preserved", resource) })
 }
 
 func TestPreparationRequestPreservesOpenclawGatewayForHelper(t *testing.T) {
@@ -175,21 +165,13 @@ func TestPreparationRequestPreservesOpenclawGatewayForHelper(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			redacted, err := json.Marshal(tt.request)
-			if err != nil {
-				t.Fatalf("marshal redacted request: %v", err)
-			}
-			if bytes.Contains(redacted, []byte(want.Token)) {
-				t.Fatalf("ordinary JSON leaked gateway token: %s", redacted)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("marshal redacted request: %v", err) })
+			testassert.OnFailure(t, bytes.Contains(redacted, []byte(want.Token)), func() { t.Fatalf("ordinary JSON leaked gateway token: %s", redacted) })
 
 			payload, err := marshalPreparationRequest(tt.request)
-			if err != nil {
-				t.Fatalf("marshal preparation request: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("marshal preparation request: %v", err) })
 			got, err := decodePreparationRequest(bytes.NewReader(payload))
-			if err != nil {
-				t.Fatalf("decode preparation request: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("decode preparation request: %v", err) })
 			if got := tt.pin(got); got != want {
 				t.Fatal("gateway pin fields did not survive the helper protocol")
 			}
@@ -228,15 +210,9 @@ func TestPreparationHelperPreservesOpenclawTimeoutKind(t *testing.T) {
 		OpenclawBin:    shim,
 		Task:           TaskContextForEnv{IssueID: "issue-helper-openclaw-timeout"},
 	}, logger)
-	if err == nil {
-		t.Fatal("expected preparation to fail when the openclaw CLI outlasts its deadline")
-	}
-	if !errors.Is(err, ErrOpenclawCLITimeout) {
-		t.Errorf("the timeout sentinel must survive the helper boundary\ngot: %s", err)
-	}
-	if !strings.Contains(err.Error(), "openclaw config file") {
-		t.Errorf("the original diagnostic must survive too\ngot: %s", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected preparation to fail when the openclaw CLI outlasts its deadline") })
+	testassert.OnFailure(t, !errors.Is(err, ErrOpenclawCLITimeout), func() { t.Errorf("the timeout sentinel must survive the helper boundary\ngot: %s", err) })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "openclaw config file"), func() { t.Errorf("the original diagnostic must survive too\ngot: %s", err) })
 }
 
 // TestRehydratePreparationErrorUnknownKind pins the mixed-version direction of
@@ -245,12 +221,8 @@ func TestPreparationHelperPreservesOpenclawTimeoutKind(t *testing.T) {
 // rather than being dropped or mislabelled.
 func TestRehydratePreparationErrorUnknownKind(t *testing.T) {
 	err := rehydratePreparationError("prepare failed somehow", "some_future_kind")
-	if err == nil || err.Error() != "prepare failed somehow" {
-		t.Fatalf("rehydratePreparationError dropped the message: %v", err)
-	}
-	if errors.Is(err, ErrOpenclawCLITimeout) {
-		t.Error("an unknown kind must not be reported as an openclaw CLI timeout")
-	}
+	testassert.OnFailure(t, err == nil || err.Error() != "prepare failed somehow", func() { t.Fatalf("rehydratePreparationError dropped the message: %v", err) })
+	testassert.OnFailure(t, errors.Is(err, ErrOpenclawCLITimeout), func() { t.Error("an unknown kind must not be reported as an openclaw CLI timeout") })
 	if kind := preparationErrorKind(errors.New("plain failure")); kind != "" {
 		t.Errorf("preparationErrorKind(plain) = %q, want empty", kind)
 	}
@@ -285,9 +257,7 @@ func TestPrepareIsolatedKeepsTheClaimWithTheParent(t *testing.T) {
 		IssueIdentifier: "MUL-6063",
 	}
 	claim, err := ClaimEnvRoot(rootParams)
-	if err != nil {
-		t.Fatalf("parent claim: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("parent claim: %v", err) })
 	defer claim.Release()
 
 	env, err := PrepareIsolated(context.Background(), preparationHelperTestCommand(), PrepareParams{
@@ -300,15 +270,9 @@ func TestPrepareIsolatedKeepsTheClaimWithTheParent(t *testing.T) {
 		EnvRootPreclaimed: true,
 		Task:              TaskContextForEnv{IssueID: taskID},
 	}, nil)
-	if err != nil {
-		t.Fatalf("PrepareIsolated: %v", err)
-	}
-	if env == nil || env.WorkDir == "" {
-		t.Fatal("PrepareIsolated returned no environment")
-	}
-	if env.RootDir != claim.RootDir() {
-		t.Fatalf("helper prepared %q while parent claimed %q", env.RootDir, claim.RootDir())
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("PrepareIsolated: %v", err) })
+	testassert.OnFailure(t, env == nil || env.WorkDir == "", func() { t.Fatal("PrepareIsolated returned no environment") })
+	testassert.OnFailure(t, env.RootDir != claim.RootDir(), func() { t.Fatalf("helper prepared %q while parent claimed %q", env.RootDir, claim.RootDir()) })
 
 	// The helper has exited. If the claim had been taken inside it, the lock
 	// would be gone and this second claim would succeed.
@@ -320,9 +284,7 @@ func TestPrepareIsolatedKeepsTheClaimWithTheParent(t *testing.T) {
 	// And releasing it must hand the env root back for a later dispatch.
 	claim.Release()
 	next, err := ClaimEnvRoot(rootParams)
-	if err != nil {
-		t.Fatalf("env root stayed locked after release: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("env root stayed locked after release: %v", err) })
 	next.Release()
 }
 
@@ -339,19 +301,13 @@ func TestLockEnvRootForReuseExcludesConcurrentContinuations(t *testing.T) {
 	}
 
 	wsRoot, err := os.OpenRoot(filepath.Dir(filepath.Dir(priorRoot)))
-	if err != nil {
-		t.Fatalf("open workspaces root: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("open workspaces root: %v", err) })
 	defer wsRoot.Close()
 	rel := filepath.Join(filepath.Base(filepath.Dir(priorRoot)), filepath.Base(priorRoot))
 
 	first, _, err := LockEnvRootForReuse(wsRoot, rel, priorRoot)
-	if err != nil {
-		t.Fatalf("first continuation: %v", err)
-	}
-	if first == nil {
-		t.Fatal("expected a claim for an existing prior root")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("first continuation: %v", err) })
+	testassert.OnFailure(t, first == nil, func() { t.Fatal("expected a claim for an existing prior root") })
 
 	if second, _, err := LockEnvRootForReuse(wsRoot, rel, priorRoot); err == nil {
 		second.Release()
@@ -360,23 +316,17 @@ func TestLockEnvRootForReuseExcludesConcurrentContinuations(t *testing.T) {
 
 	first.Release()
 	again, _, err := LockEnvRootForReuse(wsRoot, rel, priorRoot)
-	if err != nil {
-		t.Fatalf("prior root stayed locked after release: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("prior root stayed locked after release: %v", err) })
 	again.Release()
 
 	// A missing root is not an error — the caller falls through to a fresh
 	// Prepare, and there is nothing to exclude on.
 	base := t.TempDir()
 	baseRoot, err := os.OpenRoot(base)
-	if err != nil {
-		t.Fatalf("open base: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("open base: %v", err) })
 	defer baseRoot.Close()
 	missing, _, err := LockEnvRootForReuse(baseRoot, "absent", filepath.Join(base, "absent"))
-	if err != nil || missing != nil {
-		t.Fatalf("missing prior root: claim=%v err=%v, want nil/nil", missing, err)
-	}
+	testassert.OnFailure(t, err != nil || missing != nil, func() { t.Fatalf("missing prior root: claim=%v err=%v, want nil/nil", missing, err) })
 }
 
 // TestPrepareIsolatedFailsLoudlyWhenPreclaimIsNotDeclared pins what happens if
@@ -393,9 +343,7 @@ func TestPrepareIsolatedFailsLoudlyWhenPreclaimIsNotDeclared(t *testing.T) {
 	)
 
 	claim, err := ClaimEnvRoot(RootDirParams{WorkspacesRoot: workspacesRoot, WorkspaceID: workspaceID, TaskID: taskID})
-	if err != nil {
-		t.Fatalf("parent claim: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("parent claim: %v", err) })
 	defer claim.Release()
 
 	_, err = PrepareIsolated(context.Background(), preparationHelperTestCommand(), PrepareParams{
@@ -406,10 +354,6 @@ func TestPrepareIsolatedFailsLoudlyWhenPreclaimIsNotDeclared(t *testing.T) {
 		// EnvRootPreclaimed deliberately left false while the parent holds it.
 		Task: TaskContextForEnv{IssueID: taskID},
 	}, nil)
-	if err == nil {
-		t.Fatal("preparation ran without declaring the parent's claim")
-	}
-	if !strings.Contains(err.Error(), "running execution") {
-		t.Fatalf("error = %v, want it to name the held claim", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("preparation ran without declaring the parent's claim") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "running execution"), func() { t.Fatalf("error = %v, want it to name the held claim", err) })
 }

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // User skills reach the per-task CODEX_HOME as links, not copies (MUL-6000).
@@ -28,12 +30,8 @@ func writeUserSkill(t *testing.T, dir, body string) {
 func assertIsLink(t *testing.T, path string) {
 	t.Helper()
 	fi, err := os.Lstat(path)
-	if err != nil {
-		t.Fatalf("lstat %s: %v", path, err)
-	}
-	if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0 {
-		t.Fatalf("%s is a real directory (mode %v), want a link", path, fi.Mode())
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("lstat %s: %v", path, err) })
+	testassert.OnFailure(t, fi.Mode()&(os.ModeSymlink|os.ModeIrregular) == 0, func() { t.Fatalf("%s is a real directory (mode %v), want a link", path, fi.Mode()) })
 }
 
 func TestSeedUserCodexSkillsLinksInsteadOfCopying(t *testing.T) {
@@ -52,12 +50,8 @@ func TestSeedUserCodexSkillsLinksInsteadOfCopying(t *testing.T) {
 	assertIsLink(t, dst)
 
 	body, err := os.ReadFile(filepath.Join(dst, "SKILL.md"))
-	if err != nil {
-		t.Fatalf("read seeded SKILL.md: %v", err)
-	}
-	if string(body) != "alpha v1" {
-		t.Errorf("seeded SKILL.md = %q, want %q", body, "alpha v1")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read seeded SKILL.md: %v", err) })
+	testassert.OnFailure(t, string(body) != "alpha v1", func() { t.Errorf("seeded SKILL.md = %q, want %q", body, "alpha v1") })
 
 	// The decisive proof it is not a copy: content added to the user's real
 	// skill directory after seeding is visible through the per-task path.
@@ -94,27 +88,17 @@ func TestSeedUserCodexSkillsResolvesInstallerSymlink(t *testing.T) {
 	dst := filepath.Join(codexHome, "skills", "lark-base")
 	assertIsLink(t, dst)
 	body, err := os.ReadFile(filepath.Join(dst, "SKILL.md"))
-	if err != nil {
-		t.Fatalf("symlink-installed skill unreadable through the per-task link: %v", err)
-	}
-	if string(body) != "lark-base v1" {
-		t.Errorf("SKILL.md = %q, want %q", body, "lark-base v1")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("symlink-installed skill unreadable through the per-task link: %v", err) })
+	testassert.OnFailure(t, string(body) != "lark-base v1", func() { t.Errorf("SKILL.md = %q, want %q", body, "lark-base v1") })
 
 	// The per-task link must point at the real directory, not at the
 	// installer's own link, so it stays valid if the installer re-points it.
 	if runtime.GOOS != "windows" {
 		target, err := os.Readlink(dst)
-		if err != nil {
-			t.Fatalf("readlink %s: %v", dst, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("readlink %s: %v", dst, err) })
 		want, err := filepath.EvalSymlinks(realSkill)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if target != want {
-			t.Errorf("link target = %q, want the resolved skill dir %q", target, want)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatal(err) })
+		testassert.OnFailure(t, target != want, func() { t.Errorf("link target = %q, want the resolved skill dir %q", target, want) })
 	}
 }
 
@@ -208,12 +192,8 @@ func TestHydrateCodexSkillsNeverWritesThroughAUserSkillLink(t *testing.T) {
 	}
 
 	body, err := os.ReadFile(filepath.Join(userSkill, "SKILL.md"))
-	if err != nil {
-		t.Fatalf("read user skill: %v", err)
-	}
-	if string(body) != "user version" {
-		t.Fatalf("workspace skill was written through the link into the user's skill dir: %q", body)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read user skill: %v", err) })
+	testassert.OnFailure(t, string(body) != "user version", func() { t.Fatalf("workspace skill was written through the link into the user's skill dir: %q", body) })
 	if _, err := os.Stat(filepath.Join(skillsDir, "alpha-multica", "SKILL.md")); err != nil {
 		t.Errorf("colliding workspace skill did not land in a sibling dir: %v", err)
 	}

@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // TestPrepareManagedIssueEnvWritesProvenance verifies Prepare drops the
@@ -23,21 +25,13 @@ func TestPrepareManagedIssueEnvWritesProvenance(t *testing.T) {
 			AgentID: "agent-prov-1",
 		},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	prov, err := ReadManagedEnvProvenance(env.RootDir)
-	if err != nil {
-		t.Fatalf("read managed env provenance: %v", err)
-	}
-	if prov.ManagedBy != ManagedEnvProvenanceManagedBy {
-		t.Fatalf("managed_by = %q, want %q", prov.ManagedBy, ManagedEnvProvenanceManagedBy)
-	}
-	if prov.WorkspaceID != "ws-prov-001" || prov.IssueID != "issue-prov-1" || prov.AgentID != "agent-prov-1" {
-		t.Fatalf("provenance owner mismatch: %+v", prov)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read managed env provenance: %v", err) })
+	testassert.OnFailure(t, prov.ManagedBy != ManagedEnvProvenanceManagedBy, func() { t.Fatalf("managed_by = %q, want %q", prov.ManagedBy, ManagedEnvProvenanceManagedBy) })
+	testassert.OnFailure(t, prov.WorkspaceID != "ws-prov-001" || prov.IssueID != "issue-prov-1" || prov.AgentID != "agent-prov-1", func() { t.Fatalf("provenance owner mismatch: %+v", prov) })
 }
 
 // TestPrepareLocalDirectoryWritesNoProvenance pins the local_directory branch:
@@ -58,9 +52,7 @@ func TestPrepareLocalDirectoryWritesNoProvenance(t *testing.T) {
 			AgentID: "agent-prov-local",
 		},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	if _, err := ReadManagedEnvProvenance(env.RootDir); !os.IsNotExist(err) {
@@ -86,16 +78,10 @@ func TestPrepareManagedChatEnvWritesProvenance(t *testing.T) {
 			AgentID:       "agent-chat",
 		},
 	}, testLogger())
-	if err != nil {
-		t.Fatalf("Prepare failed: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare failed: %v", err) })
 	defer env.Cleanup(true)
 
 	prov, err := ReadManagedEnvProvenance(env.RootDir)
-	if err != nil {
-		t.Fatalf("read chat managed env provenance: %v", err)
-	}
-	if prov.WorkspaceID != "ws-prov-chat" || prov.ChatSessionID != "chat-1" || prov.AgentID != "agent-chat" || prov.IssueID != "" {
-		t.Fatalf("chat provenance owner mismatch: %+v", prov)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read chat managed env provenance: %v", err) })
+	testassert.OnFailure(t, prov.WorkspaceID != "ws-prov-chat" || prov.ChatSessionID != "chat-1" || prov.AgentID != "agent-chat" || prov.IssueID != "", func() { t.Fatalf("chat provenance owner mismatch: %+v", prov) })
 }

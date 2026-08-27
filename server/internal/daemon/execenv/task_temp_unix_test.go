@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // blockContentRemoval plants a payload inside dir that cannot be unlinked,
@@ -89,12 +91,8 @@ func TestPruneTaskTempDirsRetriesUntilContentCanBeRemoved(t *testing.T) {
 	unblock()
 
 	removed, bytesFreed := PruneTaskTempDirs(base, 0, time.Now(), testLogger())
-	if removed != 1 {
-		t.Fatalf("prune removed %d dirs once the payload was releasable, want 1", removed)
-	}
-	if bytesFreed < 2048 {
-		t.Fatalf("prune reported %d bytes freed, want at least 2048", bytesFreed)
-	}
+	testassert.OnFailure(t, removed != 1, func() { t.Fatalf("prune removed %d dirs once the payload was releasable, want 1", removed) })
+	testassert.OnFailure(t, bytesFreed < 2048, func() { t.Fatalf("prune reported %d bytes freed, want at least 2048", bytesFreed) })
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("task temp dir still present: %v", err)
 	}
@@ -118,9 +116,7 @@ func TestPruneTaskTempDirsFailsClosedOnUnreadableDir(t *testing.T) {
 	// An ancient legacy TTL that would otherwise fire: the point is that an
 	// unreadable directory is never classified legacy in the first place.
 	removed, _ := PruneTaskTempDirs(base, time.Hour, time.Now().Add(10*365*24*time.Hour), testLogger())
-	if removed != 0 {
-		t.Fatalf("prune removed %d unreadable dirs, want 0", removed)
-	}
+	testassert.OnFailure(t, removed != 0, func() { t.Fatalf("prune removed %d unreadable dirs, want 0", removed) })
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("prune removed an unreadable dir: %v", err)
 	}

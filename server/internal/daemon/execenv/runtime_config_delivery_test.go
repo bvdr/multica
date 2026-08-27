@@ -3,6 +3,8 @@ package execenv
 import (
 	"strings"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // The MUL-4899 delivery contract as the BRIEF states it. Two orthogonal
@@ -70,9 +72,7 @@ func TestBriefDeliveryInvariantIsAlwaysOn(t *testing.T) {
 	for name, ctx := range deliveryInvariantFixtures() {
 		out := buildMetaSkillContent("claude", ctx)
 		for _, want := range wantAll {
-			if !strings.Contains(out, want) {
-				t.Errorf("kind=%s: brief is missing always-on delivery invariant %q", name, want)
-			}
+			testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("kind=%s: brief is missing always-on delivery invariant %q", name, want) })
 		}
 	}
 }
@@ -199,15 +199,13 @@ func TestBriefSurfaceDeliveryPolicy(t *testing.T) {
 	fixtures := deliveryInvariantFixtures()
 	for name, want := range cases {
 		ctx, ok := fixtures[name]
-		if !ok {
-			t.Fatalf("no fixture for surface %q", name)
-		}
+		testassert.OnFailure(t, !ok, func() { t.Fatalf("no fixture for surface %q", name) })
 		out := buildMetaSkillContent("claude", ctx)
 		for _, phrase := range want.mustHave {
-			if !strings.Contains(out, phrase) {
+			testassert.OnFailure(t, !strings.Contains(out, phrase), func() {
 				t.Errorf("surface=%s: brief missing surface policy %q\n--- Output section ---\n%s",
 					name, phrase, outputSection(out))
-			}
+			})
 		}
 		// mustNot is checked against the WHOLE brief, not just `## Output`: a
 		// denial is wrong wherever it is written, and scoping the search to
@@ -260,10 +258,10 @@ func TestBriefChannelDeliveryCopyIgnoresServerVerdict(t *testing.T) {
 	delivering := buildMetaSkillContent("claude", fixtures["chat_wecom"])
 	for _, name := range []string{"chat_wecom_no_store", "chat_wecom_old_server"} {
 		got := buildMetaSkillContent("claude", fixtures[name])
-		if got != delivering {
+		testassert.OnFailure(t, got != delivering, func() {
 			t.Errorf("brief for %q differs from chat_wecom — the server's per-turn file-delivery verdict reached the cached prefix (MUL-5377).\n%s",
 				name, firstBriefDiff(delivering, got))
-		}
+		})
 	}
 }
 
@@ -304,10 +302,10 @@ func TestBriefChannelDeliveryCopyIsPlatformNeutral(t *testing.T) {
 		baseline := neutralized(ChannelTypeSlack, delivers)
 		for _, channelType := range []string{ChannelTypeFeishu, ChannelTypeWecom} {
 			got := neutralized(channelType, delivers)
-			if got != baseline {
+			testassert.OnFailure(t, got != baseline, func() {
 				t.Errorf("brief for channel %q (delivers=%v) differs from %q beyond the platform name — the brief took a position on one platform's file delivery, which is a per-turn deployment fact (MUL-4899, MUL-5377).\n%s",
 					channelType, delivers, ChannelTypeSlack, firstBriefDiff(baseline, got))
-			}
+			})
 		}
 	}
 }
@@ -333,14 +331,10 @@ func TestBriefInboundAttachmentIsNotADeliverable(t *testing.T) {
 		"not something the reader can open",
 		"the link rules in `## Output` apply to it too",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("Attachments section missing %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("Attachments section missing %q\n---\n%s", want, out) })
 	}
 	// The rule the pointer defers to must actually be present in the brief.
-	if !strings.Contains(out, "NEVER write an absolute path or a `file://` URL as a clickable link") {
-		t.Errorf("Attachments points at ## Output but the rule is missing\n---\n%s", out)
-	}
+	testassert.OnFailure(t, !strings.Contains(out, "NEVER write an absolute path or a `file://` URL as a clickable link"), func() { t.Errorf("Attachments points at ## Output but the rule is missing\n---\n%s", out) })
 }
 
 func TestChannelDisplayName(t *testing.T) {
@@ -372,9 +366,9 @@ func TestQuickActionsInstructionsAbsentFromAllChatBriefs(t *testing.T) {
 	}
 	for _, ctx := range contexts {
 		brief := buildMetaSkillContent("claude", ctx)
-		if strings.Contains(brief, "```quick-actions") || strings.Contains(brief, "### Quick Actions") {
+		testassert.OnFailure(t, strings.Contains(brief, "```quick-actions") || strings.Contains(brief, "### Quick Actions"), func() {
 			t.Fatalf("brief (channel=%q) must not teach the in-band quick-actions syntax", ctx.ChatChannelType)
-		}
+		})
 	}
 }
 

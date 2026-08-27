@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/multica-ai/multica/server/internal/runtimeapps"
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 // Sub-issue Creation section — after MUL-2538 the platform posts the
@@ -43,9 +44,7 @@ func TestSubIssueCreationSectionPresentForIssueRuns(t *testing.T) {
 			t.Parallel()
 			out := buildMetaSkillContent("claude", tc.ctx)
 
-			if !strings.Contains(out, "## Sub-issue Creation") {
-				t.Fatalf("expected Sub-issue Creation section in %s brief", tc.name)
-			}
+			testassert.OnFailure(t, !strings.Contains(out, "## Sub-issue Creation"), func() { t.Fatalf("expected Sub-issue Creation section in %s brief", tc.name) })
 			for _, want := range []string{
 				// MUL-5442 demotes the full todo/backlog/stage playbook to the
 				// multica-working-on-issues skill. The brief keeps a one-line
@@ -58,9 +57,7 @@ func TestSubIssueCreationSectionPresentForIssueRuns(t *testing.T) {
 				"`--stage <N>` groups children into ordered stages",
 				"read the `multica-working-on-issues` skill",
 			} {
-				if !strings.Contains(out, want) {
-					t.Errorf("[%s] section missing %q", tc.name, want)
-				}
+				testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("[%s] section missing %q", tc.name, want) })
 			}
 		})
 	}
@@ -73,9 +70,7 @@ func TestIssueWorkflowCarriesSourceContextPrecedenceOnce(t *testing.T) {
 	if count := strings.Count(out, rule); count != 1 {
 		t.Fatalf("source-context precedence rule count = %d, want 1", count)
 	}
-	if !strings.Contains(out, "current issue title, description, and comments are authoritative task instructions") {
-		t.Fatal("source-context rule does not identify the current issue as authoritative")
-	}
+	testassert.OnFailure(t, !strings.Contains(out, "current issue title, description, and comments are authoritative task instructions"), func() { t.Fatal("source-context rule does not identify the current issue as authoritative") })
 }
 
 // The brief must no longer carry any parent-notification guidance. PR
@@ -144,9 +139,7 @@ func TestBriefHasNoParentNotificationGuidance(t *testing.T) {
 			// Non-existent CLI form Elon's earlier review flagged.
 			"issue list --parent",
 		} {
-			if strings.Contains(out, banned) {
-				t.Errorf("expected %q to be removed from the brief", banned)
-			}
+			testassert.OnFailure(t, strings.Contains(out, banned), func() { t.Errorf("expected %q to be removed from the brief", banned) })
 		}
 	}
 }
@@ -176,9 +169,9 @@ func TestStatusRuleIsFactJudgmentAtBothMoments(t *testing.T) {
 	}
 	out := buildMetaSkillContent("claude", ctx)
 
-	if strings.Contains(out, "`multica issue status <this-issue-id> in_review`") {
+	testassert.OnFailure(t, strings.Contains(out, "`multica issue status <this-issue-id> in_review`"), func() {
 		t.Errorf("brief must not contain a placeholder `<this-issue-id> in_review` flip — status is judged from what the turn delivered")
-	}
+	})
 
 	for _, want := range []string{
 		// The anchor: issue state, not run lifecycle, written when it changes.
@@ -209,9 +202,7 @@ func TestStatusRuleIsFactJudgmentAtBothMoments(t *testing.T) {
 		// Invariant 2: concurrent agents converge instead of flapping.
 		"This no-write default is what keeps concurrent runs from flapping the board",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("status rule missing %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("status rule missing %q\n---\n%s", want, out) })
 	}
 
 	// The retired gates must not come back: no trigger-type modes, no
@@ -239,9 +230,7 @@ func TestStatusRuleIsFactJudgmentAtBothMoments(t *testing.T) {
 		"you only answered a question, reviewed, or discussed",
 		"in whatever form: code, research",
 	} {
-		if strings.Contains(out, banned) {
-			t.Errorf("brief still carries retired status gate %q (MUL-6417)\n---\n%s", banned, out)
-		}
+		testassert.OnFailure(t, strings.Contains(out, banned), func() { t.Errorf("brief still carries retired status gate %q (MUL-6417)\n---\n%s", banned, out) })
 	}
 
 	// Position is load-bearing, not style (J's review on #7295): a
@@ -257,20 +246,14 @@ func TestStatusRuleIsFactJudgmentAtBothMoments(t *testing.T) {
 			step5 = line
 		}
 	}
-	if !strings.Contains(step3, "set `in_progress` FIRST") {
-		t.Errorf("the start write must be anchored inside step 3\n---\n%s", step3)
-	}
-	if !strings.Contains(step3, "never decides") {
+	testassert.OnFailure(t, !strings.Contains(step3, "set `in_progress` FIRST"), func() { t.Errorf("the start write must be anchored inside step 3\n---\n%s", step3) })
+	testassert.OnFailure(t, !strings.Contains(step3, "never decides"), func() {
 		t.Errorf("the never-decides guard must live inside step 3, the position that fires\n---\n%s", step3)
-	}
-	if !strings.Contains(step5, "confirm the status still matches") {
-		t.Errorf("the exit-side status check must be anchored inside step 5\n---\n%s", step5)
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(step5, "confirm the status still matches"), func() { t.Errorf("the exit-side status check must be anchored inside step 5\n---\n%s", step5) })
 
 	// The squad-leader bullet must not leak into the ordinary path.
-	if strings.Contains(out, "dispatching members is not delivery") {
-		t.Errorf("ordinary-agent brief must not carry the squad-leader status bullet:\n%s", out)
-	}
+	testassert.OnFailure(t, strings.Contains(out, "dispatching members is not delivery"), func() { t.Errorf("ordinary-agent brief must not carry the squad-leader status bullet:\n%s", out) })
 }
 
 // TestPerRunCommentContextStaysOutOfBrief pins MUL-5377: no per-run comment
@@ -301,9 +284,7 @@ func TestPerRunCommentContextStaysOutOfBrief(t *testing.T) {
 		"4 new comment(s) on this issue since your last run",
 		"DISTINCT threads",
 	} {
-		if strings.Contains(out, banned) {
-			t.Errorf("brief must not carry per-run comment value %q (MUL-5377)\n---\n%s", banned, out)
-		}
+		testassert.OnFailure(t, strings.Contains(out, banned), func() { t.Errorf("brief must not carry per-run comment value %q (MUL-5377)\n---\n%s", banned, out) })
 	}
 
 	// The helper that now feeds the per-turn prompt is unchanged.
@@ -314,9 +295,7 @@ func TestPerRunCommentContextStaysOutOfBrief(t *testing.T) {
 		"--thread thread-abc --since " + since + " --compact --output json",
 		"--tail 30",
 	} {
-		if !strings.Contains(hint, want) {
-			t.Errorf("BuildNewCommentsHint missing %q\n---\n%s", want, hint)
-		}
+		testassert.OnFailure(t, !strings.Contains(hint, want), func() { t.Errorf("BuildNewCommentsHint missing %q\n---\n%s", want, hint) })
 	}
 }
 
@@ -326,15 +305,9 @@ func TestColdCommentsHintPointsAtTriggeringThread(t *testing.T) {
 	t.Parallel()
 	const issueID = "55555555-6666-7777-8888-999999999999"
 	hint := BuildColdCommentsHint(issueID, "trigger-1", "thread-root-1")
-	if strings.Contains(hint, "new comment(s) since your last run") {
-		t.Errorf("no since-delta hint should render on cold start, got:\n%s", hint)
-	}
-	if !strings.Contains(hint, "multica issue comment list "+issueID+" --thread thread-root-1 --tail 30 --compact --output json") {
-		t.Errorf("cold start must point at the triggering thread read, got:\n%s", hint)
-	}
-	if strings.Contains(buildMetaSkillContent("claude", TaskContextForEnv{IssueID: issueID, TriggerCommentID: "trigger-1", TriggerThreadID: "thread-root-1"}), "thread-root-1") {
-		t.Error("brief must not carry the per-run thread id (MUL-5377)")
-	}
+	testassert.OnFailure(t, strings.Contains(hint, "new comment(s) since your last run"), func() { t.Errorf("no since-delta hint should render on cold start, got:\n%s", hint) })
+	testassert.OnFailure(t, !strings.Contains(hint, "multica issue comment list "+issueID+" --thread thread-root-1 --tail 30 --compact --output json"), func() { t.Errorf("cold start must point at the triggering thread read, got:\n%s", hint) })
+	testassert.OnFailure(t, strings.Contains(buildMetaSkillContent("claude", TaskContextForEnv{IssueID: issueID, TriggerCommentID: "trigger-1", TriggerThreadID: "thread-root-1"}), "thread-root-1"), func() { t.Error("brief must not carry the per-run thread id (MUL-5377)") })
 }
 
 // Resumed/no-delta routing moved to the per-turn prompt (MUL-5377).
@@ -350,21 +323,17 @@ func TestResumedCommentsHintSkipsDefaultThreadRead(t *testing.T) {
 		"do not rely only on resumed session memory",
 		"multica issue comment list " + issueID + " --thread thread-root-1 --tail 30 --compact --output json",
 	} {
-		if !strings.Contains(hint, want) {
-			t.Errorf("resumed/no-delta hint missing %q\n--- output ---\n%s", want, hint)
-		}
+		testassert.OnFailure(t, !strings.Contains(hint, want), func() { t.Errorf("resumed/no-delta hint missing %q\n--- output ---\n%s", want, hint) })
 	}
 	// The anchor-restating sentence is gone (MUL-5721 OPT-1): the read command
 	// carries the thread anchor and the reply cookbook carries the trigger id.
-	if strings.Contains(hint, "active thread anchor") {
+	testassert.OnFailure(t, strings.Contains(hint, "active thread anchor"), func() {
 		t.Errorf("resumed/no-delta hint must not restate anchors outside the commands, got:\n%s", hint)
-	}
-	if strings.Contains(hint, "scoped to the triggering thread") {
-		t.Errorf("resumed/no-delta hint must not claim the delta is thread-scoped, got:\n%s", hint)
-	}
-	if strings.Contains(hint, "Read the triggering conversation first") {
+	})
+	testassert.OnFailure(t, strings.Contains(hint, "scoped to the triggering thread"), func() { t.Errorf("resumed/no-delta hint must not claim the delta is thread-scoped, got:\n%s", hint) })
+	testassert.OnFailure(t, strings.Contains(hint, "Read the triggering conversation first"), func() {
 		t.Errorf("resumed/no-delta hint must not use the cold-start forced-read wording, got:\n%s", hint)
-	}
+	})
 }
 
 // The continuity notice moved out of the brief and into the per-turn prompt
@@ -376,9 +345,7 @@ func TestSessionContinuityNoticeLivesOutsideBrief(t *testing.T) {
 		"could NOT be restored",
 		"tell the user up front",
 	} {
-		if !strings.Contains(SessionContinuityNoticeUnrecoverable, want) {
-			t.Errorf("SessionContinuityNoticeUnrecoverable missing %q", want)
-		}
+		testassert.OnFailure(t, !strings.Contains(SessionContinuityNoticeUnrecoverable, want), func() { t.Errorf("SessionContinuityNoticeUnrecoverable missing %q", want) })
 	}
 
 	// MUL-5722: the issue variant carries the same heading and the same
@@ -386,39 +353,29 @@ func TestSessionContinuityNoticeLivesOutsideBrief(t *testing.T) {
 	// issue's discussion lives in its comments, which the agent re-reads every
 	// turn, so telling the user it was lost describes a loss that did not
 	// happen — they hear "the discussion is gone" when every word survives.
-	if !strings.Contains(SessionContinuityNoticeIssue, "## Session Continuity Notice") {
-		t.Error("SessionContinuityNoticeIssue must keep the section heading")
-	}
-	if strings.Contains(SessionContinuityNoticeIssue, "tell the user") {
-		t.Errorf("issue variant must not script an apology:\n%s", SessionContinuityNoticeIssue)
-	}
+	testassert.OnFailure(t, !strings.Contains(SessionContinuityNoticeIssue, "## Session Continuity Notice"), func() { t.Error("SessionContinuityNoticeIssue must keep the section heading") })
+	testassert.OnFailure(t, strings.Contains(SessionContinuityNoticeIssue, "tell the user"), func() { t.Errorf("issue variant must not script an apology:\n%s", SessionContinuityNoticeIssue) })
 	// It still has to say what genuinely went missing, or the agent silently
 	// assumes it remembers work it no longer has.
-	if !strings.Contains(SessionContinuityNoticeIssue, "your own working memory") {
-		t.Errorf("issue variant must state the real loss:\n%s", SessionContinuityNoticeIssue)
-	}
+	testassert.OnFailure(t, !strings.Contains(SessionContinuityNoticeIssue, "your own working memory"), func() { t.Errorf("issue variant must state the real loss:\n%s", SessionContinuityNoticeIssue) })
 
 	// The web-chat / Feishu transcript variant points at the read-back command
 	// and must NOT order an announcement — the conversation survives in
 	// chat_message, so "the previous context was lost" would be a false alarm.
-	if !strings.Contains(SessionContinuityNoticeChatTranscript, "multica chat history") {
-		t.Error("transcript variant must point at the read-back command")
-	}
-	if strings.Contains(SessionContinuityNoticeChatTranscript, "tell the user") {
+	testassert.OnFailure(t, !strings.Contains(SessionContinuityNoticeChatTranscript, "multica chat history"), func() { t.Error("transcript variant must point at the read-back command") })
+	testassert.OnFailure(t, strings.Contains(SessionContinuityNoticeChatTranscript, "tell the user"), func() {
 		t.Errorf("transcript variant must not script an apology:\n%s", SessionContinuityNoticeChatTranscript)
-	}
-	if !strings.Contains(SessionContinuityNoticeChatTranscript, "your own working memory") {
+	})
+	testassert.OnFailure(t, !strings.Contains(SessionContinuityNoticeChatTranscript, "your own working memory"), func() {
 		t.Errorf("transcript variant must state the real loss:\n%s", SessionContinuityNoticeChatTranscript)
-	}
+	})
 
 	lost := TaskContextForEnv{
 		IssueID:                       "11111111-2222-3333-4444-555555555555",
 		TriggerCommentID:              "trigger-1",
 		PriorSessionResumeUnavailable: true,
 	}
-	if strings.Contains(buildMetaSkillContent("codex", lost), "Session Continuity Notice") {
-		t.Error("brief must never carry the continuity notice — it is per-run state (MUL-5377)")
-	}
+	testassert.OnFailure(t, strings.Contains(buildMetaSkillContent("codex", lost), "Session Continuity Notice"), func() { t.Error("brief must never carry the continuity notice — it is per-run state (MUL-5377)") })
 }
 
 // The issue workflow must keep every Agent Identity guardrail after the
@@ -447,9 +404,7 @@ func TestIssueWorkflowHonorsAgentIdentity(t *testing.T) {
 		// whose identity forbids comments must still be able to mark blocked.
 		"post a comment explaining the blocker unless your Agent Identity forbids issue comments",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("issue brief missing identity-bound workflow text %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("issue brief missing identity-bound workflow text %q\n---\n%s", want, out) })
 	}
 
 	for _, banned := range []string{
@@ -457,9 +412,9 @@ func TestIssueWorkflowHonorsAgentIdentity(t *testing.T) {
 		"5. Follow your Skills and Agent Identity to complete the task (write code, investigate, etc.)",
 		"8. When done, run `multica issue status " + issueID + " in_review`\n",
 	} {
-		if strings.Contains(out, banned) {
+		testassert.OnFailure(t, strings.Contains(out, banned), func() {
 			t.Errorf("issue brief still contains unconditional legacy workflow text %q\n---\n%s", banned, out)
-		}
+		})
 	}
 }
 
@@ -483,9 +438,7 @@ func TestSquadLeaderIssueWorkflowKeepsParentInProgress(t *testing.T) {
 		// The shared no-write default still governs leader conversation turns.
 		"questions, discussion, and acknowledgements never touch status",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("squad-leader issue brief missing %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("squad-leader issue brief missing %q\n---\n%s", want, out) })
 	}
 }
 
@@ -507,9 +460,7 @@ func TestProtocolHeadingInInstructionsGetsNoLeaderBrief(t *testing.T) {
 		IsSquadLeader:     false,
 	})
 
-	if !strings.Contains(out, instructions) {
-		t.Fatalf("agent instructions must reach the brief verbatim\n---\n%s", out)
-	}
+	testassert.OnFailure(t, !strings.Contains(out, instructions), func() { t.Fatalf("agent instructions must reach the brief verbatim\n---\n%s", out) })
 	for _, banned := range []string{
 		"### Squad maintenance",
 		"multica squad member set-role",
@@ -517,13 +468,9 @@ func TestProtocolHeadingInInstructionsGetsNoLeaderBrief(t *testing.T) {
 		"unless your outcome is `no_action`",
 		"dispatching members is not delivery",
 	} {
-		if strings.Contains(out, banned) {
-			t.Fatalf("ordinary-agent brief leaked leader-only content %q\n---\n%s", banned, out)
-		}
+		testassert.OnFailure(t, strings.Contains(out, banned), func() { t.Fatalf("ordinary-agent brief leaked leader-only content %q\n---\n%s", banned, out) })
 	}
-	if !strings.Contains(out, "**Post your final results as a comment — this step is mandatory**") {
-		t.Fatalf("ordinary-agent brief lost the unconditional reply obligation\n---\n%s", out)
-	}
+	testassert.OnFailure(t, !strings.Contains(out, "**Post your final results as a comment — this step is mandatory**"), func() { t.Fatalf("ordinary-agent brief lost the unconditional reply obligation\n---\n%s", out) })
 }
 
 // Instruction Precedence belongs to the issue workflow only; the issue-less
@@ -556,9 +503,9 @@ func TestInstructionPrecedenceOnlyAppliesToIssueWorkflow(t *testing.T) {
 				"issue workflow below",
 				"Never treat this runtime workflow as permission to change issue status",
 			} {
-				if strings.Contains(out, banned) {
+				testassert.OnFailure(t, strings.Contains(out, banned), func() {
 					t.Errorf("%s brief must not inherit issue-only precedence text %q\n---\n%s", tc.name, banned, out)
-				}
+				})
 			}
 		})
 	}
@@ -573,9 +520,7 @@ func TestChatOutputDoesNotRequireIssueComment(t *testing.T) {
 		"This is a chat session",
 		"Your reply is delivered directly to the chat window the user is reading",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("chat brief missing chat output guidance %q\n---\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("chat brief missing chat output guidance %q\n---\n%s", want, out) })
 	}
 
 	for _, banned := range []string{
@@ -584,9 +529,7 @@ func TestChatOutputDoesNotRequireIssueComment(t *testing.T) {
 		"do not call `multica issue comment add`",
 		"unless the user explicitly asks",
 	} {
-		if strings.Contains(out, banned) {
-			t.Errorf("chat brief must not inherit issue-comment output warning %q\n---\n%s", banned, out)
-		}
+		testassert.OnFailure(t, strings.Contains(out, banned), func() { t.Errorf("chat brief must not inherit issue-comment output warning %q\n---\n%s", banned, out) })
 	}
 }
 
@@ -613,18 +556,14 @@ func TestOutputForbidsMidRunProgressComments(t *testing.T) {
 		for name, ctx := range issueCtxs {
 			out := buildMetaSkillContent("claude", ctx)
 			for _, want := range wantPhrases {
-				if !strings.Contains(out, want) {
-					t.Errorf("%s/%s brief missing output rule %q\n---\n%s", label, name, want, out)
-				}
+				testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("%s/%s brief missing output rule %q\n---\n%s", label, name, want, out) })
 			}
 		}
 		// Chat keeps its own delivery channel; it must not inherit the
 		// issue-task "post a final comment" rules.
 		chat := buildMetaSkillContent("claude", TaskContextForEnv{ChatSessionID: "chat-1"})
 		for _, banned := range wantPhrases {
-			if strings.Contains(chat, banned) {
-				t.Errorf("%s chat brief must not inherit issue output rule %q", label, banned)
-			}
+			testassert.OnFailure(t, strings.Contains(chat, banned), func() { t.Errorf("%s chat brief must not inherit issue output rule %q", label, banned) })
 		}
 	}
 
@@ -646,9 +585,7 @@ func TestSubIssueCreationSectionIsUnconditional(t *testing.T) {
 
 	const header = "## Sub-issue Creation"
 	start := strings.Index(out, header)
-	if start == -1 {
-		t.Fatalf("sub-issue creation section missing")
-	}
+	testassert.OnFailure(t, start == -1, func() { t.Fatalf("sub-issue creation section missing") })
 	rest := out[start:]
 	end := strings.Index(rest[len(header):], "\n## ")
 	var section string
@@ -658,9 +595,9 @@ func TestSubIssueCreationSectionIsUnconditional(t *testing.T) {
 		section = rest[:len(header)+end]
 	}
 
-	if strings.Contains(section, "parent_issue_id") {
+	testassert.OnFailure(t, strings.Contains(section, "parent_issue_id"), func() {
 		t.Errorf("Sub-issue Creation section must not reference `parent_issue_id` — it applies to any issue-bound run, including top-level parents:\n%s", section)
-	}
+	})
 }
 
 // Workspace Context block: workspace.context (the per-workspace system prompt
@@ -718,19 +655,15 @@ func TestWorkspaceContextRenderedAcrossTaskKinds(t *testing.T) {
 			t.Parallel()
 			out := buildMetaSkillContent("claude", tc.ctx)
 
-			if !strings.Contains(out, "## Workspace Context") {
-				t.Fatalf("[%s] expected `## Workspace Context` heading", tc.name)
-			}
-			if !strings.Contains(out, wsContext) {
-				t.Errorf("[%s] brief missing workspace context body %q", tc.name, wsContext)
-			}
+			testassert.OnFailure(t, !strings.Contains(out, "## Workspace Context"), func() { t.Fatalf("[%s] expected `## Workspace Context` heading", tc.name) })
+			testassert.OnFailure(t, !strings.Contains(out, wsContext), func() { t.Errorf("[%s] brief missing workspace context body %q", tc.name, wsContext) })
 			// The block must precede Available Commands so it acts as
 			// background framing, not a footer hidden below CLI usage.
 			ctxIdx := strings.Index(out, "## Workspace Context")
 			cmdsIdx := strings.Index(out, "## Available Commands")
-			if ctxIdx == -1 || cmdsIdx == -1 || ctxIdx > cmdsIdx {
+			testassert.OnFailure(t, ctxIdx == -1 || cmdsIdx == -1 || ctxIdx > cmdsIdx, func() {
 				t.Errorf("[%s] `## Workspace Context` must appear above `## Available Commands` (ctx=%d, cmds=%d)", tc.name, ctxIdx, cmdsIdx)
-			}
+			})
 		})
 	}
 }
@@ -761,9 +694,7 @@ func TestWorkspaceContextHeadingSkippedWhenEmpty(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out := buildMetaSkillContent("claude", tc.ctx)
-			if strings.Contains(out, "## Workspace Context") {
-				t.Errorf("[%s] empty workspace context must NOT emit the heading", tc.name)
-			}
+			testassert.OnFailure(t, strings.Contains(out, "## Workspace Context"), func() { t.Errorf("[%s] empty workspace context must NOT emit the heading", tc.name) })
 		})
 	}
 }
@@ -785,30 +716,24 @@ func TestConnectedAppsBlockLivesOutsideBrief(t *testing.T) {
 		"- Notion (`notion`) via MCP server `composio`",
 		"Use the listed MCP server when the task asks to read or act in one of these apps.",
 	} {
-		if !strings.Contains(block, want) {
-			t.Fatalf("connected-apps block missing %q\n---\n%s", want, block)
-		}
+		testassert.OnFailure(t, !strings.Contains(block, want), func() { t.Fatalf("connected-apps block missing %q\n---\n%s", want, block) })
 	}
-	if BuildConnectedAppsBlock(nil) != "" {
-		t.Error("empty app list must render nothing")
-	}
+	testassert.OnFailure(t, BuildConnectedAppsBlock(nil) != "", func() { t.Error("empty app list must render nothing") })
 
 	out := buildMetaSkillContent("claude", TaskContextForEnv{
 		IssueID:          "11111111-2222-3333-4444-555555555555",
 		WorkspaceContext: "Prefer source-of-truth systems.",
 		ConnectedApps:    apps,
 	})
-	if strings.Contains(out, "## Connected Apps") {
+	testassert.OnFailure(t, strings.Contains(out, "## Connected Apps"), func() {
 		t.Errorf("brief must not carry Connected Apps — it is per-run state (MUL-5377)\n---\n%s", out)
-	}
+	})
 }
 
 func TestConnectedAppsHeadingSkippedWhenEmpty(t *testing.T) {
 	t.Parallel()
 	out := buildMetaSkillContent("claude", TaskContextForEnv{IssueID: "11111111-2222-3333-4444-555555555555"})
-	if strings.Contains(out, "## Connected Apps") {
-		t.Fatalf("empty connected apps must not emit the heading")
-	}
+	testassert.OnFailure(t, strings.Contains(out, "## Connected Apps"), func() { t.Fatalf("empty connected apps must not emit the heading") })
 }
 
 func TestSubIssueCreationSectionSkippedForNonIssueModes(t *testing.T) {
@@ -835,9 +760,7 @@ func TestSubIssueCreationSectionSkippedForNonIssueModes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			out := buildMetaSkillContent("claude", tc.ctx)
-			if strings.Contains(out, "## Sub-issue Creation") {
-				t.Errorf("%s mode must NOT emit the Sub-issue Creation section", tc.name)
-			}
+			testassert.OnFailure(t, strings.Contains(out, "## Sub-issue Creation"), func() { t.Errorf("%s mode must NOT emit the Sub-issue Creation section", tc.name) })
 		})
 	}
 }
@@ -858,19 +781,11 @@ func TestWriteRuntimeConfigFileCreatesMissingFile(t *testing.T) {
 		t.Fatalf("writeRuntimeConfigFile returned error: %v", err)
 	}
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back file: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back file: %v", err) })
 	s := string(got)
-	if !strings.HasPrefix(s, runtimeMarkerBegin+"\n") {
-		t.Errorf("output should start with begin marker, got:\n%s", s)
-	}
-	if !strings.Contains(s, brief) {
-		t.Errorf("output should contain brief body, got:\n%s", s)
-	}
-	if !strings.Contains(s, "\n"+runtimeMarkerEnd+"\n") {
-		t.Errorf("output should contain end marker followed by newline, got:\n%s", s)
-	}
+	testassert.OnFailure(t, !strings.HasPrefix(s, runtimeMarkerBegin+"\n"), func() { t.Errorf("output should start with begin marker, got:\n%s", s) })
+	testassert.OnFailure(t, !strings.Contains(s, brief), func() { t.Errorf("output should contain brief body, got:\n%s", s) })
+	testassert.OnFailure(t, !strings.Contains(s, "\n"+runtimeMarkerEnd+"\n"), func() { t.Errorf("output should contain end marker followed by newline, got:\n%s", s) })
 }
 
 func TestWriteRuntimeConfigFilePreservesUserContent(t *testing.T) {
@@ -888,26 +803,18 @@ func TestWriteRuntimeConfigFilePreservesUserContent(t *testing.T) {
 	}
 
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back file: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back file: %v", err) })
 	s := string(got)
 	// The user's original content must be untouched and appear before the
 	// injected marker block; this is the core regression case from MUL-2753.
-	if !strings.HasPrefix(s, userContent) {
-		t.Errorf("user content must be preserved verbatim at the top of the file, got:\n%s", s)
-	}
+	testassert.OnFailure(t, !strings.HasPrefix(s, userContent), func() { t.Errorf("user content must be preserved verbatim at the top of the file, got:\n%s", s) })
 	beginIdx := strings.Index(s, runtimeMarkerBegin)
 	endIdx := strings.Index(s, runtimeMarkerEnd)
-	if beginIdx < 0 || endIdx <= beginIdx {
-		t.Fatalf("expected a well-formed marker block in:\n%s", s)
-	}
-	if beginIdx < len(userContent) {
+	testassert.OnFailure(t, beginIdx < 0 || endIdx <= beginIdx, func() { t.Fatalf("expected a well-formed marker block in:\n%s", s) })
+	testassert.OnFailure(t, beginIdx < len(userContent), func() {
 		t.Errorf("begin marker must appear after user content, beginIdx=%d userLen=%d", beginIdx, len(userContent))
-	}
-	if !strings.Contains(s, brief) {
-		t.Errorf("brief body missing from output:\n%s", s)
-	}
+	})
+	testassert.OnFailure(t, !strings.Contains(s, brief), func() { t.Errorf("brief body missing from output:\n%s", s) })
 }
 
 func TestWriteRuntimeConfigFileReplacesExistingBlock(t *testing.T) {
@@ -931,25 +838,13 @@ func TestWriteRuntimeConfigFileReplacesExistingBlock(t *testing.T) {
 	}
 
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back file: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back file: %v", err) })
 	s := string(got)
-	if !strings.HasPrefix(s, userBefore) {
-		t.Errorf("content above the marker block must be preserved, got:\n%s", s)
-	}
-	if !strings.HasSuffix(s, userAfter) {
-		t.Errorf("content below the marker block must be preserved, got:\n%s", s)
-	}
-	if strings.Contains(s, "OLD BRIEF CONTENT THAT MUST GO AWAY") {
-		t.Errorf("previous block body must be replaced, got:\n%s", s)
-	}
-	if !strings.Contains(s, newBrief) {
-		t.Errorf("new brief body missing from output:\n%s", s)
-	}
-	if strings.Count(s, runtimeMarkerBegin) != 1 || strings.Count(s, runtimeMarkerEnd) != 1 {
-		t.Errorf("there must be exactly one begin/end marker pair, got:\n%s", s)
-	}
+	testassert.OnFailure(t, !strings.HasPrefix(s, userBefore), func() { t.Errorf("content above the marker block must be preserved, got:\n%s", s) })
+	testassert.OnFailure(t, !strings.HasSuffix(s, userAfter), func() { t.Errorf("content below the marker block must be preserved, got:\n%s", s) })
+	testassert.OnFailure(t, strings.Contains(s, "OLD BRIEF CONTENT THAT MUST GO AWAY"), func() { t.Errorf("previous block body must be replaced, got:\n%s", s) })
+	testassert.OnFailure(t, !strings.Contains(s, newBrief), func() { t.Errorf("new brief body missing from output:\n%s", s) })
+	testassert.OnFailure(t, strings.Count(s, runtimeMarkerBegin) != 1 || strings.Count(s, runtimeMarkerEnd) != 1, func() { t.Errorf("there must be exactly one begin/end marker pair, got:\n%s", s) })
 }
 
 func TestWriteRuntimeConfigFileIsIdempotent(t *testing.T) {
@@ -969,22 +864,18 @@ func TestWriteRuntimeConfigFileIsIdempotent(t *testing.T) {
 	}
 
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back file: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back file: %v", err) })
 	s := string(got)
-	if strings.Count(s, runtimeMarkerBegin) != 1 {
+	testassert.OnFailure(t, strings.Count(s, runtimeMarkerBegin) != 1, func() {
 		t.Errorf("repeated runs must not duplicate the begin marker, count=%d, file:\n%s", strings.Count(s, runtimeMarkerBegin), s)
-	}
-	if strings.Count(s, runtimeMarkerEnd) != 1 {
+	})
+	testassert.OnFailure(t, strings.Count(s, runtimeMarkerEnd) != 1, func() {
 		t.Errorf("repeated runs must not duplicate the end marker, count=%d, file:\n%s", strings.Count(s, runtimeMarkerEnd), s)
-	}
-	if strings.Count(s, brief) != 1 {
+	})
+	testassert.OnFailure(t, strings.Count(s, brief) != 1, func() {
 		t.Errorf("repeated runs must not duplicate the brief body, count=%d, file:\n%s", strings.Count(s, brief), s)
-	}
-	if !strings.HasPrefix(s, userContent) {
-		t.Errorf("user content must remain intact at the top of the file, got:\n%s", s)
-	}
+	})
+	testassert.OnFailure(t, !strings.HasPrefix(s, userContent), func() { t.Errorf("user content must remain intact at the top of the file, got:\n%s", s) })
 }
 
 // InjectRuntimeConfig is the production entry point — verify the marker
@@ -1028,24 +919,18 @@ func TestInjectRuntimeConfigPreservesUserContent(t *testing.T) {
 			content, err := InjectRuntimeConfig(dir, tc.provider, TaskContextForEnv{
 				IssueID: "11111111-2222-3333-4444-555555555555",
 			})
-			if err != nil {
-				t.Fatalf("InjectRuntimeConfig: %v", err)
-			}
-			if content == "" {
-				t.Fatalf("returned brief content must be non-empty")
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("InjectRuntimeConfig: %v", err) })
+			testassert.OnFailure(t, content == "", func() { t.Fatalf("returned brief content must be non-empty") })
 
 			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read back: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
 			s := string(got)
-			if !strings.HasPrefix(s, userContent) {
+			testassert.OnFailure(t, !strings.HasPrefix(s, userContent), func() {
 				t.Errorf("[%s] user content must be preserved verbatim at the top of %s, got:\n%s", tc.provider, tc.filename, s)
-			}
-			if !strings.Contains(s, runtimeMarkerBegin) || !strings.Contains(s, runtimeMarkerEnd) {
+			})
+			testassert.OnFailure(t, !strings.Contains(s, runtimeMarkerBegin) || !strings.Contains(s, runtimeMarkerEnd), func() {
 				t.Errorf("[%s] %s must contain the runtime marker block, got:\n%s", tc.provider, tc.filename, s)
-			}
+			})
 		})
 	}
 }
@@ -1063,15 +948,9 @@ func TestRuntimeConfigPathDistinguishesCodebuddyFromClaude(t *testing.T) {
 	claudePath := runtimeConfigPath(dir, "claude")
 	codebuddyPath := runtimeConfigPath(dir, "codebuddy")
 
-	if claudePath != filepath.Join(dir, "CLAUDE.md") {
-		t.Errorf("claude runtime config path = %q, want CLAUDE.md", claudePath)
-	}
-	if codebuddyPath != filepath.Join(dir, "CODEBUDDY.md") {
-		t.Errorf("codebuddy runtime config path = %q, want CODEBUDDY.md", codebuddyPath)
-	}
-	if claudePath == codebuddyPath {
-		t.Fatal("claude and codebuddy must not share a runtime config path")
-	}
+	testassert.OnFailure(t, claudePath != filepath.Join(dir, "CLAUDE.md"), func() { t.Errorf("claude runtime config path = %q, want CLAUDE.md", claudePath) })
+	testassert.OnFailure(t, codebuddyPath != filepath.Join(dir, "CODEBUDDY.md"), func() { t.Errorf("codebuddy runtime config path = %q, want CODEBUDDY.md", codebuddyPath) })
+	testassert.OnFailure(t, claudePath == codebuddyPath, func() { t.Fatal("claude and codebuddy must not share a runtime config path") })
 }
 
 func TestInjectRuntimeConfigUnknownProviderSkipsWrite(t *testing.T) {
@@ -1092,12 +971,8 @@ func TestInjectRuntimeConfigUnknownProviderSkipsWrite(t *testing.T) {
 	}
 	for _, name := range []string{"CLAUDE.md", "CODEBUDDY.md", "AGENTS.md"} {
 		got, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			t.Fatalf("read %s: %v", name, err)
-		}
-		if string(got) != "untouched\n" {
-			t.Errorf("unknown provider must not write %s; got:\n%s", name, string(got))
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("read %s: %v", name, err) })
+		testassert.OnFailure(t, string(got) != "untouched\n", func() { t.Errorf("unknown provider must not write %s; got:\n%s", name, string(got)) })
 	}
 }
 
@@ -1127,30 +1002,22 @@ func TestWriteRuntimeConfigFileIgnoresStrayEndMarkerBeforeBegin(t *testing.T) {
 		t.Fatalf("writeRuntimeConfigFile: %v", err)
 	}
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
 	s := string(got)
 
 	// The user's stray end marker line plus surrounding doc text must still
 	// be present, and the file must contain exactly one begin marker and
 	// one *additional* end marker (so two end markers total — the stray
 	// one and the one closing our block).
-	if !strings.Contains(s, userDoc) {
-		t.Errorf("user doc with stray end marker must be preserved verbatim, got:\n%s", s)
-	}
+	testassert.OnFailure(t, !strings.Contains(s, userDoc), func() { t.Errorf("user doc with stray end marker must be preserved verbatim, got:\n%s", s) })
 	if got, want := strings.Count(s, runtimeMarkerBegin), 1; got != want {
 		t.Errorf("expected exactly %d begin markers, got %d:\n%s", want, got, s)
 	}
 	if got, want := strings.Count(s, runtimeMarkerEnd), 2; got != want {
 		t.Errorf("expected exactly %d end markers (1 user stray + 1 closing our block), got %d:\n%s", want, got, s)
 	}
-	if strings.Contains(s, "FIRST BRIEF") {
-		t.Errorf("previous brief body must be replaced, got:\n%s", s)
-	}
-	if !strings.Contains(s, newBrief) {
-		t.Errorf("new brief body missing from output:\n%s", s)
-	}
+	testassert.OnFailure(t, strings.Contains(s, "FIRST BRIEF"), func() { t.Errorf("previous brief body must be replaced, got:\n%s", s) })
+	testassert.OnFailure(t, !strings.Contains(s, newBrief), func() { t.Errorf("new brief body missing from output:\n%s", s) })
 
 	// Idempotency under the stray-end pattern: a second write must not
 	// stack another block.
@@ -1184,25 +1051,17 @@ func TestWriteRuntimeConfigFileReplacesMalformedHalfBlock(t *testing.T) {
 		t.Fatalf("writeRuntimeConfigFile: %v", err)
 	}
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
 	s := string(got)
-	if !strings.HasPrefix(s, userTop) {
-		t.Errorf("user content above the half-block must be preserved, got:\n%s", s)
-	}
-	if strings.Contains(s, "leftover from crashed write") {
-		t.Errorf("half-block contents must be replaced, got:\n%s", s)
-	}
+	testassert.OnFailure(t, !strings.HasPrefix(s, userTop), func() { t.Errorf("user content above the half-block must be preserved, got:\n%s", s) })
+	testassert.OnFailure(t, strings.Contains(s, "leftover from crashed write"), func() { t.Errorf("half-block contents must be replaced, got:\n%s", s) })
 	if got, want := strings.Count(s, runtimeMarkerBegin), 1; got != want {
 		t.Errorf("expected exactly %d begin marker, got %d:\n%s", want, got, s)
 	}
 	if got, want := strings.Count(s, runtimeMarkerEnd), 1; got != want {
 		t.Errorf("expected exactly %d end marker after recovery, got %d:\n%s", want, got, s)
 	}
-	if !strings.Contains(s, newBrief) {
-		t.Errorf("new brief body missing from output:\n%s", s)
-	}
+	testassert.OnFailure(t, !strings.Contains(s, newBrief), func() { t.Errorf("new brief body missing from output:\n%s", s) })
 }
 
 // Cleanup excises the marker block, preserving every byte of surrounding
@@ -1230,19 +1089,13 @@ func TestCleanupRuntimeConfigPreservesUserContent(t *testing.T) {
 		t.Fatalf("CleanupRuntimeConfig: %v", err)
 	}
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
 	s := string(got)
-	if strings.Contains(s, runtimeMarkerBegin) || strings.Contains(s, runtimeMarkerEnd) {
-		t.Errorf("marker block must be removed, got:\n%s", s)
-	}
-	if strings.Contains(s, "brief body") {
-		t.Errorf("brief body must be removed, got:\n%s", s)
-	}
-	if s != userExpected {
+	testassert.OnFailure(t, strings.Contains(s, runtimeMarkerBegin) || strings.Contains(s, runtimeMarkerEnd), func() { t.Errorf("marker block must be removed, got:\n%s", s) })
+	testassert.OnFailure(t, strings.Contains(s, "brief body"), func() { t.Errorf("brief body must be removed, got:\n%s", s) })
+	testassert.OnFailure(t, s != userExpected, func() {
 		t.Errorf("user content must be preserved byte-for-byte\n got:\n%q\nwant:\n%q", s, userExpected)
-	}
+	})
 }
 
 // Cleanup removes the file entirely when the marker block was the only
@@ -1280,12 +1133,8 @@ func TestCleanupRuntimeConfigNoOpCases(t *testing.T) {
 		}
 		// And the directory must remain untouched.
 		entries, err := os.ReadDir(dir)
-		if err != nil {
-			t.Fatalf("readdir: %v", err)
-		}
-		if len(entries) != 0 {
-			t.Errorf("expected dir to remain empty, got: %v", entries)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("readdir: %v", err) })
+		testassert.OnFailure(t, len(entries) != 0, func() { t.Errorf("expected dir to remain empty, got: %v", entries) })
 	})
 
 	t.Run("file without marker block", func(t *testing.T) {
@@ -1300,12 +1149,8 @@ func TestCleanupRuntimeConfigNoOpCases(t *testing.T) {
 			t.Errorf("no-marker-block file must be no-op, got: %v", err)
 		}
 		got, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read back: %v", err)
-		}
-		if string(got) != userContent {
-			t.Errorf("file must be untouched\n got:\n%q\nwant:\n%q", string(got), userContent)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
+		testassert.OnFailure(t, string(got) != userContent, func() { t.Errorf("file must be untouched\n got:\n%q\nwant:\n%q", string(got), userContent) })
 	})
 
 	t.Run("unknown provider", func(t *testing.T) {
@@ -1322,12 +1167,8 @@ func TestCleanupRuntimeConfigNoOpCases(t *testing.T) {
 		}
 		for _, name := range []string{"CLAUDE.md", "CODEBUDDY.md", "AGENTS.md"} {
 			got, err := os.ReadFile(filepath.Join(dir, name))
-			if err != nil {
-				t.Fatalf("read %s: %v", name, err)
-			}
-			if string(got) != "untouched\n" {
-				t.Errorf("unknown provider must not touch %s; got:\n%s", name, string(got))
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read %s: %v", name, err) })
+			testassert.OnFailure(t, string(got) != "untouched\n", func() { t.Errorf("unknown provider must not touch %s; got:\n%s", name, string(got)) })
 		}
 	})
 }
@@ -1350,19 +1191,11 @@ func TestCleanupRuntimeConfigRemovesMalformedHalfBlock(t *testing.T) {
 		t.Fatalf("CleanupRuntimeConfig: %v", err)
 	}
 	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
 	s := string(got)
-	if strings.Contains(s, runtimeMarkerBegin) {
-		t.Errorf("half-block begin marker must be excised, got:\n%s", s)
-	}
-	if strings.Contains(s, "half-written brief no end") {
-		t.Errorf("half-block body must be excised, got:\n%s", s)
-	}
-	if !strings.HasPrefix(s, userTop) {
-		t.Errorf("user content above the half-block must remain, got:\n%s", s)
-	}
+	testassert.OnFailure(t, strings.Contains(s, runtimeMarkerBegin), func() { t.Errorf("half-block begin marker must be excised, got:\n%s", s) })
+	testassert.OnFailure(t, strings.Contains(s, "half-written brief no end"), func() { t.Errorf("half-block body must be excised, got:\n%s", s) })
+	testassert.OnFailure(t, !strings.HasPrefix(s, userTop), func() { t.Errorf("user content above the half-block must remain, got:\n%s", s) })
 }
 
 // Cleanup must remove the marker block for every provider's target file,
@@ -1415,16 +1248,12 @@ func TestCleanupRuntimeConfigByProvider(t *testing.T) {
 				t.Fatalf("CleanupRuntimeConfig: %v", err)
 			}
 			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read back: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
 			s := string(got)
-			if strings.Contains(s, runtimeMarkerBegin) || strings.Contains(s, runtimeMarkerEnd) {
-				t.Errorf("[%s] marker block must be removed from %s, got:\n%s", tc.provider, tc.filename, s)
-			}
-			if s != userContent {
+			testassert.OnFailure(t, strings.Contains(s, runtimeMarkerBegin) || strings.Contains(s, runtimeMarkerEnd), func() { t.Errorf("[%s] marker block must be removed from %s, got:\n%s", tc.provider, tc.filename, s) })
+			testassert.OnFailure(t, s != userContent, func() {
 				t.Errorf("[%s] user content in %s must be preserved byte-for-byte\n got:\n%q\nwant:\n%q", tc.provider, tc.filename, s, userContent)
-			}
+			})
 		})
 	}
 }
@@ -1455,12 +1284,10 @@ func TestInjectThenCleanupRoundTrip(t *testing.T) {
 			t.Fatalf("iter %d cleanup: %v", i, err)
 		}
 		got, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("iter %d read back: %v", i, err)
-		}
-		if string(got) != userContent {
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("iter %d read back: %v", i, err) })
+		testassert.OnFailure(t, string(got) != userContent, func() {
 			t.Errorf("iter %d: user file must be byte-identical to pre-injection state\n got:\n%q\nwant:\n%q", i, string(got), userContent)
-		}
+		})
 	}
 }
 
@@ -1561,12 +1388,10 @@ func TestInjectThenCleanupRoundTripByteExactBoundaries(t *testing.T) {
 					continue
 				}
 				got, err := os.ReadFile(path)
-				if err != nil {
-					t.Fatalf("iter %d read back: %v", i, err)
-				}
-				if string(got) != tc.seedContent {
+				testassert.OnFailure(t, err != nil, func() { t.Fatalf("iter %d read back: %v", i, err) })
+				testassert.OnFailure(t, string(got) != tc.seedContent, func() {
 					t.Errorf("iter %d: file must be byte-identical to seed\n got:  %q\n want: %q", i, string(got), tc.seedContent)
-				}
+				})
 			}
 		})
 	}
@@ -1614,12 +1439,10 @@ func TestInjectReplaceThenCleanupRestoresByteExact(t *testing.T) {
 				t.Fatalf("cleanup: %v", err)
 			}
 			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read back: %v", err)
-			}
-			if string(got) != tc.seedContent {
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
+			testassert.OnFailure(t, string(got) != tc.seedContent, func() {
 				t.Errorf("file must be byte-identical to seed after replace+cleanup\n got:  %q\n want: %q", string(got), tc.seedContent)
-			}
+			})
 		})
 	}
 }
@@ -1643,21 +1466,17 @@ func TestWriteRuntimeConfigFileAlwaysInsertsFixedManagedSeparator(t *testing.T) 
 				t.Fatalf("write: %v", err)
 			}
 			got, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read back: %v", err)
-			}
+			testassert.OnFailure(t, err != nil, func() { t.Fatalf("read back: %v", err) })
 			s := string(got)
 			// The seed must appear verbatim at the start of the file —
 			// no extra newline appended, no trailing newline trimmed.
-			if !strings.HasPrefix(s, seed) {
+			testassert.OnFailure(t, !strings.HasPrefix(s, seed), func() {
 				t.Errorf("seed bytes must survive verbatim at the start of the file\n got: %q\n seed: %q", s, seed)
-			}
+			})
 			// Immediately after the seed we must see the fixed managed
 			// separator, then the begin marker.
 			markerStart := len(seed) + len(runtimeManagedSeparator)
-			if len(s) < markerStart+len(runtimeMarkerBegin) {
-				t.Fatalf("file shorter than expected layout\n got: %q", s)
-			}
+			testassert.OnFailure(t, len(s) < markerStart+len(runtimeMarkerBegin), func() { t.Fatalf("file shorter than expected layout\n got: %q", s) })
 			if got, want := s[len(seed):markerStart], runtimeManagedSeparator; got != want {
 				t.Errorf("expected managed separator %q immediately after seed, got %q", want, got)
 			}
@@ -1689,9 +1508,7 @@ func TestMultiThreadReplyInstructionsFanOut(t *testing.T) {
 		"DISTINCT body file per thread",
 		"never reuse a `--parent` from an earlier turn",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("cross-thread instructions must contain %q, got:\n%s", want, out)
-		}
+		testassert.OnFailure(t, !strings.Contains(out, want), func() { t.Errorf("cross-thread instructions must contain %q, got:\n%s", want, out) })
 	}
 
 	// Pin ledger (MUL-5825): the embedded file-operations cookbook was
@@ -1714,9 +1531,9 @@ func TestMultiThreadReplyInstructionsFanOut(t *testing.T) {
 		"Remove-Item",                          // windows cleanup example
 		"`\\n` escape",                         // restated \n-escape rule, any phrasing
 	} {
-		if strings.Contains(out, banned) {
+		testassert.OnFailure(t, strings.Contains(out, banned), func() {
 			t.Errorf("fan-out block re-grew retired cookbook text %q (mechanism lives in ## Comment Formatting — MUL-5825), got:\n%s", banned, out)
-		}
+		})
 	}
 }
 
@@ -1741,9 +1558,9 @@ func TestMultiThreadReplyInstructionsOSInvariant(t *testing.T) {
 		linux := BuildMultiThreadCommentReplyInstructions("55555555-6666-7777-8888-999999999999", targets, leader)
 		runtimeGOOS = "windows"
 		windows := BuildMultiThreadCommentReplyInstructions("55555555-6666-7777-8888-999999999999", targets, leader)
-		if linux != windows {
+		testassert.OnFailure(t, linux != windows, func() {
 			t.Errorf("fan-out block (leader=%v) must be OS-invariant\nlinux:\n%s\nwindows:\n%s", leader, linux, windows)
-		}
+		})
 	}
 }
 
@@ -1752,12 +1569,12 @@ func TestSingleThreadReplyInstructionsKeepSingleParent(t *testing.T) {
 	t.Parallel()
 	out := BuildCommentReplyInstructions("claude", "55555555-6666-7777-8888-999999999999", "c3", false)
 
-	if strings.Contains(out, "DISTINCT threads") {
+	testassert.OnFailure(t, strings.Contains(out, "DISTINCT threads"), func() {
 		t.Errorf("single/same-thread instructions must not emit the multi-thread fan-out block, got:\n%s", out)
-	}
-	if !strings.Contains(out, "--parent c3 --content-file ./reply.md") {
+	})
+	testassert.OnFailure(t, !strings.Contains(out, "--parent c3 --content-file ./reply.md"), func() {
 		t.Errorf("single/same-thread instructions must keep the single --parent=trigger cookbook, got:\n%s", out)
-	}
+	})
 }
 
 // TestInjectRuntimeConfigByteIdenticalAcrossTriggers is the regression guard
@@ -1846,9 +1663,9 @@ func TestInjectRuntimeConfigByteIdenticalAcrossTriggers(t *testing.T) {
 	// guard now varies a different stable input: the agent identity.
 	otherAgent := base
 	otherAgent.AgentName = "Someone Else"
-	if buildMetaSkillContent("claude", base) == buildMetaSkillContent("claude", otherAgent) {
+	testassert.OnFailure(t, buildMetaSkillContent("claude", base) == buildMetaSkillContent("claude", otherAgent), func() {
 		t.Fatal("brief does not vary with agent identity — byte-identity assertions below would be vacuous")
-	}
+	})
 
 	// The stronger MUL-5442 invariant this PR claims as a design benefit:
 	// with identical stable inputs, two DIFFERENT issue ids must render the
@@ -1859,9 +1676,9 @@ func TestInjectRuntimeConfigByteIdenticalAcrossTriggers(t *testing.T) {
 	for _, provider := range []string{"claude", "codex"} {
 		otherIssue := base
 		otherIssue.IssueID = "99999999-8888-7777-6666-555555555555"
-		if buildMetaSkillContent(provider, base) != buildMetaSkillContent(provider, otherIssue) {
+		testassert.OnFailure(t, buildMetaSkillContent(provider, base) != buildMetaSkillContent(provider, otherIssue), func() {
 			t.Fatalf("%s brief differs across issue ids — the cross-issue cache invariant is broken", provider)
-		}
+		})
 	}
 
 	for _, provider := range []string{"claude", "codex"} {
@@ -1877,10 +1694,10 @@ func TestInjectRuntimeConfigByteIdenticalAcrossTriggers(t *testing.T) {
 					want = got
 					continue
 				}
-				if got != want {
+				testassert.OnFailure(t, got != want, func() {
 					t.Errorf("brief differs for variant %q — per-run state leaked into messages[0] (MUL-5377).\n%s",
 						v.name, firstBriefDiff(want, got))
-				}
+				})
 			}
 		})
 	}
@@ -1988,10 +1805,10 @@ func TestBriefByteIdenticalAcrossRunsForEveryKind(t *testing.T) {
 					want = got
 					continue
 				}
-				if got != want {
+				testassert.OnFailure(t, got != want, func() {
 					t.Errorf("%s brief differs for variant %q — per-run state leaked into the cached prefix (MUL-5377).\n%s",
 						kindName, v.name, firstBriefDiff(want, got))
-				}
+				})
 			}
 		})
 	}
@@ -2032,18 +1849,12 @@ func TestBriefSkillsListIsNamesOnly(t *testing.T) {
 			t.Parallel()
 			out := buildMetaSkillContent(provider, ctx)
 
-			if !strings.Contains(out, "- **pr-review**\n") {
-				t.Errorf("brief does not list the skill by slug:\n%s", out)
-			}
-			if strings.Contains(out, "Use when reviewing a pull request") {
+			testassert.OnFailure(t, !strings.Contains(out, "- **pr-review**\n"), func() { t.Errorf("brief does not list the skill by slug:\n%s", out) })
+			testassert.OnFailure(t, strings.Contains(out, "Use when reviewing a pull request"), func() {
 				t.Errorf("brief still carries the skill description; the CLI's own listing already has it:\n%s", out)
-			}
-			if strings.Contains(out, ".agent_context/skills/") {
-				t.Errorf("brief still points at the removed fallback path:\n%s", out)
-			}
-			if !strings.Contains(out, "discovered automatically") {
-				t.Errorf("brief lost the native-discovery framing:\n%s", out)
-			}
+			})
+			testassert.OnFailure(t, strings.Contains(out, ".agent_context/skills/"), func() { t.Errorf("brief still points at the removed fallback path:\n%s", out) })
+			testassert.OnFailure(t, !strings.Contains(out, "discovered automatically"), func() { t.Errorf("brief lost the native-discovery framing:\n%s", out) })
 		})
 	}
 }
@@ -2088,12 +1899,10 @@ func TestEveryBriefThatTeachesJSONOutputAlsoWarnsAgainstMergingStderr(t *testing
 		"quick-create": buildMetaSkillContent("claude", TaskContextForEnv{QuickCreatePrompt: "make an issue"}),
 	}
 	for name, brief := range briefs {
-		if !strings.Contains(brief, wantFlag) {
-			t.Fatalf("%s brief does not mention %s at all; this test's premise is gone", name, wantFlag)
-		}
-		if !strings.Contains(brief, wantPremise) {
+		testassert.OnFailure(t, !strings.Contains(brief, wantFlag), func() { t.Fatalf("%s brief does not mention %s at all; this test's premise is gone", name, wantFlag) })
+		testassert.OnFailure(t, !strings.Contains(brief, wantPremise), func() {
 			t.Errorf("%s brief teaches %s without saying %q — the rule below it is only correct while the streams carry what this says they carry", name, wantFlag, wantPremise)
-		}
+		})
 		switch got := strings.Count(brief, wantRule); got {
 		case 1:
 		case 0:
@@ -2102,8 +1911,8 @@ func TestEveryBriefThatTeachesJSONOutputAlsoWarnsAgainstMergingStderr(t *testing
 		default:
 			t.Errorf("%s brief repeats %q %d times; one rule, one place, or the next edit fixes only one of them", name, wantRule, got)
 		}
-		if !strings.Contains(brief, wantWhy) {
+		testassert.OnFailure(t, !strings.Contains(brief, wantWhy), func() {
 			t.Errorf("%s brief states %q without %q; a rule with no reason is the first one dropped under pressure", name, wantRule, wantWhy)
-		}
+		})
 	}
 }

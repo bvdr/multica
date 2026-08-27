@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	testassert "github.com/multica-ai/multica/server/internal/testutil"
 )
 
 func worktreeTestLogger() *slog.Logger {
@@ -55,9 +57,7 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v failed: %s: %v", args, out, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("git %v failed: %s: %v", args, out, err) })
 	return strings.TrimSpace(string(out))
 }
 
@@ -71,9 +71,7 @@ func gitTry(t *testing.T, dir string, args ...string) (string, error) {
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read %s: %v", path, err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("read %s: %v", path, err) })
 	return string(b)
 }
 
@@ -85,9 +83,7 @@ func prepareForTest(t *testing.T, localPath string) *LocalWorktree {
 		AgentName: "J",
 		TaskID:    "11112222-3333-4444-5555-666677778888",
 	}, worktreeTestLogger())
-	if err != nil {
-		t.Fatalf("PrepareLocalWorktree: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("PrepareLocalWorktree: %v", err) })
 	return wt
 }
 
@@ -111,12 +107,8 @@ func TestPrepareLocalWorktreeReplaysUncommittedWork(t *testing.T) {
 	if got := readFile(t, filepath.Join(wt.Path, "nested/deep.txt")); got != "nested untracked\n" {
 		t.Errorf("nested untracked file not copied: got %q", got)
 	}
-	if !wt.DirtyBaseCaptured {
-		t.Error("DirtyBaseCaptured = false, want true")
-	}
-	if wt.UntrackedCopied != 2 {
-		t.Errorf("UntrackedCopied = %d, want 2", wt.UntrackedCopied)
-	}
+	testassert.OnFailure(t, !wt.DirtyBaseCaptured, func() { t.Error("DirtyBaseCaptured = false, want true") })
+	testassert.OnFailure(t, wt.UntrackedCopied != 2, func() { t.Errorf("UntrackedCopied = %d, want 2", wt.UntrackedCopied) })
 }
 
 // Capturing the dirty state must not disturb the user's own working tree —
@@ -152,12 +144,8 @@ func TestFinalizeCommitsLeftoversAndKeepsBranch(t *testing.T) {
 
 	outcome := finalizeOK(t, wt)
 
-	if !outcome.AutoCommitted {
-		t.Error("AutoCommitted = false, want true")
-	}
-	if outcome.Branch != wt.Branch {
-		t.Errorf("Branch = %q, want %q", outcome.Branch, wt.Branch)
-	}
+	testassert.OnFailure(t, !outcome.AutoCommitted, func() { t.Error("AutoCommitted = false, want true") })
+	testassert.OnFailure(t, outcome.Branch != wt.Branch, func() { t.Errorf("Branch = %q, want %q", outcome.Branch, wt.Branch) })
 	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
 		t.Errorf("worktree directory still present after Finalize: %v", err)
 	}
@@ -183,12 +171,8 @@ func TestFinalizeDropsBranchWhenNothingChanged(t *testing.T) {
 
 	outcome := finalizeOK(t, wt)
 
-	if outcome.Branch != "" {
-		t.Errorf("Branch = %q, want empty for a no-op task", outcome.Branch)
-	}
-	if outcome.AutoCommitted {
-		t.Error("AutoCommitted = true, want false")
-	}
+	testassert.OnFailure(t, outcome.Branch != "", func() { t.Errorf("Branch = %q, want empty for a no-op task", outcome.Branch) })
+	testassert.OnFailure(t, outcome.AutoCommitted, func() { t.Error("AutoCommitted = true, want false") })
 	if out, err := gitTry(t, repo, "rev-parse", "--verify", wt.Branch); err == nil {
 		t.Errorf("empty branch should have been deleted, still resolves to %s", out)
 	}
@@ -205,21 +189,15 @@ func TestFinalizeDropsBranchWhenOnlyBaseWasDirty(t *testing.T) {
 	wt := prepareForTest(t, repo)
 
 	// The baseline must be a commit of its own, not left as pending changes.
-	if wt.BaseCommit == "" {
-		t.Fatal("no baseline commit recorded for a dirty base")
-	}
+	testassert.OnFailure(t, wt.BaseCommit == "", func() { t.Fatal("no baseline commit recorded for a dirty base") })
 	if dirty, err := worktreeIsDirty(wt.Path); err != nil || dirty {
 		t.Errorf("worktree still dirty after baseline commit (dirty=%v, err=%v)", dirty, err)
 	}
 
 	outcome := finalizeOK(t, wt)
 
-	if outcome.Branch != "" {
-		t.Errorf("Branch = %q, want empty: the agent changed nothing", outcome.Branch)
-	}
-	if outcome.AutoCommitted {
-		t.Error("AutoCommitted = true, but there was nothing of the agent's to commit")
-	}
+	testassert.OnFailure(t, outcome.Branch != "", func() { t.Errorf("Branch = %q, want empty: the agent changed nothing", outcome.Branch) })
+	testassert.OnFailure(t, outcome.AutoCommitted, func() { t.Error("AutoCommitted = true, but there was nothing of the agent's to commit") })
 }
 
 // With a dirty base, the delivered branch separates the two authorships: the
@@ -233,14 +211,10 @@ func TestFinalizeSeparatesUserBaselineFromAgentWork(t *testing.T) {
 	writeFile(t, filepath.Join(wt.Path, "agent-output.txt"), "work product\n")
 	outcome := finalizeOK(t, wt)
 
-	if outcome.Branch == "" {
-		t.Fatal("no branch delivered for a task that changed a file")
-	}
+	testassert.OnFailure(t, outcome.Branch == "", func() { t.Fatal("no branch delivered for a task that changed a file") })
 	// The agent's commit alone.
 	agentFiles := gitRun(t, repo, "diff", "--name-only", wt.BaseCommit, outcome.Branch)
-	if agentFiles != "agent-output.txt" {
-		t.Errorf("agent diff = %q, want just agent-output.txt", agentFiles)
-	}
+	testassert.OnFailure(t, agentFiles != "agent-output.txt", func() { t.Errorf("agent diff = %q, want just agent-output.txt", agentFiles) })
 	// And the user's uncommitted edit still reached the branch.
 	if got := gitRun(t, repo, "show", outcome.Branch+":tracked.txt"); got != "edited by user" {
 		t.Errorf("branch lost the user's uncommitted edit, got %q", got)
@@ -258,13 +232,9 @@ func TestPrepareLocalWorktreeSubdirectory(t *testing.T) {
 	sub := filepath.Join(repo, "services/api")
 	wt := prepareForTest(t, sub)
 
-	if wt.GitRoot != repo {
-		t.Errorf("GitRoot = %q, want repo root %q", wt.GitRoot, repo)
-	}
+	testassert.OnFailure(t, wt.GitRoot != repo, func() { t.Errorf("GitRoot = %q, want repo root %q", wt.GitRoot, repo) })
 	want := filepath.Join(wt.Path, "services", "api")
-	if wt.WorkDir != want {
-		t.Errorf("WorkDir = %q, want %q", wt.WorkDir, want)
-	}
+	testassert.OnFailure(t, wt.WorkDir != want, func() { t.Errorf("WorkDir = %q, want %q", wt.WorkDir, want) })
 	if got := readFile(t, filepath.Join(wt.WorkDir, "main.go")); got != "package main\n" {
 		t.Errorf("subdirectory content missing from worktree: %q", got)
 	}
@@ -280,12 +250,8 @@ func TestPrepareLocalWorktreeRejectsNonGitDirectory(t *testing.T) {
 		EnvRoot:   t.TempDir(),
 		TaskID:    "task-1",
 	}, worktreeTestLogger())
-	if err == nil {
-		t.Fatal("expected an error for a non-git directory")
-	}
-	if !strings.Contains(err.Error(), "not a git repository") || !strings.Contains(err.Error(), "in_place") {
-		t.Errorf("error should name the problem and the fix, got: %v", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected an error for a non-git directory") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "not a git repository") || !strings.Contains(err.Error(), "in_place"), func() { t.Errorf("error should name the problem and the fix, got: %v", err) })
 }
 
 // A repo with no commits has nothing to branch from. The message has to say so,
@@ -300,12 +266,8 @@ func TestPrepareLocalWorktreeRejectsRepoWithoutCommits(t *testing.T) {
 		EnvRoot:   t.TempDir(),
 		TaskID:    "task-1",
 	}, worktreeTestLogger())
-	if err == nil {
-		t.Fatal("expected an error for a repo with no commits")
-	}
-	if !strings.Contains(err.Error(), "no commit") {
-		t.Errorf("error should explain the missing commit, got: %v", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected an error for a repo with no commits") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "no commit"), func() { t.Errorf("error should explain the missing commit, got: %v", err) })
 }
 
 // Concurrency is the entire point of the mode: two tasks on one directory must
@@ -345,14 +307,10 @@ func TestPrepareLocalWorktreeConcurrentTasks(t *testing.T) {
 	for _, err := range errs {
 		t.Errorf("concurrent prepare failed: %v", err)
 	}
-	if len(results) != tasks {
-		t.Fatalf("got %d worktrees, want %d", len(results), tasks)
-	}
+	testassert.OnFailure(t, len(results) != tasks, func() { t.Fatalf("got %d worktrees, want %d", len(results), tasks) })
 	branches := map[string]bool{}
 	for _, wt := range results {
-		if branches[wt.Branch] {
-			t.Errorf("duplicate branch %q across concurrent tasks", wt.Branch)
-		}
+		testassert.OnFailure(t, branches[wt.Branch], func() { t.Errorf("duplicate branch %q across concurrent tasks", wt.Branch) })
 		branches[wt.Branch] = true
 		if got := readFile(t, filepath.Join(wt.Path, "tracked.txt")); got != "original\n" {
 			t.Errorf("worktree %s has wrong content: %q", wt.Path, got)
@@ -388,20 +346,12 @@ func TestWorktreeModeDeliversBranchWithoutSidecars(t *testing.T) {
 		LocalWorktree:  &LocalWorktreeParams{LocalPath: repo},
 		Task:           TaskContextForEnv{IssueID: "issue-1", AgentName: "J"},
 	}, worktreeTestLogger())
-	if err != nil {
-		t.Fatalf("Prepare: %v", err)
-	}
-	if env.LocalWorktree == nil {
-		t.Fatal("Prepare did not build a worktree")
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare: %v", err) })
+	testassert.OnFailure(t, env.LocalWorktree == nil, func() { t.Fatal("Prepare did not build a worktree") })
 	// The env root is ordinary daemon-owned scratch in this mode, so the GC
 	// exemption meant for a user's own directory must not apply.
-	if env.LocalDirectory {
-		t.Error("LocalDirectory = true in worktree mode; the GC would exempt this env root forever")
-	}
-	if env.WorkDir != env.LocalWorktree.Path {
-		t.Errorf("WorkDir = %q, want the worktree root %q", env.WorkDir, env.LocalWorktree.Path)
-	}
+	testassert.OnFailure(t, env.LocalDirectory, func() { t.Error("LocalDirectory = true in worktree mode; the GC would exempt this env root forever") })
+	testassert.OnFailure(t, env.WorkDir != env.LocalWorktree.Path, func() { t.Errorf("WorkDir = %q, want the worktree root %q", env.WorkDir, env.LocalWorktree.Path) })
 	if _, err := os.Stat(filepath.Join(env.WorkDir, ".agent_context")); err != nil {
 		t.Fatalf("precondition: Prepare should have written sidecars into the worktree: %v", err)
 	}
@@ -418,18 +368,12 @@ func TestWorktreeModeDeliversBranchWithoutSidecars(t *testing.T) {
 	}
 	outcome := finalizeOK(t, env.LocalWorktree)
 
-	if outcome.Branch == "" {
-		t.Fatal("no branch delivered for a task that changed a file")
-	}
+	testassert.OnFailure(t, outcome.Branch == "", func() { t.Fatal("no branch delivered for a task that changed a file") })
 	// Every file the branch touches, across the baseline and agent commits.
 	files := gitRun(t, repo, "diff", "--name-only", originalHead, outcome.Branch)
-	if !strings.Contains(files, "real-change.txt") {
-		t.Errorf("branch is missing the agent's work:\n%s", files)
-	}
+	testassert.OnFailure(t, !strings.Contains(files, "real-change.txt"), func() { t.Errorf("branch is missing the agent's work:\n%s", files) })
 	for _, sidecar := range []string{".agent_context", ".multica", "CLAUDE.md"} {
-		if strings.Contains(files, sidecar) {
-			t.Errorf("sidecar %q leaked into the delivered branch:\n%s", sidecar, files)
-		}
+		testassert.OnFailure(t, strings.Contains(files, sidecar), func() { t.Errorf("sidecar %q leaked into the delivered branch:\n%s", sidecar, files) })
 	}
 	// The user's own checkout keeps exactly the edit it started with, and
 	// nothing the agent or the runtime produced.
@@ -450,9 +394,7 @@ func TestPrepareLocalWorktreePrunesStaleRegistrations(t *testing.T) {
 		AgentName: "J",
 		TaskID:    "dead-task",
 	}, worktreeTestLogger())
-	if err != nil {
-		t.Fatalf("seed orphan worktree: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("seed orphan worktree: %v", err) })
 	// Simulate the crash: the directory disappears with GC, the registration
 	// survives in the user's repo.
 	if err := os.RemoveAll(orphan.Path); err != nil {
@@ -475,9 +417,7 @@ func TestPrepareLocalWorktreePrunesStaleRegistrations(t *testing.T) {
 func finalizeOK(t *testing.T, wt *LocalWorktree) LocalWorktreeOutcome {
 	t.Helper()
 	outcome, err := wt.Finalize(worktreeTestLogger())
-	if err != nil {
-		t.Fatalf("Finalize: %v", err)
-	}
+	testassert.OnFailure(t, err != nil, func() { t.Fatalf("Finalize: %v", err) })
 	return outcome
 }
 
@@ -499,12 +439,8 @@ func TestFinalizeKeepsWorktreeWhenCommitFails(t *testing.T) {
 
 	outcome, err := wt.Finalize(worktreeTestLogger())
 
-	if err == nil {
-		t.Fatal("Finalize returned nil error after the commit failed")
-	}
-	if outcome.PreservedPath != wt.Path {
-		t.Errorf("PreservedPath = %q, want %q", outcome.PreservedPath, wt.Path)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("Finalize returned nil error after the commit failed") })
+	testassert.OnFailure(t, outcome.PreservedPath != wt.Path, func() { t.Errorf("PreservedPath = %q, want %q", outcome.PreservedPath, wt.Path) })
 	// The whole point: the work is still on disk.
 	if got := readFile(t, filepath.Join(wt.Path, "agent-output.txt")); got != "irreplaceable work\n" {
 		t.Errorf("agent work was destroyed despite the commit failure, got %q", got)
@@ -513,9 +449,7 @@ func TestFinalizeKeepsWorktreeWhenCommitFails(t *testing.T) {
 	if list := gitRun(t, repo, "worktree", "list"); !strings.Contains(list, wt.Path) {
 		t.Errorf("preserved worktree is no longer registered, so the user cannot find it:\n%s", list)
 	}
-	if !strings.Contains(err.Error(), wt.Path) {
-		t.Errorf("error should name the preserved path, got: %v", err)
-	}
+	testassert.OnFailure(t, !strings.Contains(err.Error(), wt.Path), func() { t.Errorf("error should name the preserved path, got: %v", err) })
 }
 
 // An in_place task on the same directory leaves .agent_context/ and .multica/
@@ -575,12 +509,8 @@ func TestPrepareLocalWorktreeFailsWhenUntrackedReplayIsTruncated(t *testing.T) {
 		TaskID:    "task-truncated",
 	}, worktreeTestLogger())
 
-	if err == nil {
-		t.Fatal("expected prepare to fail rather than replay a truncated tree")
-	}
-	if !strings.Contains(err.Error(), "in_place") {
-		t.Errorf("error should offer a way out, got: %v", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected prepare to fail rather than replay a truncated tree") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "in_place"), func() { t.Errorf("error should offer a way out, got: %v", err) })
 	// A failed prepare must not leave a half-built worktree registered.
 	if list := gitRun(t, repo, "worktree", "list"); strings.Count(list, "\n") != 0 {
 		t.Errorf("aborted prepare left a worktree registered:\n%s", list)
@@ -612,9 +542,7 @@ func TestPrepareWorktreeModeUsesPerIssueCodexSessionStore(t *testing.T) {
 			LocalWorktree:  &LocalWorktreeParams{LocalPath: repo},
 			Task:           TaskContextForEnv{IssueID: "issue-1", AgentID: "agent-1", AgentName: "J"},
 		}, worktreeTestLogger())
-		if err != nil {
-			t.Fatalf("Prepare(%s): %v", taskID, err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("Prepare(%s): %v", taskID, err) })
 		t.Cleanup(func() { finalizeOK(t, env.LocalWorktree) })
 		return env
 	}
@@ -627,22 +555,18 @@ func TestPrepareWorktreeModeUsesPerIssueCodexSessionStore(t *testing.T) {
 	sessionsOf := func(env *Environment) string {
 		t.Helper()
 		target, err := filepath.EvalSymlinks(filepath.Join(env.CodexHome, "sessions"))
-		if err != nil {
-			t.Fatalf("resolve sessions dir: %v", err)
-		}
+		testassert.OnFailure(t, err != nil, func() { t.Fatalf("resolve sessions dir: %v", err) })
 		return target
 	}
 
 	firstSessions := sessionsOf(first)
 	secondSessions := sessionsOf(second)
-	if firstSessions != secondSessions {
+	testassert.OnFailure(t, firstSessions != secondSessions, func() {
 		t.Errorf("each turn got its own sessions dir, so Codex cannot resume:\n first  %s\n second %s",
 			firstSessions, secondSessions)
-	}
+	})
 	// And it must be the stable per-issue store, not a task-local directory.
-	if strings.Contains(firstSessions, taskKey("aaaa1111-2222-3333-4444-5555666677aa")) {
-		t.Errorf("sessions dir is task-scoped (%s); it will not survive the next turn", firstSessions)
-	}
+	testassert.OnFailure(t, strings.Contains(firstSessions, taskKey("aaaa1111-2222-3333-4444-5555666677aa")), func() { t.Errorf("sessions dir is task-scoped (%s); it will not survive the next turn", firstSessions) })
 }
 
 // The daemon runs its sidecar cleanup before Finalize commits. If that cleanup
@@ -660,23 +584,13 @@ func TestFinalizeAbortRefusesToCommitAndKeepsWorktree(t *testing.T) {
 	wt.AbortWithReason(errors.New("cleanup failed"))
 	outcome, err := wt.Finalize(worktreeTestLogger())
 
-	if err == nil {
-		t.Fatal("Finalize returned nil error after an abort")
-	}
-	if outcome.Branch != "" {
-		t.Errorf("Branch = %q, want empty: nothing may be delivered after an abort", outcome.Branch)
-	}
-	if outcome.AutoCommitted {
-		t.Error("AutoCommitted = true; the abort must prevent the commit")
-	}
-	if outcome.PreservedPath != wt.Path {
-		t.Errorf("PreservedPath = %q, want %q", outcome.PreservedPath, wt.Path)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("Finalize returned nil error after an abort") })
+	testassert.OnFailure(t, outcome.Branch != "", func() { t.Errorf("Branch = %q, want empty: nothing may be delivered after an abort", outcome.Branch) })
+	testassert.OnFailure(t, outcome.AutoCommitted, func() { t.Error("AutoCommitted = true; the abort must prevent the commit") })
+	testassert.OnFailure(t, outcome.PreservedPath != wt.Path, func() { t.Errorf("PreservedPath = %q, want %q", outcome.PreservedPath, wt.Path) })
 	// Nothing committed: the branch must still be sitting on its base.
 	tip := gitRun(t, repo, "rev-parse", wt.Branch)
-	if tip != wt.BaseCommit {
-		t.Errorf("branch moved to %s; the sidecar-carrying commit was delivered anyway", tip)
-	}
+	testassert.OnFailure(t, tip != wt.BaseCommit, func() { t.Errorf("branch moved to %s; the sidecar-carrying commit was delivered anyway", tip) })
 	// And the work is still recoverable on disk.
 	if got := readFile(t, filepath.Join(wt.Path, "agent-output.txt")); got != "real work\n" {
 		t.Errorf("agent work was destroyed: %q", got)
@@ -698,12 +612,8 @@ func TestAbortWithReasonKeepsFirstReason(t *testing.T) {
 	wt.AbortWithReason(nil)
 
 	_, err := wt.Finalize(worktreeTestLogger())
-	if err == nil || !strings.Contains(err.Error(), "first") {
-		t.Fatalf("want the first reason preserved, got: %v", err)
-	}
-	if strings.Contains(err.Error(), "second") {
-		t.Errorf("later abort overwrote the original reason: %v", err)
-	}
+	testassert.OnFailure(t, err == nil || !strings.Contains(err.Error(), "first"), func() { t.Fatalf("want the first reason preserved, got: %v", err) })
+	testassert.OnFailure(t, strings.Contains(err.Error(), "second"), func() { t.Errorf("later abort overwrote the original reason: %v", err) })
 }
 
 // An untracked symlink is content the user can see. Replaying it faithfully is
@@ -722,12 +632,8 @@ func TestPrepareLocalWorktreeFailsOnUntrackedSymlink(t *testing.T) {
 		TaskID:    "task-symlink",
 	}, worktreeTestLogger())
 
-	if err == nil {
-		t.Fatal("expected prepare to fail rather than silently drop the symlink")
-	}
-	if !strings.Contains(err.Error(), "untracked") {
-		t.Errorf("error should name the untracked replay, got: %v", err)
-	}
+	testassert.OnFailure(t, err == nil, func() { t.Fatal("expected prepare to fail rather than silently drop the symlink") })
+	testassert.OnFailure(t, !strings.Contains(err.Error(), "untracked"), func() { t.Errorf("error should name the untracked replay, got: %v", err) })
 	if list := gitRun(t, repo, "worktree", "list"); strings.Count(list, "\n") != 0 {
 		t.Errorf("aborted prepare left a worktree registered:\n%s", list)
 	}
