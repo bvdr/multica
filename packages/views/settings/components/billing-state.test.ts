@@ -100,22 +100,18 @@ describe("resolveAutopilotUsage", () => {
     ).toEqual({ kind: "unavailable" });
   });
 
-  it("does not derive a mode from plan or status", () => {
+  it("uses the explicit limited mode even when plan and status say Pro", () => {
     expect(
       resolveAutopilotUsage(
         {
           ...freeEntitlements,
           plan: "pro",
           status: "active",
-          limits: {
-            ...freeEntitlements.limits,
-            autopilotRuns: { mode: "unavailable", limit: null },
-          },
         },
         quotaUsage,
         false,
       ),
-    ).toEqual({ kind: "unavailable" });
+    ).toMatchObject({ kind: "metered", limit: 7 });
   });
 });
 

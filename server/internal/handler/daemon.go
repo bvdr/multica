@@ -1972,7 +1972,7 @@ func claimResponseAgentIdentityMatches(resp AgentTaskResponse) bool {
 // it (deliveredCommentIDs). Shared by the per-runtime handler
 // (ClaimTaskByRuntime) and the machine-level batch handler
 // (ClaimTasksByRuntime, MUL-4257) so both build byte-identical payloads and
-	// feed the same delivery receipt into FinalizeTaskClaim. A non-nil failure
+// feed the same delivery receipt into FinalizeTaskClaim. A non-nil failure
 // means the task must not be dispatched; the builder has already cancelled it
 // where the failure semantics require it.
 func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQueue, runtime db.AgentRuntime, runtimeID, runtimeWorkspaceID string) (resp AgentTaskResponse, deliveredCommentIDs []pgtype.UUID, agentSkillCount, builtinSkillCount int, failure *claimBuildFailure) {

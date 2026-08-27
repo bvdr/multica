@@ -3,60 +3,35 @@ package handler
 import (
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/multica-ai/multica/server/internal/entitlement"
 	"github.com/multica-ai/multica/server/internal/service"
 )
 
-const (
-	issueLimitModeLimited     = "limited"
-	issueLimitModeUnlimited   = "unlimited"
-	issueLimitModeUnavailable = "unavailable"
-)
-
 type IssueLimitUsageResponse struct {
-	Mode           string  `json:"mode"`
-	Used           *int64  `json:"used,omitempty"`
-	Limit          *int64  `json:"limit,omitempty"`
-	Reached        *bool   `json:"reached,omitempty"`
-	HasMore        *bool   `json:"has_more,omitempty"`
-	PolicyRevision *int64  `json:"policy_revision,omitempty"`
-	CalculatedAt   *string `json:"calculated_at,omitempty"`
+	Used  int64 `json:"used"`
+	Limit int64 `json:"limit"`
 }
 
-// GetIssueLimitUsage combines Cloud's effective instruction with Multica's
-// local issue-row count. The response is already display-ready: clients do not
-// compare used and limit or infer unlimited access from subscription fields.
+// GetIssueLimitUsage returns local usage for a currently enforced Cloud limit.
+// Limit mode comes only from Cloud's subscription summary; this endpoint never
+// infers unlimited access from cache or refresh reasons.
 func (h *Handler) GetIssueLimitUsage(w http.ResponseWriter, r *http.Request) {
 	workspaceID, ok := parseUUIDOrBadRequest(w, h.resolveWorkspaceID(r), "workspace_id")
 	if !ok {
 		return
 	}
 	policy := service.ResolveIssueCountPolicy(r.Context(), h.Entitlements, workspaceID)
-	if policy.Action == entitlement.ActionOff {
-		mode := issueLimitModeUnavailable
-		if policy.Reason == entitlement.ReasonCacheFresh || policy.Reason == entitlement.ReasonRefreshed {
-			mode = issueLimitModeUnlimited
-		}
-		writeJSON(w, http.StatusOK, IssueLimitUsageResponse{Mode: mode})
-		return
-	}
 	if policy.Action != entitlement.ActionEnforce {
-		writeJSON(w, http.StatusOK, IssueLimitUsageResponse{Mode: issueLimitModeUnavailable})
+		writeError(w, http.StatusServiceUnavailable, "issue limit usage is unavailable")
 		return
 	}
-	used, reached, hasMore, err := service.CountIssueUsage(r.Context(), h.Queries, workspaceID, policy)
+	used, err := service.CountIssueUsage(r.Context(), h.Queries, workspaceID, policy)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load issue limit usage")
 		return
 	}
-	calculatedAt := time.Now().UTC().Format(time.RFC3339)
-	writeJSON(w, http.StatusOK, IssueLimitUsageResponse{
-		Mode: issueLimitModeLimited, Used: &used, Limit: &policy.Limit,
-		Reached: &reached, HasMore: &hasMore, PolicyRevision: &policy.PolicyRevision,
-		CalculatedAt: &calculatedAt,
-	})
+	writeJSON(w, http.StatusOK, IssueLimitUsageResponse{Used: used, Limit: policy.Limit})
 }
 
 func writeIssueLimitReached(w http.ResponseWriter, err error) bool {

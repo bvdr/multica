@@ -195,10 +195,7 @@ export interface CreateBillingPortalSessionResponse {
 
 export type WorkspaceSubscriptionInterval = "month" | "year";
 
-export type WorkspaceEntitlementLimitMode =
-  | "limited"
-  | "unlimited"
-  | "unavailable";
+export type WorkspaceEntitlementLimitMode = "limited" | "unlimited";
 
 export interface WorkspaceEntitlementLimit {
   mode: WorkspaceEntitlementLimitMode;
@@ -247,13 +244,8 @@ export interface WorkspaceSubscriptionSummary {
 }
 
 export interface IssueLimitUsage {
-  mode: WorkspaceEntitlementLimitMode;
-  used: number | null;
-  limit: number | null;
-  reached: boolean | null;
-  hasMore: boolean | null;
-  policyRevision: number | null;
-  calculatedAt: string | null;
+  used: number;
+  limit: number;
 }
 
 export interface WorkspaceSeatCapacity {

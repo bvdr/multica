@@ -93,13 +93,8 @@ const mocks = vi.hoisted(() => ({
     },
   } as WorkspaceSubscriptionSummary,
   issueLimitUsage: {
-    mode: "limited",
     used: 11,
     limit: 17,
-    reached: false,
-    hasMore: false,
-    policyRevision: 1,
-    calculatedAt: "2030-01-01T00:00:00Z",
   } as IssueLimitUsage,
   usage: {
     action: "enforce" as "off" | "observe" | "enforce",
@@ -120,9 +115,6 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("@multica/core/billing", () => ({
-  workspaceSubscriptionEntitlementsOptions: (wsId: string) => ({
-    queryKey: ["workspace-subscriptions", wsId, "entitlements"],
-  }),
   workspaceSubscriptionPricesOptions: (wsId: string) => ({
     queryKey: ["workspace-subscriptions", wsId, "prices"],
   }),
@@ -279,13 +271,8 @@ describe("BillingTab", () => {
       },
     });
     Object.assign(mocks.issueLimitUsage, {
-      mode: "limited",
       used: 11,
       limit: 17,
-      reached: false,
-      hasMore: false,
-      policyRevision: 1,
-      calculatedAt: "2030-01-01T00:00:00Z",
     });
     Object.assign(mocks.usage, {
       action: "enforce",

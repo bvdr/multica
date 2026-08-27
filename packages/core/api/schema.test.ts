@@ -712,6 +712,17 @@ describe("ApiClient schema fallback", () => {
     });
   });
 
+  describe("getChildIssueProgress", () => {
+    it("validates the response before query selectors iterate it", async () => {
+      stubFetchJson({ progress: "invalid" });
+      const client = new ApiClient("https://api.example.test");
+
+      await expect(client.getChildIssueProgress()).resolves.toEqual({
+        progress: [],
+      });
+    });
+  });
+
   describe("listAutopilotDeliveries", () => {
     it("falls back to an empty list when the body is null", async () => {
       stubFetchJson(null);
@@ -947,75 +958,6 @@ describe("ApiClient schema fallback", () => {
       });
     });
 
-    it("parses workspace entitlements into camelCase without fabricating Free", async () => {
-      stubFetchJson({
-        workspace_id: "workspace-1",
-        plan: "pro",
-        status: "active",
-        seats: 4,
-        limits: {
-          issue_count: { mode: "unlimited" },
-          autopilot_runs: { mode: "unlimited" },
-        },
-        current_period_end: "2026-09-13T00:00:00Z",
-        snapshot_expires_at: null,
-        version: 7,
-      });
-      const client = new ApiClient("https://api.example.test");
-
-      await expect(
-        client.getWorkspaceSubscriptionEntitlements(),
-      ).resolves.toEqual({
-        workspaceId: "workspace-1",
-        plan: "pro",
-        status: "active",
-        seats: 4,
-        limits: {
-          issueCount: { mode: "unlimited", limit: null },
-          autopilotRuns: { mode: "unlimited", limit: null },
-        },
-        currentPeriodEnd: "2026-09-13T00:00:00Z",
-        snapshotExpiresAt: null,
-        version: 7,
-      });
-
-      stubFetchJson({ plan: "free", seats: "unknown" });
-      await expect(client.getWorkspaceSubscriptionEntitlements()).resolves.toBeNull();
-
-      stubFetchJson({
-        workspace_id: "workspace-1",
-        plan: "free",
-        status: "inactive",
-        seats: 1,
-        limits: {
-          issue_count: { mode: "limited" },
-          autopilot_runs: { mode: "limited", limit: 7 },
-        },
-        version: 1,
-      });
-      await expect(client.getWorkspaceSubscriptionEntitlements()).resolves.toBeNull();
-    });
-
-    it("accepts an empty workspace entitlement snapshot", async () => {
-      stubFetchJson({
-        workspace_id: "workspace-1",
-        plan: "free",
-        status: "inactive",
-        seats: 0,
-        limits: {
-          issue_count: { mode: "limited", limit: 17 },
-          autopilot_runs: { mode: "limited", limit: 7 },
-        },
-        snapshot_expires_at: null,
-        version: 0,
-      });
-      const client = new ApiClient("https://api.example.test");
-
-      await expect(
-        client.getWorkspaceSubscriptionEntitlements(),
-      ).resolves.toMatchObject({ seats: 0, plan: "free" });
-    });
-
     it("sends the Checkout idempotency key in the header and body", async () => {
       stubFetchJson(
         {
@@ -1139,36 +1081,18 @@ describe("workspace subscription contract", () => {
 
   it("maps the server's display-ready issue limit usage", async () => {
     stubFetchJson({
-      mode: "limited",
       used: 11,
       limit: 17,
-      reached: false,
-      has_more: false,
-      policy_revision: 9,
-      calculated_at: "2030-01-01T00:00:00Z",
     });
     const client = new ApiClient("https://api.example.test");
 
     await expect(client.getIssueLimitUsage()).resolves.toEqual({
-      mode: "limited",
       used: 11,
       limit: 17,
-      reached: false,
-      hasMore: false,
-      policyRevision: 9,
-      calculatedAt: "2030-01-01T00:00:00Z",
     });
 
-    stubFetchJson({ mode: "limited", used: 11 });
-    await expect(client.getIssueLimitUsage()).resolves.toEqual({
-      mode: "unavailable",
-      used: null,
-      limit: null,
-      reached: null,
-      hasMore: null,
-      policyRevision: null,
-      calculatedAt: null,
-    });
+    stubFetchJson({ used: 11 });
+    await expect(client.getIssueLimitUsage()).resolves.toBeNull();
   });
 
   it("maps a full summary to camelCase without inventing values", async () => {

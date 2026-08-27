@@ -257,9 +257,8 @@ func TestCloudWorkspaceSubscriptionsDisabledByDefault(t *testing.T) {
 	withFeatureFlag(t, testHandler, featureflags.BillingWorkspaceSubscriptions, false)
 
 	reads := map[string]func(http.ResponseWriter, *http.Request){
-		"/api/cloud-subscriptions/entitlements": testHandler.GetCloudWorkspaceEntitlements,
-		"/api/cloud-subscriptions/summary":      testHandler.GetCloudWorkspaceSubscriptionSummary,
-		"/api/cloud-subscriptions/prices":       testHandler.GetCloudWorkspaceSubscriptionPrices,
+		"/api/cloud-subscriptions/summary": testHandler.GetCloudWorkspaceSubscriptionSummary,
+		"/api/cloud-subscriptions/prices":  testHandler.GetCloudWorkspaceSubscriptionPrices,
 	}
 	for path, invoke := range reads {
 		t.Run(path, func(t *testing.T) {
@@ -292,15 +291,6 @@ func TestCloudWorkspaceSubscriptionReadAndWritesUseScopedPaths(t *testing.T) {
 		wantPath   string
 		invoke     func(http.ResponseWriter, *http.Request)
 	}{
-		{
-			name:       "member reads entitlements",
-			method:     http.MethodGet,
-			path:       "/api/cloud-subscriptions/entitlements",
-			role:       "member",
-			wantStatus: http.StatusOK,
-			wantPath:   "/api/v1/entitlements/" + testWorkspaceID,
-			invoke:     testHandler.GetCloudWorkspaceEntitlements,
-		},
 		{
 			name:       "member reads billing summary",
 			method:     http.MethodGet,
@@ -607,27 +597,23 @@ func TestCloudWorkspaceSeatPurchaseRejectsInvalidOrUnauthorizedRequests(t *testi
 	}
 }
 
-func TestCloudWorkspaceSubscriptionWritesDeferAuthorizationToCloud(t *testing.T) {
+func TestCloudWorkspaceSubscriptionWritesRequireManagerRole(t *testing.T) {
 	withFeatureFlag(t, testHandler, featureflags.BillingWorkspaceSubscriptions, true)
-	proxy := &fakeCloudRuntimeProxy{enabled: true, resp: &cloudruntime.Response{
-		StatusCode: http.StatusForbidden,
-		Body:       []byte(`{"error":"workspace owner or admin role required"}`),
-	}}
+	proxy := &fakeCloudRuntimeProxy{enabled: true}
 	useCloudRuntimeProxy(t, proxy)
 
 	req := withCloudSubscriptionWorkspace(
 		newRequest(http.MethodPost, "/api/cloud-subscriptions/portal-sessions", nil),
 		"member",
 	)
-	req.Header.Set(idempotencyKeyHeader, "portal-member-request")
 	w := httptest.NewRecorder()
 	testHandler.CreateCloudWorkspaceSubscriptionPortal(w, req)
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if !proxy.called || proxy.req.Path != "/api/v1/subscriptions/"+testWorkspaceID+"/portal-sessions" {
-		t.Fatalf("Cloud must decide authorization, called=%v path=%q", proxy.called, proxy.req.Path)
+	if proxy.called {
+		t.Fatal("upstream must not be called for a non-manager member")
 	}
 }
 

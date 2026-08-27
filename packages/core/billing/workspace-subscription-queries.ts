@@ -15,8 +15,6 @@ const WORKSPACE_SUBSCRIPTION_PRICES_STALE_TIME_MS = 10 * 60 * 1000;
  */
 export const workspaceSubscriptionKeys = {
   all: (wsId: string) => ["workspace-subscriptions", wsId] as const,
-  entitlements: (wsId: string) =>
-    [...workspaceSubscriptionKeys.all(wsId), "entitlements"] as const,
   summary: (wsId: string) =>
     [...workspaceSubscriptionKeys.all(wsId), "summary"] as const,
   prices: (wsId: string) =>
@@ -24,16 +22,6 @@ export const workspaceSubscriptionKeys = {
   issueLimitUsage: (wsId: string) =>
     [...workspaceSubscriptionKeys.all(wsId), "issue-limit-usage"] as const,
 };
-
-export function workspaceSubscriptionEntitlementsOptions(wsId: string) {
-  return queryOptions({
-    queryKey: workspaceSubscriptionKeys.entitlements(wsId),
-    queryFn: () => api.getWorkspaceSubscriptionEntitlements(),
-    enabled: wsId.length > 0,
-    staleTime: 60 * 1000,
-    refetchOnWindowFocus: true,
-  });
-}
 
 /**
  * The Billing page's primary read. Short stale time plus refetch on focus: a

@@ -326,7 +326,12 @@ function BillingTabContent() {
     summaryQuery.isError ||
     (!summaryQuery.isPending && summaryQuery.data == null);
   const quotaUsageQuery = useQuery(autopilotQuotaUsageOptions(wsId));
-  const issueLimitUsageQuery = useQuery(issueLimitUsageOptions(wsId));
+  const issueLimitUsageQuery = useQuery({
+    ...issueLimitUsageOptions(wsId),
+    enabled:
+      wsId.length > 0 &&
+      entitlements?.limits.issueCount.mode === "limited",
+  });
   const hasSeatCapacity = hasActiveWorkspaceSeatCapacity(summaryQuery.data);
   const canUpgrade = summaryQuery.data?.availableActions.checkout === true;
   const pricesQuery = useQuery({
@@ -799,6 +804,17 @@ function BillingTabContent() {
       ? formatDateTime(quotaUsage.resetAt, locale)
       : null;
   const numberFormatter = new Intl.NumberFormat(locale);
+  const issueCountLimit = entitlements.limits.issueCount;
+  let issueLimitValue = t(($) => $.workspace.limits.unavailable);
+  if (issueCountLimit.mode === "unlimited") {
+    issueLimitValue = t(($) => $.workspace.limits.unlimited);
+  } else if (issueCountLimit.limit !== null) {
+    const usage = issueLimitUsageQuery.data;
+    issueLimitValue =
+      usage && usage.limit === issueCountLimit.limit
+        ? `${numberFormatter.format(usage.used)} / ${numberFormatter.format(usage.limit)}`
+        : numberFormatter.format(issueCountLimit.limit);
+  }
   const isMutating =
     checkoutMutation.isPending ||
     portalMutation.isPending ||
@@ -811,7 +827,8 @@ function BillingTabContent() {
         locale,
       )
     : null;
-  const hasDisplayableUnitPrice = formattedUnitPrice !== null;
+  const hasDisplayableUnitPrice =
+    selectedPrice?.intervalCount === 1 && formattedUnitPrice !== null;
   const canRetryPrice = !pricesQuery.isLoading && selectedPrice === null;
   const formattedSeatProration = seatPreview
     ? formatStripeMinorAmount(
@@ -1183,20 +1200,7 @@ function BillingTabContent() {
             label={t(($) => $.workspace.limits.issues)}
             description={t(($) => $.workspace.limits.issues_description)}
           >
-            <span className="tabular-nums">
-              {entitlements.limits.issueCount.mode === "unlimited"
-                ? t(($) => $.workspace.limits.unlimited)
-                : issueLimitUsageQuery.data?.mode === "limited" &&
-                    issueLimitUsageQuery.data.used !== null &&
-                    issueLimitUsageQuery.data.limit !== null
-                  ? `${numberFormatter.format(issueLimitUsageQuery.data.used)} / ${numberFormatter.format(issueLimitUsageQuery.data.limit)}`
-                  : entitlements.limits.issueCount.mode === "limited" &&
-                      entitlements.limits.issueCount.limit !== null
-                    ? numberFormatter.format(
-                        entitlements.limits.issueCount.limit,
-                      )
-                    : t(($) => $.workspace.limits.unavailable)}
-            </span>
+            <span className="tabular-nums">{issueLimitValue}</span>
           </SettingsRow>
           <SettingsRow
             label={t(($) => $.workspace.limits.autopilots)}

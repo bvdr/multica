@@ -33,10 +33,6 @@ export function resolveAutopilotUsage(
     return { kind: "unlimited" };
   }
 
-  if (entitlements.limits.autopilotRuns.mode !== "limited") {
-    return { kind: "unavailable" };
-  }
-
   if (!failed && usage !== undefined && usage.action !== "off") {
     const { used, reserved, total, limit, reached, reset_at: resetAt } = usage;
     if (

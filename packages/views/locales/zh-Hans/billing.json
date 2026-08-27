@@ -142,10 +142,6 @@
       "canceled_title": "订阅已取消",
       "canceled_description": "上方套餐徽标显示这个工作区当前实际生效的套餐。"
     },
-    "read_only": {
-      "title": "账单只读权限",
-      "description": "你可以查看工作区套餐和限额。只有 owner 和 admin 可以购买或管理订阅。"
-    },
     "current": {
       "title": "当前套餐",
       "plan": "工作区套餐",
@@ -167,8 +163,6 @@
       "pro_for_team_other": "为 {{count}} 个成员席位升级 Pro",
       "price_loading": "正在加载订阅价格",
       "unit_price": "每个成员席位 {{price}}",
-      "estimated_monthly_total": "预计月付总额：{{price}}",
-      "estimated_yearly_total": "预计年付总额：{{price}}",
       "price_at_checkout": "购买前，服务端会重新统计成员。付款前，Stripe Checkout 会显示权威的单席位价格和总额。"
     },
     "management": {

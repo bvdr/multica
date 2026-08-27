@@ -1460,6 +1460,20 @@ export const ChildIssuesResponseSchema = z.object({
   issues: z.array(IssueSchema).default([]),
 }).loose();
 
+export const ChildIssueProgressResponseSchema = z.object({
+  progress: z
+    .array(
+      z
+        .object({
+          parent_issue_id: z.string(),
+          total: z.number(),
+          done: z.number(),
+        })
+        .loose(),
+    )
+    .default([]),
+}).loose();
+
 export const CloudRuntimeNodeSchema = z.object({
   id: z.string(),
   owner_id: z.string(),
@@ -2608,7 +2622,6 @@ const WorkspaceEntitlementLimitSchema = z
       })
       .loose(),
     z.object({ mode: z.literal("unlimited") }).loose(),
-    z.object({ mode: z.literal("unavailable") }).loose(),
   ])
   .transform(
     (value): WorkspaceSubscriptionEntitlements["limits"]["issueCount"] => ({
@@ -2728,30 +2741,15 @@ export const WorkspaceSubscriptionSummarySchema = z
   );
 
 export const IssueLimitUsageSchema = z
-  .discriminatedUnion("mode", [
-    z
-      .object({
-        mode: z.literal("limited"),
-        used: z.number().int().nonnegative(),
-        limit: z.number().int().positive(),
-        reached: z.boolean(),
-        has_more: z.boolean(),
-        policy_revision: z.number().int().positive(),
-        calculated_at: z.string().min(1),
-      })
-      .loose(),
-    z.object({ mode: z.literal("unlimited") }).loose(),
-    z.object({ mode: z.literal("unavailable") }).loose(),
-  ])
+  .object({
+    used: z.number().int().nonnegative(),
+    limit: z.number().int().positive(),
+  })
+  .loose()
   .transform(
     (value): IssueLimitUsage => ({
-      mode: value.mode,
-      used: value.mode === "limited" ? value.used : null,
-      limit: value.mode === "limited" ? value.limit : null,
-      reached: value.mode === "limited" ? value.reached : null,
-      hasMore: value.mode === "limited" ? value.has_more : null,
-      policyRevision: value.mode === "limited" ? value.policy_revision : null,
-      calculatedAt: value.mode === "limited" ? value.calculated_at : null,
+      used: value.used,
+      limit: value.limit,
     }),
   );
 

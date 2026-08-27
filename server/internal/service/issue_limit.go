@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 
@@ -12,8 +11,6 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-var ErrIssueLimitReached = errors.New("workspace issue limit reached")
-
 // IssueLimitReachedError carries Cloud's effective limit and policy revision
 // to transport adapters. It never includes a plan name or subscription state.
 type IssueLimitReachedError struct {
@@ -22,10 +19,8 @@ type IssueLimitReachedError struct {
 }
 
 func (e *IssueLimitReachedError) Error() string {
-	return fmt.Sprintf("%s: limit %d", ErrIssueLimitReached, e.Limit)
+	return fmt.Sprintf("workspace issue limit reached: limit %d", e.Limit)
 }
-
-func (*IssueLimitReachedError) Unwrap() error { return ErrIssueLimitReached }
 
 // IssueCountPolicy is the validated mechanical instruction received from
 // Cloud. Resolve it before opening a database transaction so a network call
@@ -34,18 +29,16 @@ type IssueCountPolicy struct {
 	Action         entitlement.Action
 	Limit          int64
 	PolicyRevision int64
-	Reason         entitlement.Reason
 }
 
 func ResolveIssueCountPolicy(ctx context.Context, provider entitlement.Provider, workspaceID pgtype.UUID) IssueCountPolicy {
 	if provider == nil || !workspaceID.Valid {
-		return IssueCountPolicy{Action: entitlement.ActionOff, Reason: entitlement.ReasonDisabled}
+		return IssueCountPolicy{Action: entitlement.ActionOff}
 	}
 	decision := provider.Gate(ctx, uuid.UUID(workspaceID.Bytes), entitlement.GateIssueCount)
 	policy := IssueCountPolicy{
 		Action:         decision.Gate.Action,
 		PolicyRevision: decision.PolicyRevision,
-		Reason:         decision.Reason,
 	}
 	if decision.Gate.Limit != nil {
 		policy.Limit = int64(*decision.Gate.Limit)
@@ -57,11 +50,9 @@ func ResolveIssueCountPolicy(ctx context.Context, provider entitlement.Provider,
 		if policy.Limit > 0 {
 			return policy
 		}
-		policy.Reason = entitlement.ReasonInvalidPolicy
 		policy.Action = entitlement.ActionOff
 		policy.Limit = 0
 	default:
-		policy.Reason = entitlement.ReasonInvalidPolicy
 		policy.Action = entitlement.ActionOff
 		policy.Limit = 0
 	}
@@ -70,9 +61,9 @@ func ResolveIssueCountPolicy(ctx context.Context, provider entitlement.Provider,
 
 // AllocateIssueNumber serializes creates on the workspace row, then checks the
 // current number of issue rows inside the same transaction. The caller must
-// roll the transaction back on ErrIssueLimitReached; that also rolls back the
-// counter increment. Deleting an issue frees capacity because issue_counter is
-// deliberately not used as quota usage.
+// roll the transaction back on IssueLimitReachedError; that also rolls back
+// the counter increment. Deleting an issue frees capacity because
+// issue_counter is deliberately not used as quota usage.
 func AllocateIssueNumber(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, policy IssueCountPolicy) (int32, error) {
 	number, err := q.IncrementIssueCounter(ctx, workspaceID)
 	if err != nil {
@@ -95,11 +86,11 @@ func AllocateIssueNumber(ctx context.Context, q *db.Queries, workspaceID pgtype.
 }
 
 // CountIssueUsage performs a bounded read for a limited policy. The returned
-// used value is exact while below the limit and capped at the limit once the
-// workspace is full; hasMore reports rows beyond that cap.
-func CountIssueUsage(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, policy IssueCountPolicy) (used int64, reached, hasMore bool, err error) {
-	if policy.Action != entitlement.ActionEnforce && policy.Action != entitlement.ActionObserve {
-		return 0, false, false, nil
+// value is exact while below the limit and capped at the limit once the
+// workspace is full.
+func CountIssueUsage(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID, policy IssueCountPolicy) (int64, error) {
+	if policy.Action != entitlement.ActionEnforce {
+		return 0, nil
 	}
 	sampleLimit := policy.Limit
 	if sampleLimit < math.MaxInt64 {
@@ -110,12 +101,10 @@ func CountIssueUsage(ctx context.Context, q *db.Queries, workspaceID pgtype.UUID
 		Limit:       sampleLimit,
 	})
 	if err != nil {
-		return 0, false, false, err
+		return 0, err
 	}
-	hasMore = sampled > policy.Limit
-	used = sampled
-	if hasMore {
-		used = policy.Limit
+	if sampled > policy.Limit {
+		return policy.Limit, nil
 	}
-	return used, sampled >= policy.Limit, hasMore, nil
+	return sampled, nil
 }
