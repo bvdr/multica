@@ -1,8 +1,7 @@
-import type { ReactNode } from "react";
+import { useState } from "react";
 import {
   act,
   cleanup,
-  fireEvent,
   render,
   screen,
   waitFor,
@@ -11,6 +10,13 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "@multica/core/i18n/react";
+import { useModalStore } from "@multica/core/modals";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@multica/ui/components/ui/dialog";
 import enCommon from "../locales/en/common.json";
 import enModals from "../locales/en/modals.json";
 
@@ -21,11 +27,11 @@ interface AvailableActions {
 }
 
 const mockPush = vi.hoisted(() => vi.fn());
-const mockCloseActiveModal = vi.hoisted(() => vi.fn());
 const mockCreatePortal = vi.hoisted(() => vi.fn());
 const mockOpenExternal = vi.hoisted(() => vi.fn());
 const mockSummaryQuery = vi.hoisted(() => vi.fn());
 const featureState = vi.hoisted(() => ({ billingEnabled: true }));
+const workspaceState = vi.hoisted(() => ({ id: "ws-test" }));
 const summaryState = vi.hoisted(() => ({
   value: null as null | { availableActions: AvailableActions },
   error: null as Error | null,
@@ -33,23 +39,17 @@ const summaryState = vi.hoisted(() => ({
 }));
 
 vi.mock("@multica/core/hooks", () => ({
-  useWorkspaceId: () => "ws-test",
+  useWorkspaceId: () => workspaceState.id,
 }));
 
 vi.mock("@multica/core/paths", () => ({
   useWorkspacePaths: () => ({
-    settings: () => "/ws-test/settings",
+    settings: () => `/${workspaceState.id}/settings`,
   }),
 }));
 
 vi.mock("@multica/core/config", () => ({
   useFeatureEnabled: () => featureState.billingEnabled,
-}));
-
-vi.mock("@multica/core/modals", () => ({
-  useModalStore: {
-    getState: () => ({ close: mockCloseActiveModal }),
-  },
 }));
 
 vi.mock("../navigation/context", () => ({
@@ -70,38 +70,8 @@ vi.mock("@multica/core/billing", () => ({
   }),
 }));
 
-vi.mock("@multica/ui/components/ui/dialog", () => ({
-  Dialog: ({ open, children }: { open?: boolean; children: ReactNode }) =>
-    open ? <div data-testid="issue-limit-dialog">{children}</div> : null,
-  DialogContent: ({
-    className,
-    children,
-  }: {
-    className?: string;
-    children: ReactNode;
-  }) => (
-    <section data-testid="issue-limit-dialog-content" className={className}>
-      {children}
-    </section>
-  ),
-  DialogDescription: ({
-    children,
-    ...props
-  }: React.HTMLAttributes<HTMLParagraphElement>) => <p {...props}>{children}</p>,
-  DialogHeader: ({
-    children,
-    ...props
-  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
-  DialogTitle: ({
-    children,
-    ...props
-  }: React.HTMLAttributes<HTMLHeadingElement>) => <h2 {...props}>{children}</h2>,
-}));
-
-import {
-  IssueLimitUpgradeDialog,
-  useIssueLimitUpgradePrompt,
-} from "./use-issue-limit-upgrade-prompt";
+import { IssueLimitUpgradeDialog } from "./issue-limit-upgrade-dialog";
+import { useIssueLimitUpgradePrompt } from "./use-issue-limit-upgrade-prompt";
 
 const TEST_RESOURCES = {
   en: { common: enCommon, modals: enModals },
@@ -128,18 +98,42 @@ function PromptHarness() {
   );
 }
 
-function renderPrompt() {
+function LayeredPromptHarness() {
+  const [createOpen, setCreateOpen] = useState(true);
+  const showPrompt = useIssueLimitUpgradePrompt();
+
+  return (
+    <>
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent showCloseButton={false}>
+          <DialogTitle>Create an issue</DialogTitle>
+          <DialogDescription>Your draft remains here.</DialogDescription>
+          <button type="button" onClick={showPrompt}>
+            Show recovery
+          </button>
+        </DialogContent>
+      </Dialog>
+      <IssueLimitUpgradeDialog />
+    </>
+  );
+}
+
+function promptTree(client: QueryClient, layered = false) {
+  return (
+    <I18nProvider locale="en" resources={TEST_RESOURCES}>
+      <QueryClientProvider client={client}>
+        {layered ? <LayeredPromptHarness /> : <PromptHarness />}
+      </QueryClientProvider>
+    </I18nProvider>
+  );
+}
+
+function renderPrompt({ layered = false }: { layered?: boolean } = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: 1 } },
   });
-  render(
-    <I18nProvider locale="en" resources={TEST_RESOURCES}>
-      <QueryClientProvider client={client}>
-        <PromptHarness />
-      </QueryClientProvider>
-    </I18nProvider>,
-  );
-  return { client };
+  const view = render(promptTree(client, layered));
+  return { client, ...view };
 }
 
 async function openPrompt() {
@@ -148,13 +142,25 @@ async function openPrompt() {
   return user;
 }
 
+function queryRecoveryDialog() {
+  return screen.queryByRole("dialog", {
+    name: "This workspace has reached its issue limit",
+  });
+}
+
 describe("IssueLimitUpgradeDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     featureState.billingEnabled = true;
+    workspaceState.id = "ws-test";
     summaryState.value = null;
     summaryState.error = null;
     summaryState.pending = null;
+    useModalStore.setState({
+      modal: null,
+      data: null,
+      issueLimitRecoveryWorkspaceId: null,
+    });
     mockSummaryQuery.mockImplementation(async () => {
       if (summaryState.pending) return summaryState.pending;
       if (summaryState.error) throw summaryState.error;
@@ -166,12 +172,15 @@ describe("IssueLimitUpgradeDialog", () => {
   });
 
   afterEach(() => {
-    const close = screen.queryByRole("button", { name: "Close" });
-    if (close) fireEvent.click(close);
     cleanup();
+    useModalStore.setState({
+      modal: null,
+      data: null,
+      issueLimitRecoveryWorkspaceId: null,
+    });
   });
 
-  it("opens immediately as a spacious centered recovery dialog", async () => {
+  it("opens immediately as a centered recovery dialog with one close action", async () => {
     summaryState.pending = new Promise<{
       availableActions: AvailableActions;
     } | null>(() => undefined);
@@ -179,21 +188,43 @@ describe("IssueLimitUpgradeDialog", () => {
 
     await openPrompt();
 
-    expect(
-      screen.getByRole("heading", {
-        name: "This workspace has reached its issue limit",
-      }),
-    ).toBeInTheDocument();
+    expect(queryRecoveryDialog()).toBeInTheDocument();
     expect(
       screen.getByText(
         "Checking the billing actions available for this workspace…",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("issue-limit-dialog-content")).toHaveClass(
-      "sm:max-w-lg",
-      "overflow-hidden",
-      "p-0",
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+  });
+
+  it("closes only recovery when Escape is pressed above a create dialog", async () => {
+    summaryState.value = { availableActions: actions({ checkout: true }) };
+    renderPrompt({ layered: true });
+    const user = await openPrompt();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(queryRecoveryDialog()).not.toBeInTheDocument());
+    expect(
+      screen.getByRole("dialog", { name: "Create an issue" }),
+    ).toBeInTheDocument();
+  });
+
+  it("closes only recovery when its backdrop is pressed", async () => {
+    summaryState.value = { availableActions: actions({ checkout: true }) };
+    renderPrompt({ layered: true });
+    const user = await openPrompt();
+    const overlays = document.querySelectorAll<HTMLElement>(
+      '[data-slot="dialog-overlay"]',
     );
+
+    expect(overlays).toHaveLength(2);
+    await user.click(overlays[overlays.length - 1]!);
+
+    await waitFor(() => expect(queryRecoveryDialog()).not.toBeInTheDocument());
+    expect(
+      screen.getByRole("dialog", { name: "Create an issue" }),
+    ).toBeInTheDocument();
   });
 
   it("stays dismissed when the Cloud response arrives later", async () => {
@@ -207,28 +238,46 @@ describe("IssueLimitUpgradeDialog", () => {
     const user = await openPrompt();
 
     await user.click(screen.getByRole("button", { name: "Close" }));
-    expect(screen.queryByTestId("issue-limit-dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(queryRecoveryDialog()).not.toBeInTheDocument());
 
     await act(async () => {
       resolveSummary({ availableActions: actions({ checkout: true }) });
       await summaryState.pending;
     });
 
-    expect(screen.queryByTestId("issue-limit-dialog")).not.toBeInTheDocument();
+    expect(queryRecoveryDialog()).not.toBeInTheDocument();
   });
 
   it("keeps the create modal open when recovery is merely dismissed", async () => {
     summaryState.value = { availableActions: actions({ checkout: true }) };
+    useModalStore.getState().open("create-issue");
     renderPrompt();
     const user = await openPrompt();
 
     await user.click(screen.getByRole("button", { name: "Close" }));
 
-    expect(mockCloseActiveModal).not.toHaveBeenCalled();
+    expect(useModalStore.getState().modal).toBe("create-issue");
+  });
+
+  it("dismisses recovery instead of carrying it into another workspace", async () => {
+    summaryState.value = { availableActions: actions({ checkout: true }) };
+    const { client, rerender } = renderPrompt();
+    await openPrompt();
+
+    workspaceState.id = "ws-other";
+    rerender(promptTree(client));
+
+    await waitFor(() => {
+      expect(
+        useModalStore.getState().issueLimitRecoveryWorkspaceId,
+      ).toBeNull();
+    });
+    expect(queryRecoveryDialog()).not.toBeInTheDocument();
   });
 
   it("offers Upgrade to Pro only when Cloud authorizes checkout", async () => {
     summaryState.value = { availableActions: actions({ checkout: true }) };
+    useModalStore.getState().open("create-issue");
     renderPrompt();
     const user = await openPrompt();
 
@@ -236,13 +285,14 @@ describe("IssueLimitUpgradeDialog", () => {
       await screen.findByRole("button", { name: "Upgrade to Pro" }),
     );
 
-    expect(mockCloseActiveModal).toHaveBeenCalledTimes(1);
+    expect(useModalStore.getState().modal).toBeNull();
     expect(mockPush).toHaveBeenCalledWith("/ws-test/settings?tab=billing");
-    expect(screen.queryByTestId("issue-limit-dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(queryRecoveryDialog()).not.toBeInTheDocument());
   });
 
   it("opens Billing Portal for a past-due manager authorized for portal", async () => {
     summaryState.value = { availableActions: actions({ portal: true }) };
+    useModalStore.getState().open("quick-create-issue");
     renderPrompt();
     const user = await openPrompt();
 
@@ -260,11 +310,12 @@ describe("IssueLimitUpgradeDialog", () => {
         { webTarget: "same-tab" },
       );
     });
-    expect(mockCloseActiveModal).toHaveBeenCalledTimes(1);
+    expect(useModalStore.getState().modal).toBeNull();
   });
 
   it("keeps a Billing recovery action when Portal cannot be opened", async () => {
     summaryState.value = { availableActions: actions({ portal: true }) };
+    useModalStore.getState().open("create-issue");
     mockCreatePortal.mockRejectedValue(new Error("portal unavailable"));
     renderPrompt();
     const user = await openPrompt();
@@ -276,8 +327,8 @@ describe("IssueLimitUpgradeDialog", () => {
     expect(
       await screen.findByRole("button", { name: "View Billing" }),
     ).toBeInTheDocument();
-    expect(mockCloseActiveModal).not.toHaveBeenCalled();
-    expect(screen.getByTestId("issue-limit-dialog")).toBeInTheDocument();
+    expect(useModalStore.getState().modal).toBe("create-issue");
+    expect(queryRecoveryDialog()).toBeInTheDocument();
   });
 
   it("asks for an administrator only when Cloud authorizes no management action", async () => {

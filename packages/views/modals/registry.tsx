@@ -10,7 +10,7 @@ import { SetParentIssueModal } from "./set-parent-issue";
 import { AddChildIssueModal } from "./add-child-issue";
 import { DeleteIssueConfirmModal } from "./delete-issue-confirm";
 import { RunConfirmModal } from "./run-confirm";
-import { IssueLimitUpgradeDialog } from "./use-issue-limit-upgrade-prompt";
+import { IssueLimitUpgradeDialog } from "./issue-limit-upgrade-dialog";
 
 export function ModalRegistry() {
   const modal = useModalStore((s) => s.modal);

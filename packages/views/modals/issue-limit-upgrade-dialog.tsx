@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Gauge, Loader2 } from "lucide-react";
-import { create } from "zustand";
 import {
   useCreateWorkspaceSubscriptionPortal,
   workspaceSubscriptionSummaryOptions,
@@ -19,6 +18,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@multica/ui/components/ui/dialog";
@@ -29,30 +29,11 @@ import { openExternal } from "../platform";
 type BillingActions = WorkspaceSubscriptionSummary["availableActions"];
 type ModalsT = ReturnType<typeof useT<"modals">>["t"];
 
-interface IssueLimitRecoveryStore {
-  visible: boolean;
-  show: () => void;
-  dismiss: () => void;
-}
-
-const useIssueLimitRecoveryStore = create<IssueLimitRecoveryStore>((set) => ({
-  visible: false,
-  show: () => set({ visible: true }),
-  dismiss: () => set({ visible: false }),
-}));
-
 function createPortalIdempotencyKey(wsId: string): string {
   const suffix =
     globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `issue-limit-portal-${wsId}-${suffix}`.slice(0, 255);
-}
-
-/** Opens the shared issue-limit recovery dialog without closing the current draft. */
-export function useIssueLimitUpgradePrompt(): () => void {
-  return useCallback(() => {
-    useIssueLimitRecoveryStore.getState().show();
-  }, []);
 }
 
 /**
@@ -61,10 +42,13 @@ export function useIssueLimitUpgradePrompt(): () => void {
  * action appears; no local role, plan, subscription, or quota inference does.
  */
 export function IssueLimitUpgradeDialog() {
-  const visible = useIssueLimitRecoveryStore((state) => state.visible);
-  const dismiss = useIssueLimitRecoveryStore((state) => state.dismiss);
+  const recoveryWorkspaceId = useModalStore(
+    (state) => state.issueLimitRecoveryWorkspaceId,
+  );
+  const dismiss = useModalStore((state) => state.dismissIssueLimitRecovery);
   const { t } = useT("modals");
   const wsId = useWorkspaceId();
+  const visible = recoveryWorkspaceId === wsId;
   const paths = useWorkspacePaths();
   const navigation = useNavigation();
   const billingEnabled = useFeatureEnabled(
@@ -76,6 +60,8 @@ export function IssueLimitUpgradeDialog() {
     enabled: visible && billingEnabled,
     staleTime: 0,
     retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   const createPortal = useCreateWorkspaceSubscriptionPortal(wsId).mutateAsync;
   const portalIntentKeyRef = useRef<string | null>(null);
@@ -83,17 +69,29 @@ export function IssueLimitUpgradeDialog() {
   const [portalFailed, setPortalFailed] = useState(false);
 
   useEffect(() => {
-    if (!visible) return;
+    if (recoveryWorkspaceId !== null && recoveryWorkspaceId !== wsId) {
+      dismiss();
+    }
+  }, [dismiss, recoveryWorkspaceId, wsId]);
+
+  useEffect(() => {
+    portalIntentKeyRef.current = null;
     setOpeningPortal(false);
     setPortalFailed(false);
-  }, [visible]);
+  }, [visible, wsId]);
 
   const closeForBillingAction = () => {
     dismiss();
-    // The recovery dialog is intentionally independent from ModalRegistry so
-    // it can sit above a create dialog. Following a billing action closes that
-    // underlying dialog; merely dismissing recovery leaves the draft visible.
-    useModalStore.getState().close();
+
+    // Recovery can also open from Inbox. Only close an underlying issue-create
+    // modal when following its billing action; leave every other modal alone.
+    const modalStore = useModalStore.getState();
+    if (
+      modalStore.modal === "create-issue" ||
+      modalStore.modal === "quick-create-issue"
+    ) {
+      modalStore.close();
+    }
   };
   const openBilling = () => {
     closeForBillingAction();
@@ -141,7 +139,13 @@ export function IssueLimitUpgradeDialog() {
     >
       <DialogContent
         className="gap-0 overflow-hidden p-0 sm:max-w-lg"
-        aria-describedby="issue-limit-recovery-description"
+        showCloseButton={false}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.preventDefault();
+          event.stopPropagation();
+          dismiss();
+        }}
       >
         <div className="px-6 pb-7 pt-8 text-center sm:px-10 sm:pb-8 sm:pt-10">
           <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
@@ -151,16 +155,13 @@ export function IssueLimitUpgradeDialog() {
             <DialogTitle className="max-w-md text-balance text-display-sm font-semibold leading-tight tracking-tight">
               {t(($) => $.create_issue.issue_limit.title)}
             </DialogTitle>
-            <DialogDescription
-              id="issue-limit-recovery-description"
-              className="max-w-sm text-pretty text-center text-body leading-6"
-            >
+            <DialogDescription className="max-w-sm text-pretty text-center text-body leading-6">
               {recovery.description}
             </DialogDescription>
           </DialogHeader>
         </div>
 
-        <div className="flex flex-col-reverse gap-2 border-t border-surface-border bg-surface-hover/60 px-6 py-4 sm:flex-row sm:justify-center sm:px-10">
+        <DialogFooter className="m-0 px-6 py-4 sm:justify-center sm:px-10">
           <Button
             variant={recovery.action ? "outline" : "default"}
             size="lg"
@@ -180,7 +181,7 @@ export function IssueLimitUpgradeDialog() {
               {recovery.action.label}
             </Button>
           )}
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
