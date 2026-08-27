@@ -157,6 +157,7 @@
     "toast_failed": "タスクを作成できませんでした",
     "toast_duplicate_title": "重複タスク",
     "toast_duplicate_view": "既存のタスクを表示",
+    "toast_issue_limit_reached": "このワークスペースはタスク数の上限に達しました",
     "toast_link_subissues_all_failed": "サブタスクをリンクできませんでした",
     "toast_link_subissues_partial": "サブタスク {{total}} 件中 {{failed}} 件をリンクできませんでした",
     "toast_link_labels_failed": "ラベルを付けられませんでした",

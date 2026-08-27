@@ -157,6 +157,7 @@
     "toast_failed": "태스크를 만들지 못했습니다",
     "toast_duplicate_title": "중복 태스크",
     "toast_duplicate_view": "기존 태스크 보기",
+    "toast_issue_limit_reached": "이 워크스페이스가 태스크 수 한도에 도달했습니다",
     "toast_link_subissues_all_failed": "하위 태스크를 연결하지 못했습니다",
     "toast_link_subissues_partial": "하위 태스크 {{total}}개 중 {{failed}}개를 연결하지 못했습니다",
     "toast_link_labels_failed": "라벨을 연결하지 못했습니다",

@@ -953,8 +953,10 @@ describe("ApiClient schema fallback", () => {
         plan: "pro",
         status: "active",
         seats: 4,
-        issue_window: null,
-        autopilot_runs: null,
+        limits: {
+          issue_count: { mode: "unlimited" },
+          autopilot_runs: { mode: "unlimited" },
+        },
         current_period_end: "2026-09-13T00:00:00Z",
         snapshot_expires_at: null,
         version: 7,
@@ -968,14 +970,29 @@ describe("ApiClient schema fallback", () => {
         plan: "pro",
         status: "active",
         seats: 4,
-        issueWindow: null,
-        autopilotRuns: null,
+        limits: {
+          issueCount: { mode: "unlimited", limit: null },
+          autopilotRuns: { mode: "unlimited", limit: null },
+        },
         currentPeriodEnd: "2026-09-13T00:00:00Z",
         snapshotExpiresAt: null,
         version: 7,
       });
 
       stubFetchJson({ plan: "free", seats: "unknown" });
+      await expect(client.getWorkspaceSubscriptionEntitlements()).resolves.toBeNull();
+
+      stubFetchJson({
+        workspace_id: "workspace-1",
+        plan: "free",
+        status: "inactive",
+        seats: 1,
+        limits: {
+          issue_count: { mode: "limited" },
+          autopilot_runs: { mode: "limited", limit: 7 },
+        },
+        version: 1,
+      });
       await expect(client.getWorkspaceSubscriptionEntitlements()).resolves.toBeNull();
     });
 
@@ -985,8 +1002,10 @@ describe("ApiClient schema fallback", () => {
         plan: "free",
         status: "inactive",
         seats: 0,
-        issue_window: 1000,
-        autopilot_runs: 100,
+        limits: {
+          issue_count: { mode: "limited", limit: 17 },
+          autopilot_runs: { mode: "limited", limit: 7 },
+        },
         snapshot_expires_at: null,
         version: 0,
       });
@@ -1109,12 +1128,48 @@ describe("workspace subscription contract", () => {
     plan: "pro",
     status: "active",
     seats: 3,
-    issue_window: null,
-    autopilot_runs: null,
+    limits: {
+      issue_count: { mode: "unlimited" },
+      autopilot_runs: { mode: "unlimited" },
+    },
     current_period_end: "2026-09-01T00:00:00Z",
     snapshot_expires_at: null,
     version: 7,
   };
+
+  it("maps the server's display-ready issue limit usage", async () => {
+    stubFetchJson({
+      mode: "limited",
+      used: 11,
+      limit: 17,
+      reached: false,
+      has_more: false,
+      policy_revision: 9,
+      calculated_at: "2030-01-01T00:00:00Z",
+    });
+    const client = new ApiClient("https://api.example.test");
+
+    await expect(client.getIssueLimitUsage()).resolves.toEqual({
+      mode: "limited",
+      used: 11,
+      limit: 17,
+      reached: false,
+      hasMore: false,
+      policyRevision: 9,
+      calculatedAt: "2030-01-01T00:00:00Z",
+    });
+
+    stubFetchJson({ mode: "limited", used: 11 });
+    await expect(client.getIssueLimitUsage()).resolves.toEqual({
+      mode: "unavailable",
+      used: null,
+      limit: null,
+      reached: null,
+      hasMore: null,
+      policyRevision: null,
+      calculatedAt: null,
+    });
+  });
 
   it("maps a full summary to camelCase without inventing values", async () => {
     stubFetchJson({
@@ -1126,6 +1181,7 @@ describe("workspace subscription contract", () => {
         used: 3,
         reserved: 2,
         available: 0,
+        overcommitted: false,
         version: 11,
         pending_quantity: 3,
         active_purchase: {
@@ -1137,6 +1193,11 @@ describe("workspace subscription contract", () => {
       cancel_at_period_end: true,
       grace_until: "2026-09-08T00:00:00Z",
       has_stripe_customer: true,
+      available_actions: {
+        checkout: false,
+        portal: true,
+        purchase_seats: false,
+      },
     });
     const client = new ApiClient("https://api.example.test");
     const summary = await client.getWorkspaceSubscriptionSummary();
@@ -1161,6 +1222,11 @@ describe("workspace subscription contract", () => {
     expect(summary?.cancelAtPeriodEnd).toBe(true);
     expect(summary?.graceUntil).toBe("2026-09-08T00:00:00Z");
     expect(summary?.hasStripeCustomer).toBe(true);
+    expect(summary?.availableActions).toEqual({
+      checkout: false,
+      portal: true,
+      purchaseSeats: false,
+    });
   });
 
   it("represents canceled subscriptions without current seat capacity", async () => {
@@ -1172,6 +1238,11 @@ describe("workspace subscription contract", () => {
       cancel_at_period_end: false,
       grace_until: null,
       has_stripe_customer: true,
+      available_actions: {
+        checkout: true,
+        portal: true,
+        purchase_seats: false,
+      },
     });
     const client = new ApiClient("https://api.example.test");
     const summary = await client.getWorkspaceSubscriptionSummary();
@@ -1192,6 +1263,11 @@ describe("workspace subscription contract", () => {
       cancel_at_period_end: false,
       grace_until: null,
       has_stripe_customer: false,
+      available_actions: {
+        checkout: false,
+        portal: false,
+        purchase_seats: false,
+      },
     });
     const client = new ApiClient("https://api.example.test");
     const summary = await client.getWorkspaceSubscriptionSummary();
@@ -1235,6 +1311,11 @@ describe("workspace subscription contract", () => {
       cancel_at_period_end: false,
       grace_until: null,
       has_stripe_customer: true,
+      available_actions: {
+        checkout: false,
+        portal: true,
+        purchase_seats: false,
+      },
       future_field: { nested: true },
     });
     const client = new ApiClient("https://api.example.test");

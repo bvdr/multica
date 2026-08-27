@@ -676,6 +676,10 @@ export function ManualCreatePanel({
         toast.error(sourceContextFailureMessage(err) ?? tIssues(($) => $.source_context.error_too_large));
         return false;
       }
+      if (sourceCode === "issue_limit_reached") {
+        toast.error(t(($) => $.create_issue.toast_issue_limit_reached));
+        return false;
+      }
       // Duplicate-issue is the only structured 409 the create endpoint
       // returns. We schema-guard the body (ApiError.body is `unknown`) so a
       // future server-side rename / drop of `code` / `issue` degrades to the

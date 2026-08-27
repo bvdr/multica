@@ -49,7 +49,6 @@ const stripeSignatureHeader = "Stripe-Signature"
 const idempotencyKeyHeader = "Idempotency-Key"
 const maxCloudSubscriptionIdempotencyKeyLength = 255
 const maxCloudSubscriptionSeatPurchaseIdempotencyKeyLength = 200
-const maxCloudSubscriptionSeats = 10_000
 
 type cloudSubscriptionCheckoutRequest struct {
 	Interval       string `json:"interval"`
@@ -79,10 +78,10 @@ type cloudSubscriptionSeatPurchaseRequest struct {
 }
 
 // requireCloudSubscriptionWorkspace is the handler-level backstop behind the
-// router's RequireWorkspaceMember / RequireWorkspaceRole middleware. Keeping
-// the check here makes a future route refactor fail closed instead of exposing
-// a workspace billing write without its tenant/role guard.
-func (h *Handler) requireCloudSubscriptionWorkspace(w http.ResponseWriter, r *http.Request, roles ...string) (string, string, bool) {
+// router's RequireWorkspaceMember middleware. Multica establishes the caller
+// and workspace context, but Cloud alone decides which billing actions that
+// caller may perform.
+func (h *Handler) requireCloudSubscriptionWorkspace(w http.ResponseWriter, r *http.Request) (string, string, bool) {
 	if isMachineCredentialActor(r) {
 		writeError(w, http.StatusForbidden, "this endpoint is only available to human actors")
 		return "", "", false
@@ -98,13 +97,9 @@ func (h *Handler) requireCloudSubscriptionWorkspace(w http.ResponseWriter, r *ht
 		writeError(w, http.StatusBadRequest, "workspace_id or workspace_slug is required")
 		return "", "", false
 	}
-	member, ok := ctxMember(r.Context())
+	_, ok := ctxMember(r.Context())
 	if !ok {
 		writeError(w, http.StatusForbidden, "workspace membership required")
-		return "", "", false
-	}
-	if len(roles) > 0 && !roleAllowed(member.Role, roles...) {
-		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return "", "", false
 	}
 	userID, ok := requireUserID(w, r)
@@ -208,7 +203,7 @@ func (h *Handler) GetCloudWorkspaceSubscriptionPrices(w http.ResponseWriter, r *
 // caller cannot smuggle a different workspace or Stripe payer identity through
 // JSON; Cloud remains authoritative for the price, quantity, and Checkout.
 func (h *Handler) CreateCloudWorkspaceSubscriptionCheckout(w http.ResponseWriter, r *http.Request) {
-	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r, "owner", "admin")
+	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -260,7 +255,7 @@ func (h *Handler) CreateCloudWorkspaceSubscriptionCheckout(w http.ResponseWriter
 // handler nor its caller supplies a seat quantity. Cloud re-counts human
 // members from its least-privilege product-database connection.
 func (h *Handler) ReconcileCloudWorkspaceSubscriptionSeats(w http.ResponseWriter, r *http.Request) {
-	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r, "owner", "admin")
+	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -271,7 +266,7 @@ func (h *Handler) ReconcileCloudWorkspaceSubscriptionSeats(w http.ResponseWriter
 // count. Cloud reads the authoritative current quantity and returns Stripe's
 // estimated proration plus the next full recurring invoice.
 func (h *Handler) PreviewCloudWorkspaceSubscriptionSeatPurchase(w http.ResponseWriter, r *http.Request) {
-	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r, "owner", "admin")
+	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -284,8 +279,8 @@ func (h *Handler) PreviewCloudWorkspaceSubscriptionSeatPurchase(w http.ResponseW
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if in.AdditionalSeats < 1 || in.AdditionalSeats > maxCloudSubscriptionSeats {
-		writeError(w, http.StatusBadRequest, "additional_seats must be within 1..10000")
+	if in.AdditionalSeats < 1 {
+		writeError(w, http.StatusBadRequest, "additional_seats must be positive")
 		return
 	}
 	upstreamBody, err := json.Marshal(in)
@@ -301,7 +296,7 @@ func (h *Handler) PreviewCloudWorkspaceSubscriptionSeatPurchase(w http.ResponseW
 // The allowlisted body omits any client workspace or absolute target quantity;
 // Cloud repeats the quote and owns concurrency, idempotency, and Stripe writes.
 func (h *Handler) PurchaseCloudWorkspaceSubscriptionSeats(w http.ResponseWriter, r *http.Request) {
-	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r, "owner", "admin")
+	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r)
 	if !ok {
 		return
 	}
@@ -315,8 +310,6 @@ func (h *Handler) PurchaseCloudWorkspaceSubscriptionSeats(w http.ResponseWriter,
 		return
 	}
 	if in.AdditionalSeats < 1 || in.ExpectedCurrentSeats < 1 ||
-		in.AdditionalSeats > maxCloudSubscriptionSeats ||
-		in.ExpectedCurrentSeats > maxCloudSubscriptionSeats-in.AdditionalSeats ||
 		in.ExpectedPurchaseVersion < 1 || in.AcceptedProrationAmount < 0 || !isASCIICurrency(in.Currency) {
 		writeError(w, http.StatusBadRequest, "invalid seat purchase confirmation")
 		return
@@ -354,7 +347,7 @@ func isASCIICurrency(value string) bool {
 }
 
 func (h *Handler) CreateCloudWorkspaceSubscriptionPortal(w http.ResponseWriter, r *http.Request) {
-	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r, "owner", "admin")
+	workspaceID, userID, ok := h.requireCloudSubscriptionWorkspace(w, r)
 	if !ok {
 		return
 	}

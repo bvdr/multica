@@ -159,6 +159,7 @@
     "toast_failed": "Failed to create issue",
     "toast_duplicate_title": "Duplicate issue",
     "toast_duplicate_view": "View existing issue",
+    "toast_issue_limit_reached": "This workspace has reached its issue limit",
     "toast_link_subissues_all_failed": "Failed to link sub-issues",
     "toast_link_subissues_partial": "Failed to link {{failed}} of {{total}} sub-issues",
     "toast_link_labels_failed": "Failed to attach labels",

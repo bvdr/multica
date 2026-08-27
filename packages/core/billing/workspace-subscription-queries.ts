@@ -21,6 +21,8 @@ export const workspaceSubscriptionKeys = {
     [...workspaceSubscriptionKeys.all(wsId), "summary"] as const,
   prices: (wsId: string) =>
     [...workspaceSubscriptionKeys.all(wsId), "prices"] as const,
+  issueLimitUsage: (wsId: string) =>
+    [...workspaceSubscriptionKeys.all(wsId), "issue-limit-usage"] as const,
 };
 
 export function workspaceSubscriptionEntitlementsOptions(wsId: string) {
@@ -43,6 +45,16 @@ export function workspaceSubscriptionSummaryOptions(wsId: string) {
   return queryOptions({
     queryKey: workspaceSubscriptionKeys.summary(wsId),
     queryFn: () => api.getWorkspaceSubscriptionSummary(),
+    enabled: wsId.length > 0,
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function issueLimitUsageOptions(wsId: string) {
+  return queryOptions({
+    queryKey: workspaceSubscriptionKeys.issueLimitUsage(wsId),
+    queryFn: () => api.getIssueLimitUsage(),
     enabled: wsId.length > 0,
     staleTime: 30 * 1000,
     refetchOnWindowFocus: true,

@@ -157,6 +157,7 @@
     "toast_failed": "创建任务失败",
     "toast_duplicate_title": "已存在同名任务",
     "toast_duplicate_view": "查看已有任务",
+    "toast_issue_limit_reached": "该工作区的任务总数已达到上限",
     "toast_link_subissues_all_failed": "关联子任务失败",
     "toast_link_subissues_partial": "{{total}} 个子任务中有 {{failed}} 个关联失败",
     "toast_link_labels_failed": "关联标签失败",

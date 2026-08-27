@@ -858,6 +858,15 @@ func (h *Handler) writeSourceContextError(w http.ResponseWriter, err error, limi
 	case errors.Is(err, service.ErrActiveDuplicate):
 		status, code = http.StatusConflict, "active_duplicate_issue"
 		message = err.Error()
+	case errors.Is(err, service.ErrIssueLimitReached):
+		var limitErr *service.IssueLimitReachedError
+		if errors.As(err, &limitErr) {
+			writeJSON(w, http.StatusPaymentRequired, map[string]any{
+				"code": "issue_limit_reached", "error": "workspace has reached its issue limit",
+				"limit": limitErr.Limit, "policy_revision": limitErr.PolicyRevision,
+			})
+			return
+		}
 	case errors.Is(err, service.ErrParentIssueNotFound), errors.Is(err, service.ErrProjectNotFound):
 		status = http.StatusBadRequest
 		message = err.Error()

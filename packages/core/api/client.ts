@@ -208,6 +208,7 @@ import type {
   CreateBillingPortalSessionResponse,
   WorkspaceSubscriptionEntitlements,
   WorkspaceSubscriptionSummary,
+  IssueLimitUsage,
   WorkspaceSubscriptionPrices,
   CreateWorkspaceSubscriptionCheckoutRequest,
   CreateWorkspaceSubscriptionCheckoutResponse,
@@ -251,7 +252,6 @@ import {
   SendChatMessageResponseSchema,
   StartMikaOnboardingResponseSchema,
   ChildIssuesResponseSchema,
-  ChildIssueProgressResponseSchema,
   CommentsListSchema,
   CommentTriggerPreviewSchema,
   IssueTriggerPreviewSchema,
@@ -335,6 +335,7 @@ import {
   CreateBillingPortalSessionResponseSchema,
   WorkspaceSubscriptionEntitlementsSchema,
   WorkspaceSubscriptionSummarySchema,
+  IssueLimitUsageSchema,
   WorkspaceSubscriptionPricesSchema,
   CreateWorkspaceSubscriptionCheckoutResponseSchema,
   WorkspaceSubscriptionSeatReconcileResultSchema,
@@ -1231,20 +1232,26 @@ export class ApiClient {
     });
   }
 
-  async getChildIssueProgress(): Promise<{
-    progress: {
-      parent_issue_id: string;
-      total: number;
-      done: number;
-      visible_total?: number;
-      visible_done?: number;
-      hidden_total?: number;
-    }[];
-  }> {
-    const raw = await this.fetch<unknown>("/api/issues/child-progress");
-    return parseWithFallback(raw, ChildIssueProgressResponseSchema, { progress: [] }, {
-      endpoint: "GET /api/issues/child-progress",
-    });
+  async getChildIssueProgress(): Promise<{ progress: { parent_issue_id: string; total: number; done: number }[] }> {
+    return this.fetch("/api/issues/child-progress");
+  }
+
+  async getIssueLimitUsage(): Promise<IssueLimitUsage> {
+    const raw = await this.fetch<unknown>("/api/issues/limit-usage");
+    return parseWithFallback(
+      raw,
+      IssueLimitUsageSchema,
+      {
+        mode: "unavailable",
+        used: null,
+        limit: null,
+        reached: null,
+        hasMore: null,
+        policyRevision: null,
+        calculatedAt: null,
+      },
+      { endpoint: "GET /api/issues/limit-usage" },
+    );
   }
 
   async deleteIssue(id: string): Promise<void> {
@@ -4161,7 +4168,9 @@ export class ApiClient {
         action: "off",
         used: null,
         reserved: null,
+        total: null,
         limit: null,
+        reached: null,
         period_start: null,
         period_end: null,
         reset_at: null,

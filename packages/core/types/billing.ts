@@ -195,6 +195,17 @@ export interface CreateBillingPortalSessionResponse {
 
 export type WorkspaceSubscriptionInterval = "month" | "year";
 
+export type WorkspaceEntitlementLimitMode =
+  | "limited"
+  | "unlimited"
+  | "unavailable";
+
+export interface WorkspaceEntitlementLimit {
+  mode: WorkspaceEntitlementLimitMode;
+  /** Present only for limited mode. */
+  limit: number | null;
+}
+
 export interface WorkspaceSubscriptionEntitlements {
   workspaceId: string;
   // Deliberately open strings: cloud may add plans and Stripe statuses without
@@ -202,8 +213,10 @@ export interface WorkspaceSubscriptionEntitlements {
   plan: string;
   status: string;
   seats: number;
-  issueWindow: number | null;
-  autopilotRuns: number | null;
+  limits: {
+    issueCount: WorkspaceEntitlementLimit;
+    autopilotRuns: WorkspaceEntitlementLimit;
+  };
   currentPeriodEnd: string | null;
   snapshotExpiresAt: string | null;
   version: number;
@@ -223,12 +236,24 @@ export interface WorkspaceSubscriptionSummary {
   seatCapacity: WorkspaceSeatCapacity | null;
   cancelAtPeriodEnd: boolean;
   graceUntil: string | null;
-  /**
-   * Whether a local Stripe customer exists for this workspace. It is a fact,
-   * NOT a permission: Billing Portal still requires owner/admin, so a caller
-   * must gate that control on the member's role as well.
-   */
+  /** Whether a local Stripe customer exists; never use this as an action gate. */
   hasStripeCustomer: boolean;
+  /** Cloud-authorized actions for this exact caller and effective snapshot. */
+  availableActions: {
+    checkout: boolean;
+    portal: boolean;
+    purchaseSeats: boolean;
+  };
+}
+
+export interface IssueLimitUsage {
+  mode: WorkspaceEntitlementLimitMode;
+  used: number | null;
+  limit: number | null;
+  reached: boolean | null;
+  hasMore: boolean | null;
+  policyRevision: number | null;
+  calculatedAt: string | null;
 }
 
 export interface WorkspaceSeatCapacity {
@@ -237,6 +262,8 @@ export interface WorkspaceSeatCapacity {
   reserved: number;
   /** Server-computed purchased capacity not currently used or reserved. */
   available: number;
+  /** Cloud-computed human-seat overcommit state. */
+  overcommitted: boolean;
   version: number;
   /** A lower quantity already scheduled for the next period, if any. */
   pendingQuantity: number | null;

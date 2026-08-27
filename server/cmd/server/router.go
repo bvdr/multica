@@ -429,6 +429,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		opts.BusinessMetrics.RecordEntitlementConfigError()
 	} else if entitlementClient.Enabled() {
 		h.Entitlements = entitlementClient
+		h.IssueService.Entitlements = entitlementClient
 		h.AutopilotService.Entitlements = entitlementClient
 		h.AutopilotService.QuotaMetrics = opts.BusinessMetrics
 	}
@@ -1772,27 +1773,22 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		// Workspace subscriptions use the same cloud transport and Stripe
 		// webhook as the existing owner-credit billing surface, but every request
 		// is workspace-scoped. Entitlements, summary and prices are
-		// member-readable; Checkout, seat reconcile, and Portal mutations require
-		// owner/admin. The handlers also enforce
-		// billing_workspace_subscriptions so a route refactor cannot
+		// Multica establishes a human workspace member and forwards that exact
+		// identity. Cloud is the sole authority for every billing action and
+		// validates mutations again before external writes. The handlers also
+		// enforce billing_workspace_subscriptions so a route refactor cannot
 		// accidentally bypass the rollout flag.
 		r.Route("/api/cloud-subscriptions", func(r chi.Router) {
 			r.Use(handler.RequireHumanActor)
-
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireWorkspaceMember(queries))
-				r.Get("/entitlements", h.GetCloudWorkspaceEntitlements)
-				r.Get("/summary", h.GetCloudWorkspaceSubscriptionSummary)
-				r.Get("/prices", h.GetCloudWorkspaceSubscriptionPrices)
-			})
-			r.Group(func(r chi.Router) {
-				r.Use(middleware.RequireWorkspaceRole(queries, "owner", "admin"))
-				r.Post("/checkout-sessions", h.CreateCloudWorkspaceSubscriptionCheckout)
-				r.Post("/seats/purchase-preview", h.PreviewCloudWorkspaceSubscriptionSeatPurchase)
-				r.Post("/seats/purchases", h.PurchaseCloudWorkspaceSubscriptionSeats)
-				r.Post("/seats/reconcile", h.ReconcileCloudWorkspaceSubscriptionSeats)
-				r.Post("/portal-sessions", h.CreateCloudWorkspaceSubscriptionPortal)
-			})
+			r.Use(middleware.RequireWorkspaceMember(queries))
+			r.Get("/entitlements", h.GetCloudWorkspaceEntitlements)
+			r.Get("/summary", h.GetCloudWorkspaceSubscriptionSummary)
+			r.Get("/prices", h.GetCloudWorkspaceSubscriptionPrices)
+			r.Post("/checkout-sessions", h.CreateCloudWorkspaceSubscriptionCheckout)
+			r.Post("/seats/purchase-preview", h.PreviewCloudWorkspaceSubscriptionSeatPurchase)
+			r.Post("/seats/purchases", h.PurchaseCloudWorkspaceSubscriptionSeats)
+			r.Post("/seats/reconcile", h.ReconcileCloudWorkspaceSubscriptionSeats)
+			r.Post("/portal-sessions", h.CreateCloudWorkspaceSubscriptionPortal)
 		})
 
 		// --- Workspace-scoped routes (all require workspace membership) ---
@@ -1804,7 +1800,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 
 			// Issues
 			r.Route("/api/issues", func(r chi.Router) {
-				r.Get("/window-usage", h.GetIssueWindowUsage)
+				r.Get("/limit-usage", h.GetIssueLimitUsage)
 				r.Post("/table/groups", h.ListIssueTableGroups)
 				r.Post("/table/rows", h.ListIssueTableRows)
 				r.Post("/table/facets", h.ListIssueTableFacets)
