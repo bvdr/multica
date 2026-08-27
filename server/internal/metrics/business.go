@@ -14,6 +14,17 @@ var chatClaimResumeQueryDurationBuckets = []float64{0.001, 0.0025, 0.005, 0.01, 
 
 var runtimeSweepStageDurationBuckets = []float64{0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30, 60}
 
+const (
+	RuntimeSweepStageLiveness                 = "runtime_liveness"
+	RuntimeSweepStageOfflineTasks             = "offline_runtime_tasks"
+	RuntimeSweepStageReconnectRetries         = "runtime_reconnect_retries"
+	RuntimeSweepStageStaleTasks               = "stale_tasks"
+	RuntimeSweepStageQueuedExpiry             = "queued_task_expiry"
+	RuntimeSweepStageDelegatedFailureRecovery = "delegated_failure_recovery"
+	RuntimeSweepStageDeferredChatFinalization = "deferred_chat_finalize"
+	RuntimeSweepStageGC                       = "runtime_gc"
+)
+
 type activeTaskLabels struct {
 	source      string
 	runtimeMode string
@@ -42,7 +53,7 @@ type BusinessMetrics struct {
 	chatClaimSessionFallbackResult    *prometheus.CounterVec
 	chatClaimResumeQueryDuration      *prometheus.HistogramVec
 	runtimeSweepStageDuration         *prometheus.HistogramVec
-	runtimeSweepRowsScanned           *prometheus.CounterVec
+	runtimeSweepCandidateRows         *prometheus.CounterVec
 	runtimeSweepRowsChanged           *prometheus.CounterVec
 	runtimeGCDeleted                  prometheus.Counter
 	runtimeGCFailed                   prometheus.Counter
@@ -193,12 +204,12 @@ func NewBusinessMetrics() *BusinessMetrics {
 			Help:      "Duration of each runtime maintenance sweeper stage.",
 			Buckets:   runtimeSweepStageDurationBuckets,
 		}, metricLabels("multica_runtime_sweeper_stage_duration_seconds")),
-		runtimeSweepRowsScanned: prometheus.NewCounterVec(prometheus.CounterOpts{
+		runtimeSweepCandidateRows: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "multica",
 			Subsystem: "runtime_sweeper",
-			Name:      "rows_scanned_total",
-			Help:      "Total candidate rows returned to or examined by each runtime maintenance sweeper stage.",
-		}, metricLabels("multica_runtime_sweeper_rows_scanned_total")),
+			Name:      "candidate_rows_total",
+			Help:      "Total candidate rows returned to or examined by the application in each runtime maintenance sweeper stage.",
+		}, metricLabels("multica_runtime_sweeper_candidate_rows_total")),
 		runtimeSweepRowsChanged: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "multica",
 			Subsystem: "runtime_sweeper",
@@ -286,7 +297,7 @@ func (m *BusinessMetrics) Collectors() []prometheus.Collector {
 		m.chatClaimSessionFallbackResult,
 		m.chatClaimResumeQueryDuration,
 		m.runtimeSweepStageDuration,
-		m.runtimeSweepRowsScanned,
+		m.runtimeSweepCandidateRows,
 		m.runtimeSweepRowsChanged,
 		m.runtimeGCDeleted,
 		m.runtimeGCFailed,
@@ -375,35 +386,35 @@ func (m *BusinessMetrics) RecordRuntimeGCBlockedObservationFailed() {
 }
 
 // ObserveRuntimeSweepStage records one bounded-cardinality maintenance stage.
-// scanned is the number of candidate rows returned to or examined by the
-// application, not PostgreSQL executor rows; changed is the subset whose
-// persisted maintenance state changed.
-func (m *BusinessMetrics) ObserveRuntimeSweepStage(stage string, duration time.Duration, scanned, changed int) {
+// candidates is the number of rows returned to or examined by the application,
+// not PostgreSQL executor rows; changed is the subset whose persisted
+// maintenance state changed.
+func (m *BusinessMetrics) ObserveRuntimeSweepStage(stage string, duration time.Duration, candidates, changed int) {
 	if m == nil {
 		return
 	}
 	stage = normalizeRuntimeSweepStage(stage)
-	if scanned < 0 {
-		scanned = 0
+	if candidates < 0 {
+		candidates = 0
 	}
 	if changed < 0 {
 		changed = 0
 	}
 	m.runtimeSweepStageDuration.WithLabelValues(stage).Observe(duration.Seconds())
-	m.runtimeSweepRowsScanned.WithLabelValues(stage).Add(float64(scanned))
+	m.runtimeSweepCandidateRows.WithLabelValues(stage).Add(float64(candidates))
 	m.runtimeSweepRowsChanged.WithLabelValues(stage).Add(float64(changed))
 }
 
 func normalizeRuntimeSweepStage(stage string) string {
 	switch stage {
-	case "runtime_liveness",
-		"offline_runtime_tasks",
-		"runtime_reconnect_retries",
-		"stale_tasks",
-		"queued_task_expiry",
-		"delegated_failure_recovery",
-		"deferred_chat_finalize",
-		"runtime_gc":
+	case RuntimeSweepStageLiveness,
+		RuntimeSweepStageOfflineTasks,
+		RuntimeSweepStageReconnectRetries,
+		RuntimeSweepStageStaleTasks,
+		RuntimeSweepStageQueuedExpiry,
+		RuntimeSweepStageDelegatedFailureRecovery,
+		RuntimeSweepStageDeferredChatFinalization,
+		RuntimeSweepStageGC:
 		return stage
 	default:
 		return "other"

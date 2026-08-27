@@ -118,15 +118,6 @@ const (
 	// delegatedFailureRecoveryBatchSize bounds the durable recovery-outbox
 	// replay so a historical backlog cannot monopolise the runtime sweep tick.
 	delegatedFailureRecoveryBatchSize = 100
-
-	runtimeSweepStageLiveness                 = "runtime_liveness"
-	runtimeSweepStageOfflineTasks             = "offline_runtime_tasks"
-	runtimeSweepStageReconnectRetries         = "runtime_reconnect_retries"
-	runtimeSweepStageStaleTasks               = "stale_tasks"
-	runtimeSweepStageQueuedExpiry             = "queued_task_expiry"
-	runtimeSweepStageDelegatedFailureRecovery = "delegated_failure_recovery"
-	runtimeSweepStageDeferredChatFinalization = "deferred_chat_finalize"
-	runtimeSweepStageGC                       = "runtime_gc"
 )
 
 type runtimeGCTxStarter interface {
@@ -134,8 +125,8 @@ type runtimeGCTxStarter interface {
 }
 
 type runtimeSweepStageStats struct {
-	scanned int
-	changed int
+	candidates int
+	changed    int
 }
 
 func taskServiceMetrics(taskSvc *service.TaskService) *obsmetrics.BusinessMetrics {
@@ -146,7 +137,7 @@ func taskServiceMetrics(taskSvc *service.TaskService) *obsmetrics.BusinessMetric
 }
 
 func observeRuntimeSweepStage(metrics *obsmetrics.BusinessMetrics, stage string, startedAt time.Time, stats runtimeSweepStageStats) {
-	metrics.ObserveRuntimeSweepStage(stage, time.Since(startedAt), stats.scanned, stats.changed)
+	metrics.ObserveRuntimeSweepStage(stage, time.Since(startedAt), stats.candidates, stats.changed)
 }
 
 // runPeriodicSweep serializes rounds and drops ticker events while a round is
@@ -206,11 +197,11 @@ func runRuntimeGCSweeper(ctx context.Context, txStarter runtimeGCTxStarter, quer
 func sweepPendingDelegatedFailureRecoveries(ctx context.Context, taskSvc *service.TaskService) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), runtimeSweepStageDelegatedFailureRecovery, startedAt, stats)
+		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), obsmetrics.RuntimeSweepStageDelegatedFailureRecovery, startedAt, stats)
 	}()
 
 	result, err := taskSvc.RecoverPendingDelegatedFailures(ctx, delegatedFailureRecoveryBatchSize)
-	stats.scanned = result.Scanned
+	stats.candidates = result.Scanned
 	stats.changed = result.Replayed + result.Exhausted
 	if err != nil {
 		slog.Warn("delegated failure recovery sweeper: replay failed",
@@ -235,7 +226,7 @@ func sweepPendingDelegatedFailureRecoveries(ctx context.Context, taskSvc *servic
 func sweepStaleRuntimes(ctx context.Context, queries *db.Queries, liveness handler.LivenessStore, taskSvc *service.TaskService, bus *events.Bus) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), runtimeSweepStageLiveness, startedAt, stats)
+		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), obsmetrics.RuntimeSweepStageLiveness, startedAt, stats)
 	}()
 
 	candidates, err := queries.SelectStaleOnlineRuntimes(ctx, staleThresholdSeconds)
@@ -243,7 +234,7 @@ func sweepStaleRuntimes(ctx context.Context, queries *db.Queries, liveness handl
 		slog.Warn("runtime sweeper: failed to list stale online runtimes", "error", err)
 		return
 	}
-	stats.scanned = len(candidates)
+	stats.candidates = len(candidates)
 	if len(candidates) == 0 {
 		return
 	}
@@ -318,7 +309,7 @@ func sweepStaleRuntimes(ctx context.Context, queries *db.Queries, liveness handl
 func sweepOfflineRuntimeTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, reconnectGrace time.Duration) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), runtimeSweepStageOfflineTasks, startedAt, stats)
+		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), obsmetrics.RuntimeSweepStageOfflineTasks, startedAt, stats)
 	}()
 
 	failedTasks, err := queries.FailTasksForOfflineRuntimes(ctx, db.FailTasksForOfflineRuntimesParams{
@@ -329,7 +320,7 @@ func sweepOfflineRuntimeTasks(ctx context.Context, queries *db.Queries, taskSvc 
 		slog.Warn("runtime sweeper: failed to clean up long-offline tasks", "error", err)
 		return
 	}
-	stats.scanned = len(failedTasks)
+	stats.candidates = len(failedTasks)
 	stats.changed = len(failedTasks)
 	if len(failedTasks) == 0 {
 		return
@@ -346,7 +337,7 @@ func sweepOfflineRuntimeTasks(ctx context.Context, queries *db.Queries, taskSvc 
 func sweepExpiredRuntimeReconnectRetries(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, reconnectGrace time.Duration) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), runtimeSweepStageReconnectRetries, startedAt, stats)
+		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), obsmetrics.RuntimeSweepStageReconnectRetries, startedAt, stats)
 	}()
 
 	failedTasks, err := queries.FailExpiredRuntimeReconnectRetries(ctx, db.FailExpiredRuntimeReconnectRetriesParams{
@@ -358,7 +349,7 @@ func sweepExpiredRuntimeReconnectRetries(ctx context.Context, queries *db.Querie
 		slog.Warn("runtime sweeper: failed to expire reconnect retries", "error", err)
 		return
 	}
-	stats.scanned = len(failedTasks)
+	stats.candidates = len(failedTasks)
 	stats.changed = len(failedTasks)
 	if len(failedTasks) == 0 {
 		return
@@ -410,7 +401,7 @@ func filterStaleRuntimesByLiveness(ctx context.Context, candidates []db.SelectSt
 func gcRuntimes(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Queries, metrics *obsmetrics.BusinessMetrics, bus *events.Bus) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(metrics, runtimeSweepStageGC, startedAt, stats)
+		observeRuntimeSweepStage(metrics, obsmetrics.RuntimeSweepStageGC, startedAt, stats)
 	}()
 	return gcRuntimesWithBudget(ctx, txStarter, queries, metrics, bus, runtimeGCTickTimeout)
 }
@@ -447,7 +438,7 @@ func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, que
 		metrics.RecordRuntimeGCFailed()
 		return
 	}
-	stats.scanned = len(candidates)
+	stats.candidates = len(candidates)
 	if len(candidates) == 0 {
 		return
 	}
@@ -592,7 +583,7 @@ func gcRuntime(ctx context.Context, txStarter runtimeGCTxStarter, queries *db.Qu
 func sweepStaleTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, bus *events.Bus, reconnectGrace time.Duration) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), runtimeSweepStageStaleTasks, startedAt, stats)
+		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), obsmetrics.RuntimeSweepStageStaleTasks, startedAt, stats)
 	}()
 
 	failedTasks, err := queries.FailStaleTasks(ctx, db.FailStaleTasksParams{
@@ -607,7 +598,7 @@ func sweepStaleTasks(ctx context.Context, queries *db.Queries, taskSvc *service.
 		slog.Warn("task sweeper: failed to clean up stale tasks", "error", err)
 		return
 	}
-	stats.scanned = len(failedTasks)
+	stats.candidates = len(failedTasks)
 	stats.changed = len(failedTasks)
 	if len(failedTasks) == 0 {
 		return
@@ -628,7 +619,7 @@ func sweepStaleTasks(ctx context.Context, queries *db.Queries, taskSvc *service.
 func sweepExpiredQueuedTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService, queuedTTL time.Duration) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), runtimeSweepStageQueuedExpiry, startedAt, stats)
+		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), obsmetrics.RuntimeSweepStageQueuedExpiry, startedAt, stats)
 	}()
 
 	failedTasks, err := queries.ExpireStaleQueuedTasks(ctx, db.ExpireStaleQueuedTasksParams{
@@ -639,7 +630,7 @@ func sweepExpiredQueuedTasks(ctx context.Context, queries *db.Queries, taskSvc *
 		slog.Warn("task sweeper: failed to expire stale queued tasks", "error", err)
 		return
 	}
-	stats.scanned = len(failedTasks)
+	stats.candidates = len(failedTasks)
 	stats.changed = len(failedTasks)
 	if len(failedTasks) == 0 {
 		return
@@ -659,7 +650,7 @@ func sweepExpiredQueuedTasks(ctx context.Context, queries *db.Queries, taskSvc *
 func sweepDeferredChatFinalizations(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {
-		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), runtimeSweepStageDeferredChatFinalization, startedAt, stats)
+		observeRuntimeSweepStage(taskServiceMetrics(taskSvc), obsmetrics.RuntimeSweepStageDeferredChatFinalization, startedAt, stats)
 	}()
 
 	rows, err := queries.ListChatFinalizeDeferredExpired(ctx, db.ListChatFinalizeDeferredExpiredParams{
@@ -670,7 +661,7 @@ func sweepDeferredChatFinalizations(ctx context.Context, queries *db.Queries, ta
 		slog.Warn("chat finalize sweeper: list deferred failed", "error", err)
 		return
 	}
-	stats.scanned = len(rows)
+	stats.candidates = len(rows)
 	if len(rows) == 0 {
 		return
 	}

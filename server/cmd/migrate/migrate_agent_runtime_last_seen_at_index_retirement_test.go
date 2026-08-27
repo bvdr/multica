@@ -67,19 +67,22 @@ func TestAgentRuntimeLastSeenAtIndexRetirement(t *testing.T) {
 	assertIndexExists(t, pool, schema, "idx_agent_runtime_last_seen_at", false)
 
 	partialIndexes := []struct {
-		version   string
-		index     string
-		predicate string
+		version    string
+		index      string
+		keyColumns string
+		predicate  string
 	}{
 		{
-			version:   "438_agent_runtime_online_last_seen_index",
-			index:     "idx_agent_runtime_online_last_seen",
-			predicate: "status = 'online'::text",
+			version:    "438_agent_runtime_online_last_seen_index",
+			index:      "idx_agent_runtime_online_last_seen",
+			keyColumns: "last_seen_at",
+			predicate:  "status = 'online'::text",
 		},
 		{
-			version:   "439_agent_runtime_offline_last_seen_index",
-			index:     "idx_agent_runtime_offline_last_seen",
-			predicate: "status = 'offline'::text",
+			version:    "439_agent_runtime_offline_last_seen_index",
+			index:      "idx_agent_runtime_offline_last_seen",
+			keyColumns: "last_seen_at, id",
+			predicate:  "status = 'offline'::text",
 		},
 	}
 	for _, partial := range partialIndexes {
@@ -87,7 +90,7 @@ func TestAgentRuntimeLastSeenAtIndexRetirement(t *testing.T) {
 		if err := runMigrations(ctx, pool, options); err != nil {
 			t.Fatalf("apply %s: %v", partial.version, err)
 		}
-		assertRuntimeLastSeenPartialIndex(t, ctx, pool, schema, partial.index, partial.predicate)
+		assertRuntimeLastSeenPartialIndex(t, ctx, pool, schema, partial.index, partial.keyColumns, partial.predicate)
 	}
 	// The replacement indexes are deliberately partial: applying them must not
 	// recreate migration 115's full-table index.
@@ -105,7 +108,7 @@ func TestAgentRuntimeLastSeenAtIndexRetirement(t *testing.T) {
 	}
 }
 
-func assertRuntimeLastSeenPartialIndex(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema, index, predicate string) {
+func assertRuntimeLastSeenPartialIndex(t *testing.T, ctx context.Context, pool *pgxpool.Pool, schema, index, keyColumns, predicate string) {
 	t.Helper()
 	assertIndexValidity(t, pool, schema, index, true)
 
@@ -117,8 +120,8 @@ func assertRuntimeLastSeenPartialIndex(t *testing.T, ctx context.Context, pool *
 	`, pgx.Identifier{schema, index}.Sanitize()).Scan(&definition, &actualPredicate); err != nil {
 		t.Fatalf("read %s definition: %v", index, err)
 	}
-	if !strings.Contains(definition, "USING btree (last_seen_at)") {
-		t.Fatalf("%s does not index last_seen_at: %s", index, definition)
+	if !strings.Contains(definition, "USING btree ("+keyColumns+")") {
+		t.Fatalf("%s key columns differ from query ordering: %s", index, definition)
 	}
 	if actualPredicate != "("+predicate+")" {
 		t.Fatalf("%s predicate = %q, want %q", index, actualPredicate, "("+predicate+")")
