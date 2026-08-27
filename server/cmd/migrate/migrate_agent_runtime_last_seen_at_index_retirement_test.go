@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,7 +31,7 @@ func TestAgentRuntimeLastSeenAtIndexRetirement(t *testing.T) {
 	}
 	assertIndexValidity(t, pool, schema, "idx_agent_runtime_last_seen_at", true)
 
-	const version = "433_drop_agent_runtime_last_seen_at_index"
+	const version = "437_drop_agent_runtime_last_seen_at_index"
 	options.Files = realMigrationFiles(t, []string{version}, "up")
 	if err := runMigrations(ctx, pool, options); err != nil {
 		t.Fatalf("apply runtime index retirement migration: %v", err)
@@ -45,6 +46,16 @@ func TestAgentRuntimeLastSeenAtIndexRetirement(t *testing.T) {
 		t.Fatalf("roll back runtime index retirement migration: %v", err)
 	}
 	assertIndexValidity(t, pool, schema, "idx_agent_runtime_last_seen_at", true)
+	var indexDefinition string
+	if err := pool.QueryRow(ctx,
+		"SELECT pg_get_indexdef($1::regclass)",
+		pgx.Identifier{schema, "idx_agent_runtime_last_seen_at"}.Sanitize(),
+	).Scan(&indexDefinition); err != nil {
+		t.Fatalf("read restored runtime index definition: %v", err)
+	}
+	if !strings.HasSuffix(indexDefinition, "USING btree (last_seen_at)") {
+		t.Fatalf("restored runtime index definition differs from migration 115: %s", indexDefinition)
+	}
 	assertMigrationVersionRecorded(t, ctx, pool, schema, version, false)
 
 	options.Direction = "up"

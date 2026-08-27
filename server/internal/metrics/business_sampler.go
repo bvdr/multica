@@ -51,6 +51,21 @@ var samplerWindows = []struct {
 	{windowFiveMinutes, 5 * time.Minute},
 }
 
+// samplerQueries is the canonical query registry. The refresh deadline and
+// execution loop both derive from it so adding or removing a query cannot
+// leave a stale hand-maintained timeout multiplier behind.
+var samplerQueries = []struct {
+	name string
+	run  func(*BusinessSamplerCollector, context.Context, pgx.Tx, *samplerSnapshot) error
+}{
+	{"active_users", (*BusinessSamplerCollector).queryActiveUsers},
+	{"active_workspaces", (*BusinessSamplerCollector).queryActiveWorkspaces},
+	{"task_queued", (*BusinessSamplerCollector).queryTaskQueued},
+	{"task_running", (*BusinessSamplerCollector).queryTaskRunning},
+	{"task_stuck", (*BusinessSamplerCollector).queryTaskStuck},
+	{"workspace_total", (*BusinessSamplerCollector).queryWorkspaceTotal},
+}
+
 // BusinessSamplerOptions configures the BusinessSamplerCollector. A nil
 // receiver in the registry means the sampler is disabled, which is the
 // expected state for unit tests and any deployment where the operator does
@@ -236,7 +251,10 @@ func (c *BusinessSamplerCollector) maybeRefresh() *samplerSnapshot {
 	// Bound the entire refresh to N×queryTimeout so an in-flight scrape
 	// can never block forever even if SET LOCAL is somehow ignored by a
 	// misconfigured Postgres.
-	ctx, cancel := context.WithTimeout(context.Background(), 6*c.queryTimeout)
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Duration(len(samplerQueries))*c.queryTimeout,
+	)
 	defer cancel()
 
 	next := c.refreshFn(ctx, now)
@@ -343,24 +361,11 @@ func (c *BusinessSamplerCollector) refreshFromDB(ctx context.Context, now time.T
 
 	snap := newSamplerSnapshot(now)
 
-	c.runQuery(ctx, conn, "active_users", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryActiveUsers(ctx, tx, snap)
-	})
-	c.runQuery(ctx, conn, "active_workspaces", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryActiveWorkspaces(ctx, tx, snap)
-	})
-	c.runQuery(ctx, conn, "task_queued", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryTaskQueued(ctx, tx, snap)
-	})
-	c.runQuery(ctx, conn, "task_running", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryTaskRunning(ctx, tx, snap)
-	})
-	c.runQuery(ctx, conn, "task_stuck", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryTaskStuck(ctx, tx, snap)
-	})
-	c.runQuery(ctx, conn, "workspace_total", func(ctx context.Context, tx pgx.Tx) error {
-		return c.queryWorkspaceTotal(ctx, tx, snap)
-	})
+	for _, query := range samplerQueries {
+		c.runQuery(ctx, conn, query.name, func(ctx context.Context, tx pgx.Tx) error {
+			return query.run(c, ctx, tx, snap)
+		})
+	}
 
 	return snap
 }

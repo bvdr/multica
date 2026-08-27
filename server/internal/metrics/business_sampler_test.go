@@ -199,6 +199,18 @@ func TestBusinessSamplerCollectorBoundedCardinality(t *testing.T) {
 	if got := testutil.CollectAndCount(c, "multica_agent_task_running"); got != expectedRunning {
 		t.Fatalf("agent_task_running series = %d, want %d", got, expectedRunning)
 	}
+
+	rec := httptest.NewRecorder()
+	NewHandler(registry).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+	for _, want := range []string{
+		`multica_agent_task_queued{source="other"} 50`,
+		`multica_agent_task_running{runtime_mode="unknown",source="other"} 50`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("normalized sampler series missing %q\nbody:\n%s", want, body)
+		}
+	}
 }
 
 // TestBusinessSamplerCollectorDisabledWithoutOptions exercises the opt-in
