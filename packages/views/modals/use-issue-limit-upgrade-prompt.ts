@@ -49,20 +49,33 @@ export function useIssueLimitUpgradePrompt(
   );
   const createPortal = useCreateWorkspaceSubscriptionPortal(wsId).mutateAsync;
   const portalIntentKeyRef = useRef<string | null>(null);
+  const dismissedRef = useRef(false);
 
   return useCallback(() => {
+    dismissedRef.current = false;
     const toastId = `issue-limit-recovery:${wsId}`;
     const title = t(($) => $.create_issue.issue_limit.title);
+    const markDismissed = () => {
+      dismissedRef.current = true;
+    };
     const persistentOptions = {
       id: toastId,
       duration: Infinity,
       closeButton: true,
+      onDismiss: markDismissed,
+      onAutoClose: markDismissed,
+    };
+    const dismissPrompt = () => {
+      markDismissed();
+      toast.dismiss(toastId);
     };
     const openBilling = () => {
+      dismissPrompt();
       onNavigate?.();
       navigation.push(`${paths.settings()}?tab=billing`);
     };
     const showBillingFallback = () => {
+      if (dismissedRef.current) return;
       toast.error(title, {
         ...persistentOptions,
         description: t(
@@ -85,6 +98,7 @@ export function useIssueLimitUpgradePrompt(
           return;
         }
         portalIntentKeyRef.current = null;
+        dismissPrompt();
         onNavigate?.();
         openExternal(response.url, { webTarget: "same-tab" });
       } catch {
@@ -92,6 +106,7 @@ export function useIssueLimitUpgradePrompt(
       }
     };
     const showAuthorizedActions = (actions: BillingActions) => {
+      if (dismissedRef.current) return;
       if (actions.checkout) {
         toast.error(title, {
           ...persistentOptions,

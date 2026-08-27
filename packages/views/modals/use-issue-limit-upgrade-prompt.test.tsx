@@ -14,6 +14,7 @@ interface AvailableActions {
 
 const mockPush = vi.hoisted(() => vi.fn());
 const mockToastError = vi.hoisted(() => vi.fn());
+const mockToastDismiss = vi.hoisted(() => vi.fn());
 const mockCreatePortal = vi.hoisted(() => vi.fn());
 const mockOpenExternal = vi.hoisted(() => vi.fn());
 const mockSummaryQuery = vi.hoisted(() => vi.fn());
@@ -59,6 +60,7 @@ vi.mock("@multica/core/billing", () => ({
 vi.mock("sonner", () => ({
   toast: {
     error: mockToastError,
+    dismiss: mockToastDismiss,
   },
 }));
 
@@ -131,6 +133,8 @@ describe("useIssueLimitUpgradePrompt", () => {
         description: "Checking the billing actions available for this workspace…",
         duration: Infinity,
         closeButton: true,
+        onDismiss: expect.any(Function),
+        onAutoClose: expect.any(Function),
       }),
     );
 
@@ -141,6 +145,27 @@ describe("useIssueLimitUpgradePrompt", () => {
     await waitFor(() =>
       expect(latestToastOptions()?.action?.label).toBe("Upgrade to Pro"),
     );
+  });
+
+  it("does not restore the prompt after it is manually dismissed", async () => {
+    let resolveSummary!: (
+      value: { availableActions: AvailableActions } | null,
+    ) => void;
+    summaryState.pending = new Promise((resolve) => {
+      resolveSummary = resolve;
+    });
+    const { result } = renderPrompt();
+
+    act(() => result.current());
+    act(() => latestToastOptions()?.onDismiss?.());
+
+    await act(async () => {
+      resolveSummary({ availableActions: actions({ checkout: true }) });
+      await summaryState.pending;
+      await Promise.resolve();
+    });
+
+    expect(mockToastError).toHaveBeenCalledTimes(1);
   });
 
   it("offers Upgrade to Pro only when Cloud authorizes checkout", async () => {
@@ -155,6 +180,9 @@ describe("useIssueLimitUpgradePrompt", () => {
     );
 
     latestToastOptions()?.action?.onClick();
+    expect(mockToastDismiss).toHaveBeenCalledWith(
+      "issue-limit-recovery:ws-test",
+    );
     expect(onNavigate).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith("/ws-test/settings?tab=billing");
   });
@@ -176,6 +204,9 @@ describe("useIssueLimitUpgradePrompt", () => {
     await waitFor(() => expect(mockCreatePortal).toHaveBeenCalledTimes(1));
     expect(mockCreatePortal.mock.calls[0]?.[0]).toMatch(
       /^issue-limit-portal-ws-test-/,
+    );
+    expect(mockToastDismiss).toHaveBeenCalledWith(
+      "issue-limit-recovery:ws-test",
     );
     expect(onNavigate).toHaveBeenCalledTimes(1);
     expect(mockOpenExternal).toHaveBeenCalledWith(
