@@ -197,7 +197,7 @@ func (h *Handler) BootstrapOnboardingRuntime(w http.ResponseWriter, r *http.Requ
 	// This read already happens inside the transaction, but not under the FK
 	// lock — take it so a public → private revoke committing right now cannot be
 	// overtaken by this insert (MUL-6704). The assistant's owner is the caller.
-	if _, bindErr := revalidateRuntimeForBind(r.Context(), qtx, runtime.ID, parseUUID(userID)); bindErr != nil {
+	if _, bindErr := revalidateRuntimeForBind(r.Context(), qtx, member, runtime.ID, parseUUID(userID)); bindErr != nil {
 		if errors.Is(bindErr, errRuntimeBindMissing) || errors.Is(bindErr, errRuntimeBindForbidden) {
 			writeError(w, http.StatusForbidden, "this runtime is private; only its owner can create agents on it")
 		} else {

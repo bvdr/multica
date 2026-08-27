@@ -468,6 +468,21 @@ WHERE workspace_id = @workspace_id
   AND provider = @provider
   AND LOWER(daemon_id) = LOWER(@daemon_id);
 
+-- name: RuntimeMergeHasSameOwner :one
+-- MUL-6704: does the legacy row belong to the same person as the freshly
+-- registered one? Read inside the merge transaction, under the FOR UPDATE both
+-- rows already hold, and consulted before anything moves — a machine that changed
+-- hands must not carry the previous owner's agents and tasks onto the new owner's
+-- row (see handler.errRuntimeMergeOwnerMismatch). NULL owners compare as equal to
+-- each other and unequal to a set owner, which is what IS NOT DISTINCT FROM does.
+SELECT EXISTS (
+    SELECT 1
+    FROM agent_runtime target, agent_runtime legacy
+    WHERE target.id = @new_runtime_id
+      AND legacy.id = @old_runtime_id
+      AND target.owner_id IS NOT DISTINCT FROM legacy.owner_id
+);
+
 -- name: InheritPublicVisibilityFromLegacyRuntime :execrows
 -- MUL-6704. A daemon switching to a UUID identity registers a NEW row (default
 -- `private`) and the merge moves every agent onto it, so a `public` legacy row
@@ -476,11 +491,10 @@ WHERE workspace_id = @workspace_id
 -- already chose, and let the confirmed revoke reclaim it. One statement so the
 -- decision happens under the FOR UPDATE the merge already holds. Never narrows.
 --
--- Owners must match. `public` is one person's consent to lend THEIR machine; if
--- the row changed hands (owner_id is rewritten by registration), inheriting it
--- would hand the previous owner's consent to the new one. A mismatch leaves the
--- fresh row private, which is the safe default — the new owner can share it
--- themselves.
+-- Owners must match. `public` is one person's consent to lend THEIR machine, so
+-- it cannot transfer with the machine. The merge already refuses an owner mismatch
+-- outright (RuntimeMergeHasSameOwner), so this predicate is a second fence for any
+-- future caller of this query rather than the primary check.
 UPDATE agent_runtime target
 SET visibility = 'public', updated_at = now()
 WHERE target.id = @new_runtime_id

@@ -769,6 +769,16 @@ func (h *Handler) mergeLegacyRuntimes(r *http.Request, registered db.AgentRuntim
 			merged[oldID] = struct{}{}
 
 			if err := h.mergeLegacyRuntime(r.Context(), registered.ID, old.ID, legacyID, provider); err != nil {
+				if errors.Is(err, errRuntimeMergeOwnerMismatch) {
+					// Expected outcome, not a fault: the machine changed hands, so
+					// both rows stay as they are and the agents keep working where
+					// they are. Logged at info with the owners so an operator can
+					// see why two rows survive for one daemon id.
+					slog.Info("legacy runtime merge skipped: owner changed",
+						"legacy_daemon_id", legacyID, "old_runtime_id", oldID, "new_runtime_id", newID,
+						"old_owner_id", uuidToString(old.OwnerID), "new_owner_id", uuidToString(registered.OwnerID))
+					continue
+				}
 				slog.Warn("legacy runtime merge failed",
 					"legacy_daemon_id", legacyID, "old_runtime_id", oldID, "new_runtime_id", newID, "error", err)
 			}
@@ -782,6 +792,19 @@ func (h *Handler) mergeLegacyRuntimes(r *http.Request, registered db.AgentRuntim
 // registration re-runs it, and by then either the workspace is gone entirely or
 // the teardown rolled back.
 var errRuntimeMergeFenced = errors.New("runtime merge refused by the task-write fence")
+
+// errRuntimeMergeOwnerMismatch reports that the legacy row and the freshly
+// registered one belong to different people, so this is not one machine changing
+// its identity key — it is a machine that changed hands (MUL-6704).
+//
+// The merge is abandoned wholesale, before anything moves. Migrating the previous
+// owner's agents and tasks onto the new owner's row would produce exactly the
+// state this issue exists to remove: on a private row nothing they own can be
+// claimed, so the agents look bound and never run, and it would do so without the
+// confirmation the revoke flow requires. Leaving both rows untouched keeps the
+// agents where they already work and leaves the resolution to an explicit action
+// — the new owner sharing the machine, or the agents being rebound.
+var errRuntimeMergeOwnerMismatch = errors.New("runtime merge refused: legacy runtime has a different owner")
 
 // mergeLegacyRuntime folds one legacy runtime row into the freshly registered one,
 // as a single transaction.
@@ -837,6 +860,21 @@ func (h *Handler) mergeLegacyRuntime(ctx context.Context, newRuntimeID, oldRunti
 		// One of them went away while we were queueing for the lock; the fence
 		// inside the reassignment would refuse anyway.
 		return errRuntimeMergeFenced
+	}
+
+	// Same-owner check first, under the lock both rows now hold and BEFORE any
+	// reassignment: a machine that changed hands must not carry the previous
+	// owner's agents and tasks onto the new owner's row. See
+	// errRuntimeMergeOwnerMismatch.
+	sameOwner, err := qtx.RuntimeMergeHasSameOwner(ctx, db.RuntimeMergeHasSameOwnerParams{
+		NewRuntimeID: newRuntimeID,
+		OldRuntimeID: oldRuntimeID,
+	})
+	if err != nil {
+		return fmt.Errorf("compare runtime owners: %w", err)
+	}
+	if !sameOwner {
+		return errRuntimeMergeOwnerMismatch
 	}
 
 	reassignment, err := qtx.ReassignTasksToRuntime(ctx, db.ReassignTasksToRuntimeParams{

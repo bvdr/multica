@@ -716,11 +716,10 @@ type InheritPublicVisibilityFromLegacyRuntimeParams struct {
 // already chose, and let the confirmed revoke reclaim it. One statement so the
 // decision happens under the FOR UPDATE the merge already holds. Never narrows.
 //
-// Owners must match. `public` is one person's consent to lend THEIR machine; if
-// the row changed hands (owner_id is rewritten by registration), inheriting it
-// would hand the previous owner's consent to the new one. A mismatch leaves the
-// fresh row private, which is the safe default — the new owner can share it
-// themselves.
+// Owners must match. `public` is one person's consent to lend THEIR machine, so
+// it cannot transfer with the machine. The merge already refuses an owner mismatch
+// outright (RuntimeMergeHasSameOwner), so this predicate is a second fence for any
+// future caller of this query rather than the primary check.
 func (q *Queries) InheritPublicVisibilityFromLegacyRuntime(ctx context.Context, arg InheritPublicVisibilityFromLegacyRuntimeParams) (int64, error) {
 	result, err := q.db.Exec(ctx, inheritPublicVisibilityFromLegacyRuntime, arg.NewRuntimeID, arg.OldRuntimeID)
 	if err != nil {
@@ -1387,6 +1386,34 @@ type RecordRuntimeLegacyDaemonIDParams struct {
 func (q *Queries) RecordRuntimeLegacyDaemonID(ctx context.Context, arg RecordRuntimeLegacyDaemonIDParams) error {
 	_, err := q.db.Exec(ctx, recordRuntimeLegacyDaemonID, arg.ID, arg.LegacyDaemonID)
 	return err
+}
+
+const runtimeMergeHasSameOwner = `-- name: RuntimeMergeHasSameOwner :one
+SELECT EXISTS (
+    SELECT 1
+    FROM agent_runtime target, agent_runtime legacy
+    WHERE target.id = $1
+      AND legacy.id = $2
+      AND target.owner_id IS NOT DISTINCT FROM legacy.owner_id
+)
+`
+
+type RuntimeMergeHasSameOwnerParams struct {
+	NewRuntimeID pgtype.UUID `json:"new_runtime_id"`
+	OldRuntimeID pgtype.UUID `json:"old_runtime_id"`
+}
+
+// MUL-6704: does the legacy row belong to the same person as the freshly
+// registered one? Read inside the merge transaction, under the FOR UPDATE both
+// rows already hold, and consulted before anything moves — a machine that changed
+// hands must not carry the previous owner's agents and tasks onto the new owner's
+// row (see handler.errRuntimeMergeOwnerMismatch). NULL owners compare as equal to
+// each other and unequal to a set owner, which is what IS NOT DISTINCT FROM does.
+func (q *Queries) RuntimeMergeHasSameOwner(ctx context.Context, arg RuntimeMergeHasSameOwnerParams) (bool, error) {
+	row := q.db.QueryRow(ctx, runtimeMergeHasSameOwner, arg.NewRuntimeID, arg.OldRuntimeID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const selectStaleOnlineRuntimes = `-- name: SelectStaleOnlineRuntimes :many

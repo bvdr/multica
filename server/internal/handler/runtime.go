@@ -753,25 +753,26 @@ var (
 )
 
 // revalidateRuntimeForBind re-reads the target runtime inside the caller's
-// transaction and re-checks that it may EXECUTE an agent owned by agentOwnerID
-// (MUL-6704). Every path that writes agent.runtime_id calls it immediately
-// before the write.
+// transaction and re-runs BOTH runtime gates before the write. Every path that
+// writes agent.runtime_id calls it immediately before that write (MUL-6704).
 //
-// Two distinct checks live at these call sites and must not be collapsed:
+// The two gates are different questions and both can go stale during the lock
+// wait, so both are re-run here rather than trusted from the pre-flight:
 //
 //   - canUseRuntimeForAgent(member, rt) — may this MEMBER bind an agent here.
-//     Operator-facing, evaluated up-front alongside the request's other
-//     validation.
-//   - service.RuntimeAllowsAgentOwner(rt, agent.owner_id) — may this runtime run
-//     an agent owned by that user. Enforced here, and by the SQL claim fence,
-//     the post-claim recheck, and AgentReadiness. A runtime owner binding
-//     someone ELSE'S agent onto their private machine passes the first and fails
-//     this one: previously it was allowed, and #7571 then refused every task it
-//     produced, so the agent looked bound but could never run.
+//     A machine flipping public → private while this request queues for the lock
+//     revokes exactly this permission; checking it only up-front let an admin's
+//     in-flight rebind land on a machine that had just been reclaimed.
+//   - service.RuntimeAllowsAgentOwner(rt, agent.owner_id) — may this runtime RUN
+//     an agent owned by that user. Also enforced by the SQL claim fence, the
+//     post-claim recheck and AgentReadiness. A runtime owner binding someone
+//     ELSE'S agent onto their private machine passes the first gate and fails
+//     this one; before #7571 that was allowed and every task it produced was
+//     then refused, so the agent looked bound but could never run.
 //
 // The transactional re-read is what closes the revoke race; see
 // LockAgentRuntimeForBind for why the lock mode matters.
-func revalidateRuntimeForBind(ctx context.Context, qtx *db.Queries, runtimeID, agentOwnerID pgtype.UUID) (db.AgentRuntime, error) {
+func revalidateRuntimeForBind(ctx context.Context, qtx *db.Queries, member db.Member, runtimeID, agentOwnerID pgtype.UUID) (db.AgentRuntime, error) {
 	rt, err := qtx.LockAgentRuntimeForBind(ctx, runtimeID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -779,7 +780,7 @@ func revalidateRuntimeForBind(ctx context.Context, qtx *db.Queries, runtimeID, a
 		}
 		return db.AgentRuntime{}, err
 	}
-	if !service.RuntimeAllowsAgentOwner(rt, agentOwnerID) {
+	if !canUseRuntimeForAgent(member, rt) || !service.RuntimeAllowsAgentOwner(rt, agentOwnerID) {
 		return db.AgentRuntime{}, errRuntimeBindForbidden
 	}
 	return rt, nil

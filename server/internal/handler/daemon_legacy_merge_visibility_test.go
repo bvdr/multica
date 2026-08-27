@@ -74,18 +74,19 @@ func TestDaemonRegister_LegacyMergeVisibility(t *testing.T) {
 	}
 }
 
-// A shared machine that changed hands must not pass the previous owner's sharing
-// consent to the new one. `public` is one person's decision to lend THEIR machine;
-// after registration rewrites owner_id, inheriting it would publish a machine its
-// current owner never offered.
-func TestDaemonRegister_LegacyMergeDoesNotInheritAcrossOwnerChange(t *testing.T) {
+// A machine that changed hands is not one machine changing its identity key, and
+// the merge must abandon it wholesale — BEFORE anything moves.
+//
+// The previous version of this fix only blocked the `public` inheritance, so the
+// merge still reassigned the old owner's agents and tasks onto the new owner's
+// private row: bound, unclaimable, and without the confirmation the revoke flow
+// requires. That is the exact state this issue exists to remove, so the assertion
+// here is zero writes on every side — agent, tasks, and the legacy row itself.
+func TestDaemonRegister_LegacyMergeAbortsOnOwnerChange(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
 
-	// The legacy row keeps its original owner while the machine's fresh
-	// registration belongs to someone else — exactly when the old consent must not
-	// carry over.
 	previousOwnerID := dbfx.User(t, "Legacy Merge Previous Owner",
 		fmt.Sprintf("legacy-merge-prev-owner-%d@multica.ai", time.Now().UnixNano()))
 	dbfx.Member(t, testWorkspaceID, previousOwnerID, "member")
@@ -100,19 +101,42 @@ func TestDaemonRegister_LegacyMergeDoesNotInheritAcrossOwnerChange(t *testing.T)
 		"last_seen_at": testutil.Raw("now() - interval '1 hour'"),
 	})
 	agentID := dbfx.Agent(t, "legacy-owner-change-agent", legacyPublicID, ownedBy(previousOwnerID))
+	taskID := dbfx.Task(t, agentID, testutil.Cols{"runtime_id": legacyPublicID, "status": "completed",
+		"completed_at": testutil.Raw("now()")})
 
+	// The fresh registration belongs to the suite user, not previousOwnerID.
 	newRuntimeID := registerUnderNewIdentity(t, "OwnerChange.local", legacyPublicID)
 
 	if got := runtimeVisibility(t, newRuntimeID); got != "private" {
 		t.Fatalf("merged runtime visibility = %q, want 'private': sharing does not transfer with the machine", got)
 	}
-	// The agent still moves (the merge must not strand history), it simply cannot
-	// run there until the new owner shares the machine or the agent is rebound —
-	// which is a visible, recoverable state rather than a silent re-publish.
-	var agentRuntimeID string
+	// Nothing moved, and the legacy row survives — the agents keep running where
+	// they already work, and resolving this stays an explicit action.
+	var agentRuntimeID, taskRuntimeID string
 	dbfx.QueryRow(t, `SELECT runtime_id FROM agent WHERE id = $1`, agentID).Scan(&agentRuntimeID)
-	if agentRuntimeID != newRuntimeID {
-		t.Fatalf("agent not reassigned: runtime_id=%s, want %s", agentRuntimeID, newRuntimeID)
+	dbfx.QueryRow(t, `SELECT runtime_id FROM agent_task_queue WHERE id = $1`, taskID).Scan(&taskRuntimeID)
+	if agentRuntimeID != legacyPublicID {
+		t.Fatalf("agent runtime_id = %s, want it left on the legacy row %s", agentRuntimeID, legacyPublicID)
+	}
+	if taskRuntimeID != legacyPublicID {
+		t.Fatalf("task runtime_id = %s, want it left on the legacy row %s", taskRuntimeID, legacyPublicID)
+	}
+	if n := dbfx.Count(t, `SELECT count(*) FROM agent_runtime WHERE id = $1`, legacyPublicID); n != 1 {
+		t.Fatalf("legacy runtime rows = %d, want it kept: deleting it would strand the history it still owns", n)
+	}
+	// And the agent is still runnable where it is — a public machine owned by its
+	// own owner — which is the point of refusing the merge.
+	ctx := context.Background()
+	legacyRuntime, err := testHandler.Queries.GetAgentRuntime(ctx, parseUUID(legacyPublicID))
+	if err != nil {
+		t.Fatalf("load legacy runtime: %v", err)
+	}
+	agent, err := testHandler.Queries.GetAgent(ctx, parseUUID(agentID))
+	if err != nil {
+		t.Fatalf("load agent: %v", err)
+	}
+	if !service.RuntimeAllowsAgentOwner(legacyRuntime, agent.OwnerID) {
+		t.Fatalf("the agent must remain runnable on the machine it was already using")
 	}
 }
 

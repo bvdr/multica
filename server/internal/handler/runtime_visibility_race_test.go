@@ -194,6 +194,56 @@ func TestVisibilityRevokeRace_OwnerChangesDuringLockWait(t *testing.T) {
 	}
 }
 
+// The operator gate goes stale during the lock wait too, not just the agent-owner
+// one. An admin (or the machine's own owner) may bind onto a PUBLIC runtime; if
+// that machine is reclaimed as private while their rebind queues for the lock,
+// the permission they were granted no longer exists. Before revalidateRuntimeForBind
+// re-ran canUseRuntimeForAgent against the locked row, the request woke up and
+// completed the move with a 200.
+func TestVisibilityRevokeRace_RebindOperatorGateRecheckedAfterWait(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	// The fixture is built so ONLY the operator gate can refuse. The caller is the
+	// suite user (a workspace owner) moving a TEAMMATE's agent onto a machine that
+	// the same teammate ends up owning: after the reclaim the agent-owner gate is
+	// satisfied (agent owner == runtime owner), so a 403 can only come from
+	// canUseRuntimeForAgent being re-run against the locked row.
+	targetRuntimeID := dbfx.Runtime(t, "Race Operator Target", testutil.Cols{"visibility": "public"})
+	teammateID := dbfx.User(t, "Race Operator Teammate", "race-operator-"+targetRuntimeID+"@multica.ai")
+	dbfx.Member(t, testWorkspaceID, teammateID, "member")
+	homeRuntimeID := dbfx.Runtime(t, "Race Operator Home", testutil.Cols{"visibility": "public"})
+	agentID := dbfx.Agent(t, "Race Operator Agent", homeRuntimeID, ownedBy(teammateID))
+
+	// The teammate reclaims the target machine while our rebind waits.
+	commit := holdTx(t, ctx, func(tx pgx.Tx) {
+		mustExec(t, ctx, tx, `SELECT 1 FROM agent_runtime WHERE id = $1 FOR UPDATE`, targetRuntimeID)
+		mustExec(t, ctx, tx,
+			`UPDATE agent_runtime SET visibility = 'private', owner_id = $1 WHERE id = $2`, teammateID, targetRuntimeID)
+	})
+
+	done := make(chan handlerResult, 1)
+	go func() {
+		w := rebindAgent(t, agentID, targetRuntimeID)
+		done <- handlerResult{code: w.Code, body: w.Body.String()}
+	}()
+	requireBlocked(t, done, "rebind", "it must wait for the runtime lock")
+	commit()
+
+	res := waitForHandler(t, done)
+	if res.code != http.StatusForbidden {
+		t.Fatalf("rebind after the target was reclaimed: got %d, want 403 — the operator gate must be re-run against the locked row.\nbody: %s",
+			res.code, res.body)
+	}
+	var boundRuntime string
+	dbfx.QueryRow(t, `SELECT runtime_id FROM agent WHERE id = $1`, agentID).Scan(&boundRuntime)
+	if boundRuntime != homeRuntimeID {
+		t.Fatalf("agent runtime_id = %s; a refused rebind must leave it on %s", boundRuntime, homeRuntimeID)
+	}
+}
+
 // raceFixture returns a public runtime to reclaim and a teammate's agent that
 // currently lives on a DIFFERENT public runtime — the bind under test is what
 // moves it onto the machine being reclaimed.

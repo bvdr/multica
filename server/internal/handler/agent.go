@@ -1408,7 +1408,7 @@ func (h *Handler) CreateAgent(w http.ResponseWriter, r *http.Request) {
 	// runtime lock and afterwards create an agent on a machine that had just
 	// been reclaimed (MUL-6704). The new agent's owner is the caller, so this
 	// covers both halves of the gate.
-	if _, bindErr := revalidateRuntimeForBind(r.Context(), qtx, runtime.ID, parseUUID(ownerID)); bindErr != nil {
+	if _, bindErr := revalidateRuntimeForBind(r.Context(), qtx, member, runtime.ID, parseUUID(ownerID)); bindErr != nil {
 		switch {
 		case errors.Is(bindErr, errRuntimeBindMissing):
 			writeError(w, http.StatusBadRequest, "invalid runtime_id")
@@ -1819,6 +1819,9 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// runtime to validate a thinking_level change. Resolve once and reuse.
 	targetRuntimeID := existing.RuntimeID
 	targetProvider := ""
+	// The acting member, resolved when a rebind is requested and reused for the
+	// post-lock recheck inside the transaction below.
+	var actingMember db.Member
 	if req.RuntimeID != nil {
 		runtimeUUID, ok := parseUUIDOrBadRequest(w, *req.RuntimeID, "runtime_id")
 		if !ok {
@@ -1839,10 +1842,16 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 		// owned by this agent's owner, which is what the claim fence enforces:
 		// a runtime owner binding a teammate's agent onto their private machine
 		// used to pass and then have every task refused at claim time.
-		member, ok := h.workspaceMember(w, r, uuidToString(existing.WorkspaceID))
-		if !ok {
+		//
+		// This is the fast pre-flight; both gates are re-run against the locked
+		// row inside the transaction (revalidateRuntimeForBind), because either
+		// can go stale while the request queues for that lock.
+		var memberOK bool
+		actingMember, memberOK = h.workspaceMember(w, r, uuidToString(existing.WorkspaceID))
+		if !memberOK {
 			return
 		}
+		member := actingMember
 		if !canUseRuntimeForAgent(member, runtime) {
 			writeError(w, http.StatusForbidden, "this runtime is private; only its owner can move agents onto it")
 			return
@@ -2090,7 +2099,7 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	if req.RuntimeID != nil {
 		// Re-read the runtime under the FK lock: an up-front check can be
 		// overtaken by a public → private revoke that commits while we wait.
-		fresh, bindErr := revalidateRuntimeForBind(r.Context(), qtx, params.RuntimeID, existing.OwnerID)
+		fresh, bindErr := revalidateRuntimeForBind(r.Context(), qtx, actingMember, params.RuntimeID, existing.OwnerID)
 		switch {
 		case errors.Is(bindErr, errRuntimeBindMissing):
 			writeError(w, http.StatusBadRequest, "invalid runtime_id")

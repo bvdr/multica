@@ -180,7 +180,7 @@ func (h *Handler) resolveMikaAgent(w http.ResponseWriter, r *http.Request, works
 	// the top of this handler ran outside the transaction, and a public → private
 	// revoke can commit in between (MUL-6704). Mika's owner is the caller, so
 	// this covers the owner-eligibility half too.
-	if _, bindErr := revalidateRuntimeForBind(r.Context(), qtx, runtime.ID, parseUUID(userID)); bindErr != nil {
+	if _, bindErr := revalidateRuntimeForBind(r.Context(), qtx, member, runtime.ID, parseUUID(userID)); bindErr != nil {
 		if errors.Is(bindErr, errRuntimeBindMissing) || errors.Is(bindErr, errRuntimeBindForbidden) {
 			writeError(w, http.StatusForbidden, "this runtime is private; only its owner can use it")
 		} else {

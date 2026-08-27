@@ -90,9 +90,12 @@ export function RuntimePicker({
   //     an admin, or the machine's owner, editing a teammate's agent — and
   //     without the second one the picker offered its own private runtimes for
   //     someone else's agent and only failed on submit.
-  // agentOwnerId is passed through as-is: `undefined` means a create surface
-  // where the new agent's owner IS the caller (permissive), while an explicit
-  // `null` means a genuinely ownerless agent, which a private runtime refuses.
+  // Contract for agentOwnerId:
+  //   omitted / undefined → a create surface, where the new agent's owner is the
+  //     caller, so the caller's id is substituted;
+  //   an id              → that agent's owner (admin editing a teammate's agent);
+  //   explicit null      → a genuinely ownerless agent, passed straight through so
+  //     the predicate refuses private runtimes, matching the server.
   const isDisabled = (r: AgentRuntime): boolean =>
     !isRuntimeUsableForUser(r, currentUserId) ||
     !isRuntimeUsableForAgentOwner(
