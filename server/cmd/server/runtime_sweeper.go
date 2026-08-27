@@ -52,8 +52,10 @@ const (
 	// after this duration. 7 days gives users plenty of time to restart daemons.
 	offlineRuntimeTTLSeconds = 7 * 24 * 3600.0
 	// runtimeGCBatchSize bounds both the candidate scan and the number of
-	// per-runtime transactions one sweeper tick may open.
-	runtimeGCBatchSize = 100
+	// per-runtime transactions one sweeper tick may open. At the hourly cadence,
+	// 500 preserves a theoretical capacity of 12,000 candidates per day; the
+	// round timeout remains the hard bound on actual work.
+	runtimeGCBatchSize = 500
 	// runtimeGCBlockedScanLimit bounds the observability query as well. The
 	// gauge saturates at this value rather than turning a safety signal into an
 	// unbounded recurring scan when a large task backlog exists.

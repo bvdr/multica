@@ -132,6 +132,16 @@ func TestRuntimeGCRunsOutsideTheLivenessLoop(t *testing.T) {
 	}
 }
 
+// TestRuntimeGCDailyCandidateCapacity prevents an interval or batch-size change
+// from silently reducing the hourly GC worker below its agreed daily capacity.
+func TestRuntimeGCDailyCandidateCapacity(t *testing.T) {
+	const wantCandidatesPerDay = 12_000
+	got := int(24*time.Hour/runtimeGCSweepInterval) * runtimeGCBatchSize
+	if got != wantCandidatesPerDay {
+		t.Fatalf("runtime GC candidate capacity = %d/day, want %d/day", got, wantCandidatesPerDay)
+	}
+}
+
 func TestPeriodicSweepStopsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	called := make(chan struct{}, 1)
