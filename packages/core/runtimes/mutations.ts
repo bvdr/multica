@@ -103,11 +103,13 @@ export function useRevokeRuntimeAndMakePrivate(wsId: string) {
   return useMutation({
     mutationFn: ({
       runtimeId,
-      expectedActiveAgentIds,
+      ...confirmed
     }: {
       runtimeId: string;
       expectedActiveAgentIds: string[];
-    }) => api.revokeRuntimeAndMakePrivate(runtimeId, expectedActiveAgentIds),
+      expectedArchivedAgentCount: number;
+      expectedRetainedAgentCount: number;
+    }) => api.revokeRuntimeAndMakePrivate(runtimeId, confirmed),
     onSettled: () => {
       invalidateRuntimeAccessSurfaces(qc, wsId);
     },

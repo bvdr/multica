@@ -2171,8 +2171,9 @@ func (h *Handler) UpdateAgent(w http.ResponseWriter, r *http.Request) {
 	// `running` task is already executing on the previous machine and still
 	// completes correctly there (CompleteAgentTask does not check the binding),
 	// so cancelling it would throw away work the user never asked to stop by
-	// editing an agent. A dispatched row whose daemon never starts it is settled
-	// by the sweeper (CancelStaleMismatchedDispatchedTasks).
+	// editing an agent. A dispatched row whose daemon never starts it is left to
+	// the existing stale-task backstop (FailStaleTasks), which fails it once the
+	// dispatch timeout passes with no live prepare lease.
 	var rebindCancelled []db.AgentTaskQueue
 	if rebinding {
 		rebindCancelled, err = qtx.CancelPreClaimTasksOnOtherRuntimes(r.Context(), db.CancelPreClaimTasksOnOtherRuntimesParams{

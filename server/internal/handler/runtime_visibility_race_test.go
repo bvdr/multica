@@ -121,6 +121,79 @@ func TestVisibilityRevokeRace_RevokeHoldsLockFirst(t *testing.T) {
 	}
 }
 
+// The other thing that can change under a waiting request: WHO owns the machine.
+// agent_runtime.owner_id is rewritten by daemon registration, so a revoke that
+// checked permission before queueing for the lock would otherwise act on consent
+// that has since transferred — the previous owner unbinding the NEW owner's
+// teammates' agents, cancelling their tasks and pausing their Autopilots. Both
+// entry points re-check against the locked row, and both are covered here because
+// they take different code paths (the PATCH helper vs the confirm handler).
+func TestVisibilityRevokeRace_OwnerChangesDuringLockWait(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name string
+		// call fires the request as the ORIGINAL owner while the lock is held.
+		call func(t *testing.T, runtimeID, agentID string) *httptest.ResponseRecorder
+		// foreign decides whether the runtime carries a foreign agent, which
+		// selects the empty-plan PATCH path or the confirm path.
+		foreign bool
+	}{
+		{
+			name: "empty-plan PATCH",
+			call: func(t *testing.T, runtimeID, _ string) *httptest.ResponseRecorder {
+				return patchVisibilityPrivate(t, runtimeID)
+			},
+		},
+		{
+			name:    "confirmed revoke",
+			foreign: true,
+			call: func(t *testing.T, runtimeID, agentID string) *httptest.ResponseRecorder {
+				return confirmRevoke(t, runtimeID, []string{agentID})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runtimeID, foreignUserID := publicRuntimeWithForeignAgent(t, ctx, "Race Owner "+tc.name)
+			agentID := ""
+			if tc.foreign {
+				agentID = dbfx.Agent(t, "Race Owner Agent "+tc.name, runtimeID, ownedBy(foreignUserID))
+			}
+			newOwnerID := dbfx.User(t, "Race New Owner "+tc.name, "race-new-owner-"+runtimeID+"@multica.ai")
+			dbfx.Member(t, testWorkspaceID, newOwnerID, "member")
+
+			// The machine changes hands while our request queues for the lock.
+			commit := holdTx(t, ctx, func(tx pgx.Tx) {
+				mustExec(t, ctx, tx, `SELECT 1 FROM agent_runtime WHERE id = $1 FOR UPDATE`, runtimeID)
+				mustExec(t, ctx, tx, `UPDATE agent_runtime SET owner_id = $1 WHERE id = $2`, newOwnerID, runtimeID)
+			})
+
+			done := make(chan handlerResult, 1)
+			go func() {
+				w := tc.call(t, runtimeID, agentID)
+				done <- handlerResult{code: w.Code, body: w.Body.String()}
+			}()
+			requireBlocked(t, done, tc.name, "it must wait for the runtime lock")
+			commit()
+
+			res := waitForHandler(t, done)
+			if res.code != http.StatusForbidden {
+				t.Fatalf("%s after the machine changed hands: got %d, want 403 — permission must be re-established against the locked row.\nbody: %s",
+					tc.name, res.code, res.body)
+			}
+			if got := runtimeVisibility(t, runtimeID); got != "public" {
+				t.Fatalf("visibility = %q; the previous owner must not have reclaimed a machine that is no longer theirs", got)
+			}
+			if tc.foreign && !runtimeBound(t, agentID) {
+				t.Fatalf("the new owner's teammate agent must still be bound")
+			}
+		})
+	}
+}
+
 // raceFixture returns a public runtime to reclaim and a teammate's agent that
 // currently lives on a DIFFERENT public runtime — the bind under test is what
 // moves it onto the machine being reclaimed.

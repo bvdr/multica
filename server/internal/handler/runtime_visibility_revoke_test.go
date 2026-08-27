@@ -278,7 +278,7 @@ func TestRevokeAndMakePrivate_RetainsSystemCarrier(t *testing.T) {
 	})
 	carrierTask := insertFixtureTask(t, ctx, runtimeID, carrierID, "queued", false)
 
-	w := confirmRevoke(t, runtimeID, []string{})
+	w := confirmRevoke(t, runtimeID, []string{}, 0, 1)
 	if w.Code != http.StatusOK {
 		t.Fatalf("RevokeAndMakePrivateRuntime: got %d, want 200: %s", w.Code, w.Body.String())
 	}
@@ -316,11 +316,28 @@ func patchVisibilityPrivate(t *testing.T, runtimeID string) *httptest.ResponseRe
 	return w
 }
 
-func confirmRevoke(t *testing.T, runtimeID string, expected []string) *httptest.ResponseRecorder {
+// confirmRevoke submits a full confirmation: the named agents plus the archived
+// and retained counts the dialog showed.
+func confirmRevoke(t *testing.T, runtimeID string, expected []string, counts ...int) *httptest.ResponseRecorder {
+	t.Helper()
+	archived, retained := 0, 0
+	if len(counts) > 0 {
+		archived = counts[0]
+	}
+	if len(counts) > 1 {
+		retained = counts[1]
+	}
+	return postRevoke(t, runtimeID, map[string]any{
+		"expected_active_agent_ids":     expected,
+		"expected_archived_agent_count": archived,
+		"expected_retained_agent_count": retained,
+	})
+}
+
+func postRevoke(t *testing.T, runtimeID string, body map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 	w := httptest.NewRecorder()
-	req := newRequest("POST", "/api/runtimes/"+runtimeID+"/revoke-and-make-private",
-		map[string]any{"expected_active_agent_ids": expected})
+	req := newRequest("POST", "/api/runtimes/"+runtimeID+"/revoke-and-make-private", body)
 	testHandler.RevokeAndMakePrivateRuntime(w, withURLParam(req, "runtimeId", runtimeID))
 	return w
 }
@@ -373,4 +390,96 @@ func mustUUID(t *testing.T, s string) pgtype.UUID {
 		t.Fatalf("parse uuid %q", s)
 	}
 	return u
+}
+
+// TestRevokeAndMakePrivate_ConfirmsEveryDisplayedCategory: the dialog shows named
+// agents AND two counts, so all three are part of the confirmation. Comparing only
+// the ids let an archived agent, or a builder session moved in while the dialog was
+// open, be torn down without the user ever seeing it — they would have approved a
+// smaller impact than the one that ran.
+func TestRevokeAndMakePrivate_ConfirmsEveryDisplayedCategory(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name string
+		// seed adds whatever appeared after the dialog was opened.
+		seed func(t *testing.T, runtimeID, foreignUserID string)
+	}{
+		{
+			name: "an archived agent appeared",
+			seed: func(t *testing.T, runtimeID, foreignUserID string) {
+				dbfx.Agent(t, "Revoke Coverage Archived "+runtimeID, runtimeID, testutil.Cols{
+					"owner_id":    foreignUserID,
+					"archived_at": testutil.Raw("now()"),
+				})
+			},
+		},
+		{
+			name: "a builder carrier moved in",
+			seed: func(t *testing.T, runtimeID, foreignUserID string) {
+				dbfx.Agent(t, "Revoke Coverage Carrier "+runtimeID, runtimeID, testutil.Cols{
+					"owner_id":   foreignUserID,
+					"kind":       "system",
+					"system_key": "agent_builder:coverage",
+				})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runtimeID, foreignUserID := publicRuntimeWithForeignAgent(t, ctx, "Revoke Coverage "+tc.name)
+			activeAgentID := dbfx.Agent(t, "Revoke Coverage Active "+tc.name, runtimeID, ownedBy(foreignUserID))
+			task := insertFixtureTask(t, ctx, runtimeID, activeAgentID, "queued", false)
+
+			// The user's snapshot: one named agent, nothing in either count.
+			tc.seed(t, runtimeID, foreignUserID)
+
+			w := confirmRevoke(t, runtimeID, []string{activeAgentID})
+			if w.Code != http.StatusConflict {
+				t.Fatalf("got %d, want 409 — the active ids still match, so only the counts can catch this: %s",
+					w.Code, w.Body.String())
+			}
+			if body := decodeRevokePlan(t, w.Body.Bytes()); body.Code != runtimeVisibilityPlanChangedCode {
+				t.Fatalf("code = %q, want %q", body.Code, runtimeVisibilityPlanChangedCode)
+			}
+			// Zero writes: nothing unbound, nothing cancelled, still shared.
+			if got := runtimeVisibility(t, runtimeID); got != "public" {
+				t.Fatalf("visibility = %q; a refused confirmation must write nothing", got)
+			}
+			if !runtimeBound(t, activeAgentID) {
+				t.Fatalf("the named agent must still be bound after a refused confirmation")
+			}
+			if status, _, _ := taskOutcome(t, task); status != "queued" {
+				t.Fatalf("task = %q, want it untouched", status)
+			}
+		})
+	}
+
+	// And the same plan confirmed in full goes through.
+	t.Run("confirming the counts too succeeds", func(t *testing.T) {
+		runtimeID, foreignUserID := publicRuntimeWithForeignAgent(t, ctx, "Revoke Coverage Full")
+		activeAgentID := dbfx.Agent(t, "Revoke Coverage Full Active", runtimeID, ownedBy(foreignUserID))
+		dbfx.Agent(t, "Revoke Coverage Full Archived", runtimeID, testutil.Cols{
+			"owner_id":    foreignUserID,
+			"archived_at": testutil.Raw("now()"),
+		})
+		carrierID := dbfx.Agent(t, "Revoke Coverage Full Carrier", runtimeID, testutil.Cols{
+			"owner_id":   foreignUserID,
+			"kind":       "system",
+			"system_key": "agent_builder:coverage-full",
+		})
+
+		w := confirmRevoke(t, runtimeID, []string{activeAgentID}, 1, 1)
+		if w.Code != http.StatusOK {
+			t.Fatalf("got %d, want 200: %s", w.Code, w.Body.String())
+		}
+		if runtimeBound(t, activeAgentID) {
+			t.Fatalf("the named agent must be unbound")
+		}
+		if !runtimeBound(t, carrierID) {
+			t.Fatalf("the carrier keeps its binding")
+		}
+	})
 }

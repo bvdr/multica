@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/testutil"
@@ -69,6 +71,48 @@ func TestDaemonRegister_LegacyMergeVisibility(t *testing.T) {
 			}
 			_ = ownerID
 		})
+	}
+}
+
+// A shared machine that changed hands must not pass the previous owner's sharing
+// consent to the new one. `public` is one person's decision to lend THEIR machine;
+// after registration rewrites owner_id, inheriting it would publish a machine its
+// current owner never offered.
+func TestDaemonRegister_LegacyMergeDoesNotInheritAcrossOwnerChange(t *testing.T) {
+	if testHandler == nil {
+		t.Skip("database not available")
+	}
+
+	// The legacy row keeps its original owner while the machine's fresh
+	// registration belongs to someone else — exactly when the old consent must not
+	// carry over.
+	previousOwnerID := dbfx.User(t, "Legacy Merge Previous Owner",
+		fmt.Sprintf("legacy-merge-prev-owner-%d@multica.ai", time.Now().UnixNano()))
+	dbfx.Member(t, testWorkspaceID, previousOwnerID, "member")
+	legacyPublicID := dbfx.Runtime(t, "legacy-public-other-owner", testutil.Cols{
+		"daemon_id":    "OwnerChange.local",
+		"runtime_mode": "local",
+		"provider":     "claude",
+		"status":       "offline",
+		"device_info":  "OwnerChange.local",
+		"visibility":   "public",
+		"owner_id":     previousOwnerID,
+		"last_seen_at": testutil.Raw("now() - interval '1 hour'"),
+	})
+	agentID := dbfx.Agent(t, "legacy-owner-change-agent", legacyPublicID, ownedBy(previousOwnerID))
+
+	newRuntimeID := registerUnderNewIdentity(t, "OwnerChange.local", legacyPublicID)
+
+	if got := runtimeVisibility(t, newRuntimeID); got != "private" {
+		t.Fatalf("merged runtime visibility = %q, want 'private': sharing does not transfer with the machine", got)
+	}
+	// The agent still moves (the merge must not strand history), it simply cannot
+	// run there until the new owner shares the machine or the agent is rebound —
+	// which is a visible, recoverable state rather than a silent re-publish.
+	var agentRuntimeID string
+	dbfx.QueryRow(t, `SELECT runtime_id FROM agent WHERE id = $1`, agentID).Scan(&agentRuntimeID)
+	if agentRuntimeID != newRuntimeID {
+		t.Fatalf("agent not reassigned: runtime_id=%s, want %s", agentRuntimeID, newRuntimeID)
 	}
 }
 

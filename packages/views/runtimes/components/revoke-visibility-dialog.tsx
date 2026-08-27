@@ -80,9 +80,13 @@ export function RevokeVisibilityDialog({
     setSubmitting(true);
     setPlanChangedNotice(null);
     try {
+      // Every category the user just read, not only the named agents: the
+      // archived and retained counts are part of the impact they approved.
       await revoke.mutateAsync({
         runtimeId: runtime.id,
         expectedActiveAgentIds: plan.activeAgents.map((a) => a.id),
+        expectedArchivedAgentCount: plan.archivedAgentCount,
+        expectedRetainedAgentCount: plan.retainedAgentCount,
       });
       onRevoked();
     } catch (err) {

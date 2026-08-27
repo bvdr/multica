@@ -90,13 +90,15 @@ export function RuntimePicker({
   //     an admin, or the machine's owner, editing a teammate's agent — and
   //     without the second one the picker offered its own private runtimes for
   //     someone else's agent and only failed on submit.
-  // agentOwnerId defaults to the caller because on create surfaces the new
-  // agent's owner IS the caller, which keeps those pickers unchanged.
-  const effectiveAgentOwnerId =
-    agentOwnerId === undefined ? currentUserId : agentOwnerId;
+  // agentOwnerId is passed through as-is: `undefined` means a create surface
+  // where the new agent's owner IS the caller (permissive), while an explicit
+  // `null` means a genuinely ownerless agent, which a private runtime refuses.
   const isDisabled = (r: AgentRuntime): boolean =>
     !isRuntimeUsableForUser(r, currentUserId) ||
-    !isRuntimeUsableForAgentOwner(r, effectiveAgentOwnerId);
+    !isRuntimeUsableForAgentOwner(
+      r,
+      agentOwnerId === undefined ? currentUserId : agentOwnerId,
+    );
 
   // Machine grouping over the unfiltered list — resolves the selected
   // runtime's machine for the trigger label regardless of the Mine/All

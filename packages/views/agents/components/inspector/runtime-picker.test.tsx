@@ -217,6 +217,27 @@ describe("RuntimePicker (agent settings)", () => {
     expect((theirPublic as HTMLButtonElement).disabled).toBe(false);
   });
 
+  // A genuinely ownerless agent (agent.owner_id === null, passed explicitly by the
+  // inspector) cannot run on any private machine — the server has no owner to mint
+  // its task token — so the picker must not offer one.
+  it("locks private runtimes for an ownerless agent", () => {
+    renderPicker({ agentOwnerId: null });
+    openPicker();
+    expect(
+      (screen.getByRole("button", { name: /^Claude/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to machines" }));
+    fireEvent.click(screen.getByRole("button", { name: "All" }));
+    fireEvent.click(screen.getByRole("button", { name: /^other\.local/ }));
+    // A public machine still works: it runs any owner's agent, including none.
+    expect(
+      (screen.getByRole("button", { name: /^Claude/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+  });
+
   it("leaves the caller's own private runtimes selectable for their own agent", () => {
     // The create-style default (no agentOwnerId) and the explicit self case must
     // both behave exactly as before.

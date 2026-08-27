@@ -80,7 +80,14 @@ describe("isRuntimeUsableForAgentOwner", () => {
     ["private runtime refuses another member's agent", {}, OTHER, false],
     ["public runtime runs any owner's agent", { visibility: "public" }, OTHER, true],
     ["ownerless runtime runs nothing", { owner_id: null }, OWNER, false],
-    ["unknown agent owner is allowed while loading", {}, null, true],
+    // `undefined` = not known yet (create surface, or a list still loading):
+    // permissive, like isRuntimeUsableForUser's unknown viewer.
+    ["unknown agent owner is allowed while loading", {}, undefined, true],
+    // `null` = the agent genuinely has no owner. The server refuses that on a
+    // private runtime (no task token to mint), so the picker must too, or it
+    // offers a choice that 403s on submit.
+    ["an ownerless AGENT cannot use a private runtime", {}, null, false],
+    ["an ownerless agent can still use a public runtime", { visibility: "public" }, null, true],
   ] as const)("%s", (_name, overrides, agentOwnerId, want) => {
     expect(
       isRuntimeUsableForAgentOwner(makeRuntime(overrides), agentOwnerId),

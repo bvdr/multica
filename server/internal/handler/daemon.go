@@ -852,8 +852,9 @@ func (h *Handler) mergeLegacyRuntime(ctx context.Context, newRuntimeID, oldRunti
 
 	// Keep the machine's sharing across an identity change, before the agents
 	// move: a fresh row defaults to private, and moving teammates' agents onto a
-	// private runtime strands them (MUL-6704). See the query for why this never
-	// narrows.
+	// private runtime strands them (MUL-6704). Only when the row still belongs to
+	// the same owner — see the query for why sharing is not inheritable across a
+	// change of hands.
 	visibilityInherited, err := qtx.InheritPublicVisibilityFromLegacyRuntime(ctx, db.InheritPublicVisibilityFromLegacyRuntimeParams{
 		NewRuntimeID: newRuntimeID,
 		OldRuntimeID: oldRuntimeID,

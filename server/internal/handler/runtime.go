@@ -564,10 +564,14 @@ func (h *Handler) UpdateAgentRuntime(w http.ResponseWriter, r *http.Request) {
 		// see makeRuntimePrivateIfUnaffected for the bind race an unlocked
 		// read-then-update leaves open.
 		if newVisibility == "private" {
-			updated, plan, err := h.makeRuntimePrivateIfUnaffected(r.Context(), rt)
+			updated, plan, err := h.makeRuntimePrivateIfUnaffected(r.Context(), member, rt)
 			if err != nil {
 				if errors.Is(err, errRuntimeRevokeNeedsConfirmation) {
 					writeJSON(w, http.StatusConflict, h.runtimeRevokePlanResponse(plan, runtimeVisibilityHasForeignAgentsCode))
+					return
+				}
+				if errors.Is(err, errRuntimeVisibilityOwnerChanged) {
+					writeError(w, http.StatusForbidden, "only the runtime owner can change its visibility")
 					return
 				}
 				slog.Error("make runtime private failed", "error", err, "runtime_id", runtimeID)

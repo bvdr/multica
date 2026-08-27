@@ -330,6 +330,8 @@ describe("RuntimeDetail visibility section", () => {
       expect(mockRevokeRuntime).toHaveBeenCalledWith({
         runtimeId: "rt-1",
         expectedActiveAgentIds: ["agent-1"],
+        expectedArchivedAgentCount: 0,
+        expectedRetainedAgentCount: 0,
       }),
     );
   });

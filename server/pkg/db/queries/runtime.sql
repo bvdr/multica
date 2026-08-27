@@ -475,13 +475,21 @@ WHERE workspace_id = @workspace_id
 -- absorbed. An identity change is the same machine: keep the sharing the owner
 -- already chose, and let the confirmed revoke reclaim it. One statement so the
 -- decision happens under the FOR UPDATE the merge already holds. Never narrows.
+--
+-- Owners must match. `public` is one person's consent to lend THEIR machine; if
+-- the row changed hands (owner_id is rewritten by registration), inheriting it
+-- would hand the previous owner's consent to the new one. A mismatch leaves the
+-- fresh row private, which is the safe default — the new owner can share it
+-- themselves.
 UPDATE agent_runtime target
 SET visibility = 'public', updated_at = now()
 WHERE target.id = @new_runtime_id
   AND target.visibility <> 'public'
   AND EXISTS (
       SELECT 1 FROM agent_runtime legacy
-      WHERE legacy.id = @old_runtime_id AND legacy.visibility = 'public'
+      WHERE legacy.id = @old_runtime_id
+        AND legacy.visibility = 'public'
+        AND legacy.owner_id IS NOT DISTINCT FROM target.owner_id
   );
 
 -- name: ReassignAgentsToRuntime :execrows

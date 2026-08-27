@@ -128,12 +128,15 @@ describe("RevokeVisibilityDialog", () => {
     expect(confirmButton.disabled).toBe(false);
 
     fireEvent.click(confirmButton);
-    // The confirmed snapshot travels with the request; the server compares it
-    // under a lock so the user cannot approve plan A and get plan B.
+    // The confirmed snapshot travels with the request — including the counts the
+    // dialog displayed, because the server's id comparison cannot see them — and
+    // is compared under a lock so the user cannot approve plan A and get plan B.
     await waitFor(() =>
       expect(mockRevoke).toHaveBeenCalledWith({
         runtimeId: "rt-1",
         expectedActiveAgentIds: ["agent-1"],
+        expectedArchivedAgentCount: 0,
+        expectedRetainedAgentCount: 0,
       }),
     );
   });
@@ -150,6 +153,23 @@ describe("RevokeVisibilityDialog", () => {
     expect(
       screen.getByText(/There is one Mika per workspace/i),
     ).toBeInTheDocument();
+  });
+
+  it("submits the archived and retained counts it displayed", async () => {
+    // These are affected but unnamed, so they are only confirmable as counts. If
+    // they did not travel, an archived agent or carrier appearing while the dialog
+    // was open would be torn down without ever being shown.
+    renderDialog(makePlan({ archivedAgentCount: 2, retainedAgentCount: 1 }));
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Make private" }));
+    await waitFor(() =>
+      expect(mockRevoke).toHaveBeenCalledWith({
+        runtimeId: "rt-1",
+        expectedActiveAgentIds: ["agent-1"],
+        expectedArchivedAgentCount: 2,
+        expectedRetainedAgentCount: 1,
+      }),
+    );
   });
 
   it("explains that hidden builder sessions keep their binding but stop running", () => {
@@ -207,6 +227,8 @@ describe("RevokeVisibilityDialog", () => {
       expect(mockRevoke).toHaveBeenLastCalledWith({
         runtimeId: "rt-1",
         expectedActiveAgentIds: ["agent-1", "agent-2"],
+        expectedArchivedAgentCount: 0,
+        expectedRetainedAgentCount: 0,
       }),
     );
     await waitFor(() => expect(onRevoked).toHaveBeenCalled());

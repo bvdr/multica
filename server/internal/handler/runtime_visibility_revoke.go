@@ -104,6 +104,10 @@ func splitForeignAgents(agents []db.Agent) (plan runtimeRevokePlan, unboundIDs, 
 // owner's, so the plain PATCH must refuse and hand the plan to the user.
 var errRuntimeRevokeNeedsConfirmation = errors.New("runtime visibility change needs confirmation")
 
+// errRuntimeVisibilityOwnerChanged: the runtime changed hands while this request
+// waited for the lock, so the caller's owner-only permission no longer holds.
+var errRuntimeVisibilityOwnerChanged = errors.New("runtime owner changed before the visibility write")
+
 // makeRuntimePrivateIfUnaffected is the "nothing to tear down" flip, and it is
 // transactional even though it writes one column.
 //
@@ -115,7 +119,11 @@ var errRuntimeRevokeNeedsConfirmation = errors.New("runtime visibility change ne
 // KEY SHARE, and revalidateRuntimeForBind re-reads after the wait, so both
 // orderings end safely: bind-first → we recount and see its agent (409);
 // revoke-first → the bind wakes, re-reads `private`, and is refused.
-func (h *Handler) makeRuntimePrivateIfUnaffected(ctx context.Context, rt db.AgentRuntime) (db.AgentRuntime, runtimeRevokePlan, error) {
+//
+// member is re-checked against the locked row for the same reason the confirm path
+// does it: owner_id is rewritten by daemon registration, so the caller's owner-only
+// permission has to be re-established after the wait, not assumed from before it.
+func (h *Handler) makeRuntimePrivateIfUnaffected(ctx context.Context, member db.Member, rt db.AgentRuntime) (db.AgentRuntime, runtimeRevokePlan, error) {
 	tx, err := h.TxStarter.Begin(ctx)
 	if err != nil {
 		return rt, runtimeRevokePlan{}, fmt.Errorf("begin visibility tx: %w", err)
@@ -126,6 +134,9 @@ func (h *Handler) makeRuntimePrivateIfUnaffected(ctx context.Context, rt db.Agen
 	locked, err := qtx.LockAgentRuntime(ctx, rt.ID)
 	if err != nil {
 		return rt, runtimeRevokePlan{}, fmt.Errorf("lock runtime: %w", err)
+	}
+	if !canSetRuntimeVisibility(member, locked) {
+		return rt, runtimeRevokePlan{}, errRuntimeVisibilityOwnerChanged
 	}
 	if locked.Visibility == "private" {
 		// Someone else got there first; the requested end state holds.
@@ -181,10 +192,28 @@ func (h *Handler) runtimeRevokePlanResponse(plan runtimeRevokePlan, code string)
 	}
 }
 
-// revokeAndMakePrivateRequest reuses the confirmed-delete field name so clients
-// reuse their logic.
+// revokeAndMakePrivateRequest is the confirmed snapshot. It carries EVERY
+// category the dialog put in front of the user, not just the named agents:
+// archived agents and retained system carriers are affected too, and comparing
+// only the active ids let an archived agent appearing (or a builder session moving
+// in) while the dialog was open sail through — the user would have approved a
+// smaller impact than the one that ran.
+//
+// The counts are plain ints, so a client that omits them submits zeros; that
+// matches only when there is genuinely nothing in those categories, and otherwise
+// produces a plan-changed 409 rather than a silent extra teardown. This endpoint
+// ships with the dialog, so there is no older client to strand.
 type revokeAndMakePrivateRequest struct {
-	ExpectedActiveAgentIDs []string `json:"expected_active_agent_ids"`
+	ExpectedActiveAgentIDs     []string `json:"expected_active_agent_ids"`
+	ExpectedArchivedAgentCount int      `json:"expected_archived_agent_count"`
+	ExpectedRetainedAgentCount int      `json:"expected_retained_agent_count"`
+}
+
+// matches reports whether the live plan is still the one the user confirmed.
+func (req revokeAndMakePrivateRequest) matches(plan runtimeRevokePlan, expectedIDs map[string]struct{}) bool {
+	return activeAgentSetMatches(plan.UnboundAgents, expectedIDs) &&
+		plan.ArchivedCount == req.ExpectedArchivedAgentCount &&
+		plan.RetainedSystemCount == req.ExpectedRetainedAgentCount
 }
 
 // RevokeAndMakePrivateRuntime is the confirmed revoke:
@@ -241,6 +270,15 @@ func (h *Handler) RevokeAndMakePrivateRuntime(w http.ResponseWriter, r *http.Req
 		return
 	}
 	rt = locked
+	// Re-authorize against the LOCKED row. agent_runtime.owner_id is not
+	// immutable — daemon registration rewrites it — so the owner can change while
+	// this request queues for the lock. Without this recheck the previous owner
+	// could still unbind the new owner's teammates' agents, cancel their tasks and
+	// pause their Autopilots, using consent that no longer exists.
+	if !canSetRuntimeVisibility(member, rt) {
+		writeError(w, http.StatusForbidden, "only the runtime owner can change its visibility")
+		return
+	}
 	if rt.Visibility == "private" {
 		// Another confirm already landed: idempotent success, nothing left to do.
 		if err := tx.Commit(r.Context()); err != nil {
@@ -260,7 +298,7 @@ func (h *Handler) RevokeAndMakePrivateRuntime(w http.ResponseWriter, r *http.Req
 		return
 	}
 	plan, unboundIDs, retainedIDs := splitForeignAgents(foreign)
-	if !activeAgentSetMatches(plan.UnboundAgents, expected) {
+	if !req.matches(plan, expected) {
 		writeJSON(w, http.StatusConflict, h.runtimeRevokePlanResponse(plan, runtimeVisibilityPlanChangedCode))
 		return
 	}

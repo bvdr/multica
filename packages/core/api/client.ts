@@ -2009,7 +2009,18 @@ export class ApiClient {
   // the trap the delete endpoint documents.
   async revokeRuntimeAndMakePrivate(
     runtimeId: string,
-    expectedActiveAgentIds: string[],
+    confirmed: {
+      expectedActiveAgentIds: string[];
+      /**
+       * The archived / retained counts the user was shown. They are part of the
+       * confirmed plan because they are part of the impact, and the server's id
+       * comparison cannot see them — omitting them would let an archived agent or
+       * a builder session that appeared while the dialog was open be torn down
+       * without ever being confirmed.
+       */
+      expectedArchivedAgentCount: number;
+      expectedRetainedAgentCount: number;
+    },
   ): Promise<{
     status: string;
     agents_unbound: number;
@@ -2019,7 +2030,11 @@ export class ApiClient {
   }> {
     return this.fetch(`/api/runtimes/${runtimeId}/revoke-and-make-private`, {
       method: "POST",
-      body: JSON.stringify({ expected_active_agent_ids: expectedActiveAgentIds }),
+      body: JSON.stringify({
+        expected_active_agent_ids: confirmed.expectedActiveAgentIds,
+        expected_archived_agent_count: confirmed.expectedArchivedAgentCount,
+        expected_retained_agent_count: confirmed.expectedRetainedAgentCount,
+      }),
     });
   }
 
