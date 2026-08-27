@@ -2624,10 +2624,10 @@ const WorkspaceEntitlementLimitSchema = z
     z.object({ mode: z.literal("unlimited") }).loose(),
   ])
   .transform(
-    (value): WorkspaceSubscriptionEntitlements["limits"]["issueCount"] => ({
-      mode: value.mode,
-      limit: value.mode === "limited" ? value.limit : null,
-    }),
+    (value): WorkspaceSubscriptionEntitlements["limits"]["issueCount"] =>
+      value.mode === "limited"
+        ? { mode: "limited", limit: value.limit }
+        : { mode: "unlimited", limit: null },
   );
 
 export const WorkspaceSubscriptionEntitlementsSchema = z
