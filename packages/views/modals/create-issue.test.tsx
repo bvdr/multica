@@ -222,7 +222,6 @@ vi.mock("../issues/hooks/use-issue-trigger-preview", () => ({
     triggers: [],
     totalCount: 0,
     isLoading: false,
-    handoffSupported: false,
   }),
 }));
 
