@@ -23,7 +23,7 @@ func (h *Handler) GetIssueLimitUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	policy := service.ResolveIssueCountPolicy(r.Context(), h.Entitlements, workspaceID)
 	if policy.Action != entitlement.ActionEnforce {
-		writeError(w, http.StatusServiceUnavailable, "issue limit usage is unavailable")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	used, err := service.CountIssueUsage(r.Context(), h.Queries, workspaceID, policy)

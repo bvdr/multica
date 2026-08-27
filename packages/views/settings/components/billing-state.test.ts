@@ -98,6 +98,18 @@ describe("resolveAutopilotUsage", () => {
         false,
       ),
     ).toEqual({ kind: "unavailable" });
+    expect(
+      resolveAutopilotUsage(
+        freeEntitlements,
+        {
+          ...quotaUsage,
+          action: "observe",
+          total: quotaUsage.limit,
+          reached: null,
+        },
+        false,
+      ),
+    ).toEqual({ kind: "unavailable" });
   });
 
   it("uses the explicit limited mode even when plan and status say Pro", () => {

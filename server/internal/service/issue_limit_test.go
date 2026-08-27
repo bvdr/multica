@@ -52,6 +52,16 @@ func TestResolveIssueCountPolicyUsesOnlyCloudInstruction(t *testing.T) {
 		t.Fatalf("malformed policy = %+v", malformed)
 	}
 
+	observe := ResolveIssueCountPolicy(context.Background(), issueLimitProviderFunc(
+		func(context.Context, uuid.UUID, entitlement.GateName) entitlement.Decision {
+			return entitlement.Decision{
+				Gate: entitlement.Gate{Action: entitlement.ActionObserve, Limit: &limit},
+			}
+		}), workspaceID)
+	if observe.Action != entitlement.ActionOff || observe.Limit != 0 {
+		t.Fatalf("observe policy = %+v, want fail-open off", observe)
+	}
+
 	disabled := ResolveIssueCountPolicy(context.Background(), nil, workspaceID)
 	if disabled.Action != entitlement.ActionOff {
 		t.Fatalf("disabled policy = %+v", disabled)

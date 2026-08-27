@@ -195,13 +195,12 @@ export interface CreateBillingPortalSessionResponse {
 
 export type WorkspaceSubscriptionInterval = "month" | "year";
 
-export type WorkspaceEntitlementLimitMode = "limited" | "unlimited";
+export type WorkspaceEntitlementLimit =
+  | { mode: "limited"; limit: number }
+  | { mode: "unlimited"; limit: null };
 
-export interface WorkspaceEntitlementLimit {
-  mode: WorkspaceEntitlementLimitMode;
-  /** Present only for limited mode. */
-  limit: number | null;
-}
+export type WorkspaceEntitlementLimitMode =
+  WorkspaceEntitlementLimit["mode"];
 
 export interface WorkspaceSubscriptionEntitlements {
   workspaceId: string;

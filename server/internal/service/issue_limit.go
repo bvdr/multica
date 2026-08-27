@@ -46,7 +46,7 @@ func ResolveIssueCountPolicy(ctx context.Context, provider entitlement.Provider,
 	switch policy.Action {
 	case entitlement.ActionOff:
 		policy.Limit = 0
-	case entitlement.ActionEnforce, entitlement.ActionObserve:
+	case entitlement.ActionEnforce:
 		if policy.Limit > 0 {
 			return policy
 		}

@@ -1245,6 +1245,7 @@ export class ApiClient {
 
   async getIssueLimitUsage(): Promise<IssueLimitUsage | null> {
     const raw = await this.fetch<unknown>("/api/issues/limit-usage");
+    if (raw == null) return null;
     return parseWithFallback<IssueLimitUsage | null>(
       raw,
       IssueLimitUsageSchema,

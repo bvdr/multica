@@ -805,16 +805,13 @@ function BillingTabContent() {
       : null;
   const numberFormatter = new Intl.NumberFormat(locale);
   const issueCountLimit = entitlements.limits.issueCount;
-  let issueLimitValue = t(($) => $.workspace.limits.unavailable);
-  if (issueCountLimit.mode === "unlimited") {
-    issueLimitValue = t(($) => $.workspace.limits.unlimited);
-  } else if (issueCountLimit.limit !== null) {
-    const usage = issueLimitUsageQuery.data;
-    issueLimitValue =
-      usage && usage.limit === issueCountLimit.limit
-        ? `${numberFormatter.format(usage.used)} / ${numberFormatter.format(usage.limit)}`
+  const issueLimitUsage = issueLimitUsageQuery.data;
+  const issueLimitValue =
+    issueCountLimit.mode === "unlimited"
+      ? t(($) => $.workspace.limits.unlimited)
+      : issueLimitUsage?.limit === issueCountLimit.limit
+        ? `${numberFormatter.format(issueLimitUsage.used)} / ${numberFormatter.format(issueLimitUsage.limit)}`
         : numberFormatter.format(issueCountLimit.limit);
-  }
   const isMutating =
     checkoutMutation.isPending ||
     portalMutation.isPending ||

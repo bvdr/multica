@@ -1079,7 +1079,7 @@ describe("workspace subscription contract", () => {
     version: 7,
   };
 
-  it("maps the server's display-ready issue limit usage", async () => {
+  it("maps limited issue usage and accepts a no-content unlimited response", async () => {
     stubFetchJson({
       used: 11,
       limit: 17,
@@ -1092,6 +1092,12 @@ describe("workspace subscription contract", () => {
     });
 
     stubFetchJson({ used: 11 });
+    await expect(client.getIssueLimitUsage()).resolves.toBeNull();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(null, { status: 204 })),
+    );
     await expect(client.getIssueLimitUsage()).resolves.toBeNull();
   });
 
