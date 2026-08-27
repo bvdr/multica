@@ -27,7 +27,7 @@ vi.mock("../navigation/context", () => ({
   useNavigation: () => ({ push: mockPush }),
 }));
 
-vi.mock("@multica/core/billing/workspace-subscription-queries", () => ({
+vi.mock("@multica/core/billing", () => ({
   workspaceSubscriptionSummaryOptions: (wsId: string) => ({
     queryKey: ["workspace-subscriptions", wsId, "summary"],
     queryFn: async () => {

@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { workspaceSubscriptionSummaryOptions } from "@multica/core/billing/workspace-subscription-queries";
+import { workspaceSubscriptionSummaryOptions } from "@multica/core/billing";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useT } from "../i18n";
