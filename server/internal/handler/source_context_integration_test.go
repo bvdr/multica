@@ -15,8 +15,10 @@ import (
 	"github.com/multica-ai/multica/server/internal/entitlement"
 	"github.com/multica-ai/multica/server/internal/entitlement/entitlementtest"
 	"github.com/multica-ai/multica/server/internal/events"
+	"github.com/multica-ai/multica/server/internal/middleware"
 	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 )
 
@@ -109,6 +111,14 @@ func TestRetrySourceContextQuickCreateReturnsIssueLimitRecovery(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 	request := withURLParam(newRequest(http.MethodPost, "/api/tasks/"+taskID+"/retry-source-context", nil), "taskId", taskID)
+	member, err := testHandler.Queries.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
+		UserID:      util.MustParseUUID(testUserID),
+		WorkspaceID: util.MustParseUUID(testWorkspaceID),
+	})
+	if err != nil {
+		t.Fatalf("load retry caller membership: %v", err)
+	}
+	request = request.WithContext(middleware.SetMemberContext(request.Context(), testWorkspaceID, member))
 	testHandler.RetrySourceContextQuickCreate(recorder, request)
 	if recorder.Code != http.StatusPaymentRequired {
 		t.Fatalf("source-context retry at limit = %d: %s", recorder.Code, recorder.Body.String())
