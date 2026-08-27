@@ -429,6 +429,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		opts.BusinessMetrics.RecordEntitlementConfigError()
 	} else if entitlementClient.Enabled() {
 		h.Entitlements = entitlementClient
+		h.TaskService.Entitlements = entitlementClient
 		h.IssueService.Entitlements = entitlementClient
 		h.AutopilotService.Entitlements = entitlementClient
 		h.AutopilotService.QuotaMetrics = opts.BusinessMetrics

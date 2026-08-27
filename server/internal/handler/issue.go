@@ -2608,6 +2608,9 @@ func (h *Handler) QuickCreateIssue(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.TaskService.EnqueueQuickCreateTask(r.Context(), wsUUID, requesterUUID, agentUUID, squadUUID, prompt, priority, dueDate, projectUUID, parentIssueUUID, attachmentIDs)
 	if err != nil {
+		if writeIssueLimitReached(w, err) {
+			return
+		}
 		slog.Warn("quick-create enqueue failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to enqueue quick-create task")
 		return

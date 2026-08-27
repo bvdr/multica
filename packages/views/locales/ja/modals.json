@@ -157,7 +157,14 @@
     "toast_failed": "タスクを作成できませんでした",
     "toast_duplicate_title": "重複タスク",
     "toast_duplicate_view": "既存のタスクを表示",
-    "toast_issue_limit_reached": "このワークスペースはタスク数の上限に達しました",
+    "issue_limit": {
+      "title": "このワークスペースはタスク数の上限に達しました",
+      "upgrade_description": "Pro にアップグレードすると、引き続きタスクを作成できます。",
+      "contact_description": "ワークスペースの owner または admin に Pro へのアップグレードを依頼してください。",
+      "billing_description": "請求設定を開いて、このワークスペースで利用可能なアップグレードオプションを確認してください。",
+      "upgrade_action": "Pro にアップグレード",
+      "billing_action": "請求設定を表示"
+    },
     "toast_link_subissues_all_failed": "サブタスクをリンクできませんでした",
     "toast_link_subissues_partial": "サブタスク {{total}} 件中 {{failed}} 件をリンクできませんでした",
     "toast_link_labels_failed": "ラベルを付けられませんでした",
