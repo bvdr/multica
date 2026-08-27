@@ -19,7 +19,6 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/protocol"
 	"github.com/multica-ai/multica/server/pkg/redact"
-	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
 
 const (
@@ -113,19 +112,6 @@ const (
 	// delegatedFailureRecoveryBatchSize bounds the durable recovery-outbox
 	// replay so a historical backlog cannot monopolise the runtime sweep tick.
 	delegatedFailureRecoveryBatchSize = 100
-	// mismatchedDispatchRecoverySeconds is how long a `dispatched` row whose
-	// agent has moved to another runtime is left alone before the sweeper
-	// cancels it (MUL-6704). It matches the claim-response recovery window the
-	// reclaim queries use, so this sweep only ever takes rows those queries have
-	// already given up on — and since #7571 they give up permanently on a
-	// mismatched row, because their authorization fence requires
-	// agent.runtime_id = agent_task_queue.runtime_id.
-	mismatchedDispatchRecoverySeconds = 90.0
-	// mismatchedDispatchBatchSize caps mismatched-dispatch cancellations per
-	// tick. Small because this is a rare condition — one rebind can strand at
-	// most that agent's in-flight rows — and a runaway batch here would compete
-	// with live claims.
-	mismatchedDispatchBatchSize = 100
 )
 
 type runtimeGCTxStarter interface {
@@ -161,7 +147,6 @@ func runRuntimeSweeper(ctx context.Context, txStarter runtimeGCTxStarter, querie
 			sweepExpiredRuntimeReconnectRetries(ctx, queries, taskSvc, reconnectGrace)
 			sweepStaleTasks(ctx, queries, taskSvc, bus, reconnectGrace)
 			sweepExpiredQueuedTasks(ctx, queries, taskSvc, queuedTTL)
-			sweepMismatchedDispatchedTasks(ctx, queries, taskSvc)
 			sweepPendingDelegatedFailureRecoveries(ctx, taskSvc)
 			sweepDeferredChatFinalizations(ctx, queries, taskSvc)
 			gcRuntimes(ctx, txStarter, queries, taskSvc.Metrics, bus)
@@ -564,36 +549,6 @@ func sweepExpiredQueuedTasks(ctx context.Context, queries *db.Queries, taskSvc *
 	slog.Info("task sweeper: expired stale queued tasks", "count", len(failedTasks))
 	taskSvc.CaptureQueuedExpiredTasks(ctx, failedTasks)
 	taskSvc.HandleFailedTasks(ctx, failedTasks)
-}
-
-// sweepMismatchedDispatchedTasks settles `dispatched` rows whose agent has since
-// been rebound to another runtime (MUL-6704).
-//
-// UpdateAgent cancels the pre-claim rows a rebind strands, but a row already
-// handed to the previous machine is deliberately left alone there: it is usually
-// running and completes fine. The exception is a row the daemon claimed and never
-// started — since #7571 the reclaim queries will not take it back (their fence
-// requires agent.runtime_id = agent_task_queue.runtime_id), so without this sweep
-// it drifts to FailStaleTasks and is reported as a `timeout`, pointing the user at
-// a machine that was never stuck. Here it becomes a cancellation that names the
-// rebind and can be retried onto the agent's current runtime.
-func sweepMismatchedDispatchedTasks(ctx context.Context, queries *db.Queries, taskSvc *service.TaskService) {
-	cancelled, err := queries.CancelStaleMismatchedDispatchedTasks(ctx, db.CancelStaleMismatchedDispatchedTasksParams{
-		ClaimRecoverySecs: mismatchedDispatchRecoverySeconds,
-		MaxPerTick:        mismatchedDispatchBatchSize,
-		Error:             pgtype.Text{String: handler.RebindStrandedTaskError, Valid: true},
-		FailureReason:     pgtype.Text{String: string(taskfailure.ReasonAgentRuntimeChanged), Valid: true},
-	})
-	if err != nil {
-		slog.Warn("task sweeper: failed to settle tasks stranded by an agent rebind", "error", err)
-		return
-	}
-	if len(cancelled) == 0 {
-		return
-	}
-
-	slog.Info("task sweeper: cancelled dispatched tasks stranded by an agent rebind", "count", len(cancelled))
-	taskSvc.SettleCancelledTasksResolvingWorkspace(ctx, cancelled)
 }
 
 // sweepDeferredChatFinalizations settles cancelled chat tasks whose deferred

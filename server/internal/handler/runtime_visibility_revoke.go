@@ -15,101 +15,62 @@ import (
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
 
-// Reclaiming a shared machine (public → private) is the second half of the
-// runtime-access work started in #7571 (MUL-6697). That PR closed the execution
-// door: a private runtime can no longer RUN an agent belonging to anyone else.
-// It deliberately left the state behind it untouched, so a revoke produced
-// agents that looked bound but could never run, tasks nothing would ever claim,
-// and Autopilots that appended a doomed run every tick — all with no user-facing
-// explanation.
+// Reclaiming a shared machine (public → private), the state half of #7571
+// (MUL-6697): that PR stopped a private runtime from RUNNING another owner's
+// agent, leaving bindings, queued work and Autopilots behind as a permanent
+// "bound but never runs" state.
 //
-// This file is that cleanup, modelled on the runtime-delete cascade because the
-// problem is the same shape: a snapshot the user confirms, then one transaction
-// that unbinds, pauses, cancels and asserts drained, then one post-commit
-// broadcast. The differences are all consequences of the runtime SURVIVING:
-//
-//   - Only FOREIGN agents are affected. The owner's own agents keep running, so
-//     the cancel is by agent_id with an EMPTY runtime_ids list — passing the
-//     runtime would kill the owner's own work on their own machine.
-//   - Task history stays pinned to the runtime (no UnbindTasksFromRuntime): the
-//     row still exists, and agent_task_queue_active_requires_runtime only
-//     constrains active rows.
-//   - `kind = 'system'` carriers keep their binding instead of being deleted
-//     (see the retained-set comment below).
+// Modelled on the runtime-delete cascade — snapshot, confirm, one transaction,
+// one post-commit broadcast. Differences all follow from the runtime SURVIVING:
+// only FOREIGN agents are affected (so the cancel passes agent ids with an EMPTY
+// runtime_ids, or it would kill the owner's own work), task history stays pinned,
+// and `kind='system'` carriers keep their binding instead of being deleted.
 const (
-	// runtimeVisibilityHasForeignAgentsCode is returned by the plain PATCH when
-	// flipping to private would affect agents that are not the owner's. The
-	// client shows the impact dialog and calls the confirm endpoint.
+	// Returned by the plain PATCH: flipping to private would affect agents that
+	// are not the owner's, so the client must show the plan and confirm.
 	runtimeVisibilityHasForeignAgentsCode = "runtime_visibility_has_foreign_agents"
-	// runtimeVisibilityPlanChangedCode is returned by the confirm endpoint when
-	// the affected set moved between dialog-open and confirm. Zero writes.
+	// Returned by the confirm endpoint when the affected set moved between
+	// dialog-open and confirm. Zero writes.
 	runtimeVisibilityPlanChangedCode = "runtime_visibility_plan_changed"
-	// runtimeVisibilityNotDrainedCode mirrors runtime_delete_not_drained: the
-	// cancel left a non-terminal row behind, so the transaction is abandoned
-	// rather than committing a half-revoked state.
+	// Mirrors runtime_delete_not_drained: the cancel left a non-terminal row, so
+	// the transaction is abandoned rather than committing a half-revoked state.
 	runtimeVisibilityNotDrainedCode = "runtime_visibility_not_drained"
 )
 
-// User-visible copy stored on the cancelled task rows. It lands in
-// agent_task_queue.error, next to the machine-readable failure_reason, and is
-// what a user reading the task sees.
-//
-// RebindStrandedTaskError is exported because two paths write it: UpdateAgent for
-// the rows it can settle synchronously, and the sweeper for a dispatched row the
-// reclaim queries have abandoned. One string keeps the two indistinguishable to
-// the reader, which is correct — the cause is the same.
+// User-visible copy stored in agent_task_queue.error, next to the machine-readable
+// failure_reason. RebindStrandedTaskError is exported because UpdateAgent writes it.
 const (
 	revokeUnboundTaskError  = "The runtime this agent was using was made private by its owner, so the agent was unbound. Bind the agent to a runtime you can use and retry."
 	revokeRetainedTaskError = "The runtime this agent runs on was made private by its owner and no longer permits this agent. Ask the owner to share it again, or move the agent to another runtime."
-
 	RebindStrandedTaskError = "The agent moved to another runtime before this task started, so it could no longer be claimed. Retry it to run on the agent's current runtime."
 )
 
-// runtimeRevokeAgentDTO is what the impact plan says about an affected agent,
-// and it is deliberately two fields.
-//
-// The plan is readable by whoever owns the MACHINE, who is frequently not the
-// owner of these agents and may have no right to read them at all — a private
-// agent is owner/admin-only on every other surface. Serialising them with
-// agentToResponse (as the first version of this endpoint did) handed out
-// instructions, runtime_config, mcp_config and the Composio allowlist to anyone
-// who merely ATTEMPTED to flip their own runtime to private. There is no
-// redaction to get right here: the dialog needs a name to show and an id to
-// echo back as the confirmed set, so that is all this carries.
+// runtimeRevokeAgentDTO is deliberately two fields. The plan is readable by
+// whoever owns the MACHINE, who often does not own these agents and may have no
+// right to read them — serialising them with agentToResponse handed a teammate's
+// instructions, runtime_config, mcp_config and Composio allowlist to anyone who
+// merely ATTEMPTED to make their own runtime private. Nothing to redact if
+// nothing else is here.
 type runtimeRevokeAgentDTO struct {
-	ID string `json:"id"`
-	// Name is the one piece of the agent the machine owner unavoidably learns —
-	// they have to be told WHAT they are about to unbind for the confirmation to
-	// mean anything.
+	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// runtimeRevokePlan is what a public → private revoke will do, computed from the
-// agents currently bound to the runtime whose owner is not the runtime owner.
+// runtimeRevokePlan is what the revoke will do to the foreign agents bound here.
 type runtimeRevokePlan struct {
-	// UnboundAgents are the active user agents that lose their binding. This is
-	// the set the user confirms (expected_active_agent_ids) — it is what the
-	// dialog can actually name, and what the confirming user is accountable for.
+	// UnboundAgents: active user agents losing their binding — the set the user
+	// confirms via expected_active_agent_ids.
 	UnboundAgents []db.Agent
-	// ArchivedCount counts foreign archived user agents. They are unbound too
-	// (an archived agent is still the user's data and would otherwise stay
-	// bound to a machine that refuses it), but they are not in the confirmed
-	// set: they are invisible in the UI, and including them would make every
-	// older client's snapshot mismatch.
+	// ArchivedCount: foreign archived user agents. Unbound too (still the user's
+	// data), but kept out of the confirmed set — invisible in the UI, and including
+	// them would make every older client's snapshot mismatch.
 	ArchivedCount int
-	// RetainedSystemCount counts foreign `kind = 'system'` carriers — Agent
-	// Builder sessions, in practice. They KEEP their binding: a system agent has
-	// no UI to rebind it, so unbinding one strands a row nobody can repair, and
-	// deleting it (what the runtime-delete path does) would destroy the user's
-	// builder conversation. Their in-flight tasks are cancelled and admission
-	// refuses new ones with runtime_access_revoked, so nothing runs; the user
-	// repairs it by switching the builder session's runtime.
+	// RetainedSystemCount: foreign `kind='system'` carriers (Agent Builder). They
+	// KEEP their binding — unbound they are unrepairable, deleted they take the
+	// user's conversation — and admission refuses them instead.
 	RetainedSystemCount int
-	// MikaAffected reports that one of the unbound agents is this workspace's
-	// Mika. Mika is `kind = 'user'` (CreateSystemUserAgent is explicit about
-	// that), so she is unbound like any other agent — and because there is one
-	// Mika per workspace, that stops her for EVERYONE, not just her owner. The
-	// dialog has to say so.
+	// MikaAffected: Mika is kind='user' and there is one per workspace, so
+	// unbinding her stops her for everyone. The dialog must say so.
 	MikaAffected bool
 }
 
@@ -117,9 +78,8 @@ func (p runtimeRevokePlan) empty() bool {
 	return len(p.UnboundAgents) == 0 && p.ArchivedCount == 0 && p.RetainedSystemCount == 0
 }
 
-// splitForeignAgents turns the raw foreign-agent set into the plan. Shared by
-// the pre-check (unlocked read) and the confirm transaction (locked read) so the
-// two can never disagree about what the plan means.
+// splitForeignAgents turns the locked foreign-agent set into the plan plus the id
+// lists the teardown acts on. Shared by both entry points so they cannot disagree.
 func splitForeignAgents(agents []db.Agent) (plan runtimeRevokePlan, unboundIDs, retainedIDs []pgtype.UUID) {
 	for _, a := range agents {
 		if a.Kind == "system" {
@@ -140,29 +100,21 @@ func splitForeignAgents(agents []db.Agent) (plan runtimeRevokePlan, unboundIDs, 
 	return plan, unboundIDs, retainedIDs
 }
 
-// errRuntimeRevokeNeedsConfirmation reports that making this runtime private
-// affects agents that are not the owner's, so the plain PATCH must refuse and
-// hand the plan to the user.
+// errRuntimeRevokeNeedsConfirmation: the flip affects agents that are not the
+// owner's, so the plain PATCH must refuse and hand the plan to the user.
 var errRuntimeRevokeNeedsConfirmation = errors.New("runtime visibility change needs confirmation")
 
-// makeRuntimePrivateIfUnaffected performs the "nothing to tear down" half of the
-// visibility flip, and it has to be transactional even though it writes one
-// column.
+// makeRuntimePrivateIfUnaffected is the "nothing to tear down" flip, and it is
+// transactional even though it writes one column.
 //
-// The obvious shape — read the foreign set, then UPDATE the visibility — is
-// racy, and in a way the lock modes hide. A concurrent bind holds FOR KEY SHARE
-// on the runtime row (its FK validation), while a plain UPDATE of a non-key
-// column takes FOR NO KEY UPDATE, and those two do NOT conflict. So the bind
-// could pass its own check against the `public` snapshot, this PATCH could flip
-// the row to private in parallel, and both commit: a private runtime with a
-// foreign agent bound and no teardown — exactly the state this issue exists to
-// eliminate, reachable through the path that looked harmless.
-//
-// Taking LockAgentRuntime (FOR UPDATE) first is what conflicts with that KEY
-// SHARE. Combined with revalidateRuntimeForBind re-reading the row after the
-// wait, the two orderings both end safely: bind-first means we recompute and see
-// its agent (→ 409), revoke-first means the bind wakes up, re-reads `private`,
-// and is refused.
+// Read-then-update is racy in a way the lock modes hide: a bind holds FOR KEY
+// SHARE on the runtime (FK validation) and a plain non-key UPDATE takes FOR NO KEY
+// UPDATE, which do NOT conflict — so a bind passing its check against the `public`
+// snapshot and this PATCH could both commit, leaving a private runtime with a
+// foreign agent and no teardown. LockAgentRuntime (FOR UPDATE) conflicts with that
+// KEY SHARE, and revalidateRuntimeForBind re-reads after the wait, so both
+// orderings end safely: bind-first → we recount and see its agent (409);
+// revoke-first → the bind wakes, re-reads `private`, and is refused.
 func (h *Handler) makeRuntimePrivateIfUnaffected(ctx context.Context, rt db.AgentRuntime) (db.AgentRuntime, runtimeRevokePlan, error) {
 	tx, err := h.TxStarter.Begin(ctx)
 	if err != nil {
@@ -176,17 +128,13 @@ func (h *Handler) makeRuntimePrivateIfUnaffected(ctx context.Context, rt db.Agen
 		return rt, runtimeRevokePlan{}, fmt.Errorf("lock runtime: %w", err)
 	}
 	if locked.Visibility == "private" {
-		// Someone else got there first. The requested end state holds and there
-		// is nothing left to tear down.
+		// Someone else got there first; the requested end state holds.
 		if err := tx.Commit(ctx); err != nil {
 			return rt, runtimeRevokePlan{}, fmt.Errorf("commit visibility tx: %w", err)
 		}
 		return locked, runtimeRevokePlan{}, nil
 	}
 
-	// Row-lock the existing agents too, in id order, matching the confirm and
-	// delete paths: a concurrent archive/restore of one of them must not change
-	// the set between this recount and the commit.
 	foreign, err := qtx.LockForeignAgentsByRuntime(ctx, db.LockForeignAgentsByRuntimeParams{
 		RuntimeID: locked.ID,
 		OwnerID:   locked.OwnerID,
@@ -194,10 +142,8 @@ func (h *Handler) makeRuntimePrivateIfUnaffected(ctx context.Context, rt db.Agen
 	if err != nil {
 		return rt, runtimeRevokePlan{}, fmt.Errorf("lock foreign agents: %w", err)
 	}
-	plan, _, _ := splitForeignAgents(foreign)
-	if !plan.empty() {
-		// Zero writes: the user has to see and confirm this.
-		return rt, plan, errRuntimeRevokeNeedsConfirmation
+	if plan, _, _ := splitForeignAgents(foreign); !plan.empty() {
+		return rt, plan, errRuntimeRevokeNeedsConfirmation // zero writes
 	}
 
 	updated, err := qtx.UpdateAgentRuntimeVisibility(ctx, db.UpdateAgentRuntimeVisibilityParams{
@@ -213,10 +159,9 @@ func (h *Handler) makeRuntimePrivateIfUnaffected(ctx context.Context, rt db.Agen
 	return updated, runtimeRevokePlan{}, nil
 }
 
-// runtimeRevokePlanResponse is the 409 body for both codes. Shape mirrors
-// runtimeHasActiveAgentsResponse (`error` + `code` + agent list) so clients keep
-// one 409 handling pattern, but the agent entries are the minimal
-// runtimeRevokeAgentDTO rather than full AgentResponse — see that type for why.
+// runtimeRevokePlanResponse is the 409 body for both codes. Same `error` + `code`
+// + agent-list shape as runtimeHasActiveAgentsResponse so clients keep one 409
+// pattern, with the minimal agent DTO.
 func (h *Handler) runtimeRevokePlanResponse(plan runtimeRevokePlan, code string) map[string]any {
 	agents := make([]runtimeRevokeAgentDTO, len(plan.UnboundAgents))
 	for i, a := range plan.UnboundAgents {
@@ -227,28 +172,25 @@ func (h *Handler) runtimeRevokePlanResponse(plan runtimeRevokePlan, code string)
 		message = "the affected agent set changed; please review and confirm again."
 	}
 	return map[string]any{
-		"error":                 message,
-		"code":                  code,
-		"active_agents":         agents,
-		"archived_agent_count":  plan.ArchivedCount,
-		"retained_agent_count":  plan.RetainedSystemCount,
-		"mika_affected":         plan.MikaAffected,
-		"requires_confirmation": true,
+		"error":                message,
+		"code":                 code,
+		"active_agents":        agents,
+		"archived_agent_count": plan.ArchivedCount,
+		"retained_agent_count": plan.RetainedSystemCount,
+		"mika_affected":        plan.MikaAffected,
 	}
 }
 
-// revokeAndMakePrivateRequest carries the confirmed snapshot. Same field name and
-// semantics as the confirmed-delete endpoint so clients reuse their logic.
+// revokeAndMakePrivateRequest reuses the confirmed-delete field name so clients
+// reuse their logic.
 type revokeAndMakePrivateRequest struct {
 	ExpectedActiveAgentIDs []string `json:"expected_active_agent_ids"`
 }
 
-// RevokeAndMakePrivateRuntime is the confirmed public → private revoke:
-// POST /api/runtimes/:id/revoke-and-make-private.
-//
-// Owner-only, like the PATCH it completes (canSetRuntimeVisibility): lending the
-// machine out was the owner's decision and so is taking it back — an admin doing
-// it for them would be exactly the override MUL-6126 removed.
+// RevokeAndMakePrivateRuntime is the confirmed revoke:
+// POST /api/runtimes/:id/revoke-and-make-private. Owner-only like the PATCH it
+// completes — lending the machine out was the owner's call, so taking it back is
+// too (the override MUL-6126 removed).
 func (h *Handler) RevokeAndMakePrivateRuntime(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
 	runtimeUUID, ok := parseUUIDOrBadRequest(w, runtimeID, "runtime_id")
@@ -291,13 +233,8 @@ func (h *Handler) RevokeAndMakePrivateRuntime(w http.ResponseWriter, r *http.Req
 	defer tx.Rollback(r.Context())
 	qtx := h.Queries.WithTx(tx)
 
-	// Lock order is runtime → agents (by id), identical to DeleteAgentRuntime and
-	// revokeAndRemoveMember. Diverging here would let a revoke and a delete of
-	// the same runtime deadlock. The runtime lock is FOR UPDATE, which is what
-	// blocks a concurrent bind: agent INSERT/UPDATE needs FOR KEY SHARE on this
-	// row, and revalidateRuntimeForBind re-reads the row after that wait, so a
-	// binder that started with a stale `public` snapshot cannot re-create the
-	// state we are about to clean up.
+	// Lock order runtime → agents (by id), identical to DeleteAgentRuntime and
+	// revokeAndRemoveMember; diverging would let the two deadlock.
 	locked, err := qtx.LockAgentRuntime(r.Context(), rt.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to lock runtime")
@@ -305,19 +242,12 @@ func (h *Handler) RevokeAndMakePrivateRuntime(w http.ResponseWriter, r *http.Req
 	}
 	rt = locked
 	if rt.Visibility == "private" {
-		// Another confirm already landed. Idempotent success rather than an
-		// error: the requested end state holds and nothing is left to tear down.
+		// Another confirm already landed: idempotent success, nothing left to do.
 		if err := tx.Commit(r.Context()); err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to commit transaction")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":            "ok",
-			"agents_unbound":    0,
-			"tasks_cancelled":   0,
-			"autopilots_paused": 0,
-			"agents_retained":   0,
-		})
+		writeJSON(w, http.StatusOK, revokeResultBody(runtimeTeardownResult{}, 0))
 		return
 	}
 
@@ -366,36 +296,28 @@ func (h *Handler) RevokeAndMakePrivateRuntime(w http.ResponseWriter, r *http.Req
 	)
 
 	// The runtime row survives, so the trailing runtime event is an update.
-	// task:cancelled goes first (and revokes each task's token through
-	// captureTaskCancelled), then agent and Autopilot rows.
+	// task:cancelled goes first and revokes each task's token.
 	h.publishRuntimeTeardown(r.Context(), teardown, wsID, userID, "update")
+	writeJSON(w, http.StatusOK, revokeResultBody(teardown, len(retainedIDs)))
+}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+func revokeResultBody(teardown runtimeTeardownResult, retained int) map[string]any {
+	return map[string]any{
 		"status":            "ok",
 		"agents_unbound":    len(teardown.UnboundAgents),
 		"tasks_cancelled":   len(teardown.CancelledTasks),
 		"autopilots_paused": len(teardown.PausedAutopilots),
-		"agents_retained":   len(retainedIDs),
-	})
+		"agents_retained":   retained,
+	}
 }
 
-// revokeRuntimeVisibility is the whole teardown, inside the caller's
-// transaction. Step order follows unbindRuntimeForDelete so the two paths share
-// their race-safety reasoning:
-//
-//  1. Flip the visibility. First, so anything that blocks on our runtime lock
-//     and then re-reads the row (revalidateRuntimeForBind, the claim fence)
-//     observes `private` the moment we commit.
-//  2. Unbind the foreign user agents — owner-filtered, active and archived.
-//  3. Pause their Autopilots (direct assignee or led squad) with
-//     agent_runtime_required, preserving the configuration for a resume after
-//     rebinding. Retained system carriers are not Autopilot assignees.
-//  4. Cancel non-terminal tasks: agent-side only, and with a reason per group so
-//     the two situations read differently to the user — the unbound agents need
-//     a new runtime, the retained carriers need access back.
-//  5. Assert drained over the same agent set. A missed status means the cancel
-//     query and this predicate disagree, which is a bug: abort with 409 rather
-//     than commit a partial revoke.
+// revokeRuntimeVisibility is the teardown, inside the caller's transaction. Order
+// follows unbindRuntimeForDelete so both share its race-safety reasoning: flip the
+// visibility first (so whatever blocked on our lock re-reads `private` on commit),
+// unbind the foreign user agents, pause their Autopilots, cancel their non-terminal
+// tasks with a reason per group, then assert drained — a missed status means the
+// cancel query and the drain predicate disagree, so abort rather than commit a
+// partial revoke.
 func revokeRuntimeVisibility(ctx context.Context, qtx *db.Queries, rt db.AgentRuntime, unboundIDs, retainedIDs []pgtype.UUID) (runtimeTeardownResult, error) {
 	var out runtimeTeardownResult
 
@@ -421,31 +343,32 @@ func revokeRuntimeVisibility(ctx context.Context, qtx *db.Queries, rt db.AgentRu
 	}
 	out.PausedAutopilots = paused
 
-	if len(unboundIDs) > 0 {
-		cancelled, err := qtx.CancelAgentTasksByAgentsWithReason(ctx, db.CancelAgentTasksByAgentsWithReasonParams{
-			AgentIds:      unboundIDs,
-			Error:         pgtype.Text{String: revokeUnboundTaskError, Valid: true},
-			FailureReason: pgtype.Text{String: string(taskfailure.ReasonAgentRuntimeRequired), Valid: true},
-		})
-		if err != nil {
-			return out, fmt.Errorf("cancel unbound agent tasks: %w", err)
+	// runtime_ids stays empty in both calls: the runtime survives, so matching on
+	// it would cancel the owner's own work on their own machine.
+	for _, group := range []struct {
+		ids    []pgtype.UUID
+		errMsg string
+		reason taskfailure.Reason
+		what   string
+	}{
+		{unboundIDs, revokeUnboundTaskError, taskfailure.ReasonAgentRuntimeRequired, "unbound"},
+		{retainedIDs, revokeRetainedTaskError, taskfailure.ReasonRuntimeAccessRevoked, "retained"},
+	} {
+		if len(group.ids) == 0 {
+			continue
 		}
-		out.CancelledTasks = append(out.CancelledTasks, cancelled...)
-	}
-	if len(retainedIDs) > 0 {
-		cancelled, err := qtx.CancelAgentTasksByAgentsWithReason(ctx, db.CancelAgentTasksByAgentsWithReasonParams{
-			AgentIds:      retainedIDs,
-			Error:         pgtype.Text{String: revokeRetainedTaskError, Valid: true},
-			FailureReason: pgtype.Text{String: string(taskfailure.ReasonRuntimeAccessRevoked), Valid: true},
+		cancelled, err := qtx.CancelAgentTasksByRuntimeOrAgent(ctx, db.CancelAgentTasksByRuntimeOrAgentParams{
+			RuntimeIds:    []pgtype.UUID{},
+			AgentIds:      group.ids,
+			Error:         pgtype.Text{String: group.errMsg, Valid: true},
+			FailureReason: pgtype.Text{String: string(group.reason), Valid: true},
 		})
 		if err != nil {
-			return out, fmt.Errorf("cancel retained agent tasks: %w", err)
+			return out, fmt.Errorf("cancel %s agent tasks: %w", group.what, err)
 		}
 		out.CancelledTasks = append(out.CancelledTasks, cancelled...)
 	}
 
-	// Agent-side only: runtime_ids stays empty so the owner's own tasks on their
-	// own machine are untouched.
 	undrained, err := qtx.CountUndrainedTasksByRuntimeOrAgent(ctx, db.CountUndrainedTasksByRuntimeOrAgentParams{
 		RuntimeIds: []pgtype.UUID{},
 		AgentIds:   append(append([]pgtype.UUID{}, unboundIDs...), retainedIDs...),

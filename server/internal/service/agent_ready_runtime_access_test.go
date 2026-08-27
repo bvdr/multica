@@ -12,49 +12,25 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// TestAgentReadinessRuntimeAccess is the admission half of MUL-6704, and the
-// reason the revoke teardown is not enough on its own.
-//
-// #7571 made a reclaimed private runtime refuse to CLAIM another owner's agent.
-// Admission did not know that: it only asked "is a runtime bound, and is it
-// online". So every new trigger for such an agent still enqueued happily, the
-// claim fence then refused it from both sides, and two hours later the queue TTL
-// failed it as `queued_expired` — "task expired in queue", pointing the user at a
-// backlog instead of at the permission that had been taken away.
-//
-// The agents that hit this are exactly the ones the teardown deliberately leaves
-// bound (the `kind = 'system'` builder carriers), so the two halves have to ship
-// together.
+// The admission half of MUL-6704, and why the teardown is not enough alone. #7571
+// made a reclaimed private runtime refuse to CLAIM another owner's agent, but
+// admission only asked "bound, and online?" — so every new trigger still enqueued,
+// the fence refused it, and the 2h TTL mislabelled it `queued_expired`. The agents
+// that hit this are the ones the teardown deliberately leaves bound (system
+// carriers), so both halves ship together.
 func TestAgentReadinessRuntimeAccess(t *testing.T) {
 	ctx := context.Background()
 
-	tests := []struct {
+	for _, tt := range []struct {
 		name       string
 		visibility string
 		sameOwner  bool
 		wantReady  bool
-		wantReason dispatch.ReasonCode
 	}{
-		{
-			name:       "public runtime admits a foreign agent",
-			visibility: "public",
-			wantReady:  true,
-		},
-		{
-			name:       "private runtime admits its owner's agent",
-			visibility: "private",
-			sameOwner:  true,
-			wantReady:  true,
-		},
-		{
-			name:       "reclaimed private runtime blocks a foreign agent",
-			visibility: "private",
-			wantReady:  false,
-			wantReason: dispatch.ReasonRuntimeAccessRevoked,
-		},
-	}
-
-	for _, tt := range tests {
+		{"public runtime admits a foreign agent", "public", false, true},
+		{"private runtime admits its owner's agent", "private", true, true},
+		{"reclaimed private runtime blocks a foreign agent", "private", false, false},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			pool := newResolveOriginatorPool(t)
 			bootstrap := testutil.New(pool, "", "")
@@ -62,19 +38,16 @@ func TestAgentReadinessRuntimeAccess(t *testing.T) {
 
 			runtimeOwnerID := bootstrap.User(t,
 				fmt.Sprintf("readiness-runtime-owner-%d", suffix),
-				fmt.Sprintf("readiness-runtime-owner-%d@example.com", suffix),
-			)
+				fmt.Sprintf("readiness-runtime-owner-%d@example.com", suffix))
 			agentOwnerID := runtimeOwnerID
 			if !tt.sameOwner {
 				agentOwnerID = bootstrap.User(t,
 					fmt.Sprintf("readiness-agent-owner-%d", suffix),
-					fmt.Sprintf("readiness-agent-owner-%d@example.com", suffix),
-				)
+					fmt.Sprintf("readiness-agent-owner-%d@example.com", suffix))
 			}
 			workspaceID := bootstrap.Workspace(t,
 				fmt.Sprintf("readiness-access-%d", suffix),
-				fmt.Sprintf("readiness-access-%d", suffix),
-			)
+				fmt.Sprintf("readiness-access-%d", suffix))
 			fx := testutil.New(pool, workspaceID, runtimeOwnerID)
 			fx.Member(t, workspaceID, runtimeOwnerID, "owner")
 			if agentOwnerID != runtimeOwnerID {
@@ -85,9 +58,7 @@ func TestAgentReadinessRuntimeAccess(t *testing.T) {
 				"owner_id":   runtimeOwnerID,
 				"status":     "online",
 			})
-			agentID := fx.Agent(t, "readiness-agent", runtimeID, testutil.Cols{
-				"owner_id": agentOwnerID,
-			})
+			agentID := fx.Agent(t, "readiness-agent", runtimeID, testutil.Cols{"owner_id": agentOwnerID})
 
 			q := db.New(pool)
 			agent, err := q.GetAgent(ctx, util.MustParseUUID(agentID))
@@ -104,14 +75,13 @@ func TestAgentReadinessRuntimeAccess(t *testing.T) {
 			if tt.wantReady {
 				return
 			}
-			// Blocked, not waitable: waiting for an online machine to allow you
-			// is not a plan, and the caller must refuse the trigger instead of
-			// queueing it.
+			// Blocked, not waitable: waiting for an online machine to permit you is
+			// not a plan, so the caller must refuse rather than queue.
 			if !verdict.Blocked() {
-				t.Fatalf("verdict must be BLOCKED so callers refuse instead of queueing; got availability %v", verdict.Availability)
+				t.Fatalf("verdict must be BLOCKED so callers refuse instead of queueing; got %v", verdict.Availability)
 			}
-			if verdict.Reason != tt.wantReason {
-				t.Fatalf("reason = %q, want %q", verdict.Reason, tt.wantReason)
+			if verdict.Reason != dispatch.ReasonRuntimeAccessRevoked {
+				t.Fatalf("reason = %q, want %q", verdict.Reason, dispatch.ReasonRuntimeAccessRevoked)
 			}
 		})
 	}

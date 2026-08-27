@@ -8,20 +8,17 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/testutil"
-	db "github.com/multica-ai/multica/server/pkg/db/generated"
 	"github.com/multica-ai/multica/server/pkg/taskfailure"
 )
 
-// MUL-6704, second half. Moving an agent to another runtime never rewrote
-// agent_task_queue.runtime_id, and since #7571 the claim fence requires the two
-// to agree — so anything already queued became invisible to the new machine and
-// refused by the old one. It then sat in `queued` for the full two-hour TTL and
-// failed as `queued_expired` ("task expired in queue"), which describes a busy
-// queue, not a rebind.
+// MUL-6704, second half. Moving an agent never rewrote
+// agent_task_queue.runtime_id, and since #7571 the claim fence requires the two to
+// agree — so queued rows became invisible to the new machine and refused by the
+// old one, then failed hours later as `queued_expired`, which describes a busy
+// queue rather than a rebind.
 
-// TestUpdateAgentRebind_SettlesStrandedQueuedTask pins both halves of the
-// decision: settle what can no longer be claimed, and leave what is already
-// running alone.
+// Both halves of the decision: settle what can no longer be claimed, leave what is
+// already running alone.
 func TestUpdateAgentRebind_SettlesStrandedQueuedTask(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -36,11 +33,7 @@ func TestUpdateAgentRebind_SettlesStrandedQueuedTask(t *testing.T) {
 	waiting := insertFixtureTask(t, ctx, oldRuntimeID, agentID, "waiting_local_directory", false)
 	running := insertFixtureTask(t, ctx, oldRuntimeID, agentID, "running", false)
 
-	w := httptest.NewRecorder()
-	req := newRequest("PATCH", "/api/agents/"+agentID, map[string]any{"runtime_id": newRuntimeID})
-	req = withURLParam(req, "id", agentID)
-	testHandler.UpdateAgent(w, req)
-	if w.Code != http.StatusOK {
+	if w := rebindAgent(t, agentID, newRuntimeID); w.Code != http.StatusOK {
 		t.Fatalf("UpdateAgent rebind: got %d, want 200: %s", w.Code, w.Body.String())
 	}
 
@@ -80,25 +73,17 @@ func TestUpdateAgentRebind_SettlesStrandedQueuedTask(t *testing.T) {
 	// A no-op resubmit of the current runtime is not a rebind: a PATCH-as-PUT
 	// client echoing the unchanged runtime_id back must not cancel anything.
 	survivor := insertFixtureTask(t, ctx, newRuntimeID, agentID, "queued", false)
-	w = httptest.NewRecorder()
-	req = newRequest("PATCH", "/api/agents/"+agentID, map[string]any{"runtime_id": newRuntimeID})
-	req = withURLParam(req, "id", agentID)
-	testHandler.UpdateAgent(w, req)
-	if w.Code != http.StatusOK {
+	if w := rebindAgent(t, agentID, newRuntimeID); w.Code != http.StatusOK {
 		t.Fatalf("UpdateAgent no-op runtime resubmit: got %d, want 200: %s", w.Code, w.Body.String())
 	}
-	var survivorStatus string
-	dbfx.QueryRow(t, `SELECT status FROM agent_task_queue WHERE id = $1`, survivor).Scan(&survivorStatus)
-	if survivorStatus != "queued" {
-		t.Fatalf("no-op resubmit cancelled a live task (status %q)", survivorStatus)
+	if status, _, _ := taskOutcome(t, survivor); status != "queued" {
+		t.Fatalf("no-op resubmit cancelled a live task (status %q)", status)
 	}
 }
 
-// TestUpdateAgentRebind_RefusesForeignPrivateRuntime is decision A in force: the
-// gate that decides whether an agent may live on a private machine is the AGENT
-// OWNER, not the operator. The workspace owner running this test may edit the
-// agent and owns the runtime, and it is still refused, because the claim fence
-// would refuse every task it produced.
+// Whether an agent may live on a private machine is decided by the AGENT OWNER,
+// not the operator: the workspace owner here may edit the agent and owns the
+// runtime, and is still refused, because the claim fence would refuse every task.
 func TestUpdateAgentRebind_RefusesForeignPrivateRuntime(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
@@ -110,11 +95,7 @@ func TestUpdateAgentRebind_RefusesForeignPrivateRuntime(t *testing.T) {
 	dbfx.Member(t, testWorkspaceID, teammateID, "member")
 	foreignAgentID := dbfx.Agent(t, "Rebind Foreign Agent", publicRuntimeID, testutil.Cols{"owner_id": teammateID})
 
-	w := httptest.NewRecorder()
-	req := newRequest("PATCH", "/api/agents/"+foreignAgentID, map[string]any{"runtime_id": privateRuntimeID})
-	req = withURLParam(req, "id", foreignAgentID)
-	testHandler.UpdateAgent(w, req)
-
+	w := rebindAgent(t, foreignAgentID, privateRuntimeID)
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("binding a teammate's agent onto my private runtime: got %d, want 403: %s", w.Code, w.Body.String())
 	}
@@ -125,76 +106,11 @@ func TestUpdateAgentRebind_RefusesForeignPrivateRuntime(t *testing.T) {
 	}
 }
 
-// TestCancelStaleMismatchedDispatchedTasks covers the sweeper arm. A row the old
-// daemon claimed and never started cannot be reclaimed after a rebind (the
-// reclaim queries carry the same fence), so before this it drifted until
-// FailStaleTasks called it a `timeout` — blaming a machine that was never stuck.
-func TestCancelStaleMismatchedDispatchedTasks(t *testing.T) {
-	if testHandler == nil {
-		t.Skip("database not available")
-	}
-	ctx := context.Background()
-
-	oldRuntimeID := dbfx.Runtime(t, "Sweeper Old Runtime")
-	newRuntimeID := dbfx.Runtime(t, "Sweeper New Runtime")
-	// The agent lives on the NEW runtime; the rows below are still pinned to the
-	// old one, which is what "mismatched" means.
-	agentID := dbfx.Agent(t, "Sweeper Agent", newRuntimeID)
-
-	stale := dbfx.Task(t, agentID, testutil.Cols{
-		"runtime_id":               oldRuntimeID,
-		"status":                   "dispatched",
-		"dispatched_at":            testutil.Raw("now() - interval '10 minutes'"),
-		"prepare_lease_expires_at": testutil.Raw("now() - interval '5 minutes'"),
-	})
-	// Claimed seconds ago: the daemon may still be preparing it, so the sweeper
-	// must keep its hands off.
-	fresh := dbfx.Task(t, agentID, testutil.Cols{
-		"runtime_id":    oldRuntimeID,
-		"status":        "dispatched",
-		"dispatched_at": testutil.Raw("now()"),
-	})
-	// Live lease: the daemon is actively renewing it between claim and StartTask.
-	leased := dbfx.Task(t, agentID, testutil.Cols{
-		"runtime_id":               oldRuntimeID,
-		"status":                   "dispatched",
-		"dispatched_at":            testutil.Raw("now() - interval '10 minutes'"),
-		"prepare_lease_expires_at": testutil.Raw("now() + interval '5 minutes'"),
-	})
-	// Matching binding: an ordinary in-flight task on the agent's own runtime.
-	matched := dbfx.Task(t, agentID, testutil.Cols{
-		"runtime_id":               newRuntimeID,
-		"status":                   "dispatched",
-		"dispatched_at":            testutil.Raw("now() - interval '10 minutes'"),
-		"prepare_lease_expires_at": testutil.Raw("now() - interval '5 minutes'"),
-	})
-	// Running on the old machine: finishes there, never swept.
-	runningElsewhere := dbfx.Task(t, agentID, testutil.Cols{
-		"runtime_id": oldRuntimeID,
-		"status":     "running",
-	})
-
-	cancelled, err := testHandler.Queries.CancelStaleMismatchedDispatchedTasks(ctx, db.CancelStaleMismatchedDispatchedTasksParams{
-		ClaimRecoverySecs: 90,
-		MaxPerTick:        100,
-		Error:             pgtype.Text{String: RebindStrandedTaskError, Valid: true},
-		FailureReason:     pgtype.Text{String: string(taskfailure.ReasonAgentRuntimeChanged), Valid: true},
-	})
-	if err != nil {
-		t.Fatalf("CancelStaleMismatchedDispatchedTasks: %v", err)
-	}
-	if len(cancelled) != 1 || uuidToString(cancelled[0].ID) != stale {
-		t.Fatalf("swept %d rows, want exactly the stale mismatched one (%s): %+v", len(cancelled), stale, cancelled)
-	}
-	if cancelled[0].FailureReason.String != string(taskfailure.ReasonAgentRuntimeChanged) {
-		t.Fatalf("failure_reason = %q, want %q", cancelled[0].FailureReason.String, taskfailure.ReasonAgentRuntimeChanged)
-	}
-
-	for _, id := range []string{fresh, leased, matched, runningElsewhere} {
-		var status string
-		dbfx.QueryRow(t, `SELECT status FROM agent_task_queue WHERE id = $1`, id).Scan(&status)
-		if status == "cancelled" {
-			t.Fatalf("task %s must not be swept", id)
-		}
-	}
+// rebindAgent drives the real PATCH that moves an agent to another runtime.
+func rebindAgent(t *testing.T, agentID, runtimeID string) *httptest.ResponseRecorder {
+	t.Helper()
+	w := httptest.NewRecorder()
+	req := newRequest("PATCH", "/api/agents/"+agentID, map[string]any{"runtime_id": runtimeID})
+	testHandler.UpdateAgent(w, withURLParam(req, "id", agentID))
+	return w
 }

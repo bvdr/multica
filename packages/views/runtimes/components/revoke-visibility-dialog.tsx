@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, Info } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@multica/core/api";
@@ -15,28 +15,18 @@ import { Button } from "@multica/ui/components/ui/button";
 import { Checkbox } from "@multica/ui/components/ui/checkbox";
 import { useT } from "../../i18n";
 
-// RevokeVisibilityDialog is the impact confirmation for taking a shared machine
-// back (public → private), MUL-6704.
-//
-// Reclaiming access is not a display change: agents belonging to other members
-// lose their binding, their queued and running work is cancelled, and their
-// Autopilots are paused. The plain PATCH therefore refuses with
-// `runtime_visibility_has_foreign_agents` and this plan; the user confirms the
-// exact set here, and the confirmed endpoint re-checks it under a lock so what
-// they approved is what happens.
-//
-// Shape mirrors DeleteRuntimeDialog's cascade mode on purpose — same 409 → plan
-// → checkbox → re-confirm-on-plan-changed flow — because it is the same class of
-// decision and users have already learned it.
+// Impact confirmation for taking a shared machine back (public → private,
+// MUL-6704). Reclaiming access unbinds other members' agents, cancels their work
+// and pauses their Autopilots, so the PATCH refuses with
+// `runtime_visibility_has_foreign_agents` + this plan and the user confirms the
+// exact set here; the confirm endpoint re-checks it under a lock. Same 409 → plan
+// → checkbox → re-confirm flow as DeleteRuntimeDialog's cascade mode, which users
+// have already learned.
 
 /**
- * What the server discloses about an affected agent, and all this dialog needs.
- *
- * Deliberately not the full `Agent`: the reader here owns the MACHINE, not these
- * agents, and often has no right to read them at all. The endpoint returns only
- * id + name so a machine owner cannot harvest a teammate's instructions, runtime
- * config, MCP config or Composio allowlist by merely attempting to make their
- * own runtime private.
+ * All the server discloses about an affected agent. Deliberately not the full
+ * `Agent`: the reader owns the MACHINE, not these agents, and often cannot read
+ * them at all, so id + name is the whole surface.
  */
 export interface RuntimeRevokeAgent {
   id: string;
@@ -75,8 +65,8 @@ export function RevokeVisibilityDialog({
   const [planChangedNotice, setPlanChangedNotice] = useState<string | null>(null);
   const revoke = useRevokeRuntimeAndMakePrivate(wsId);
 
-  // Re-seed on every open: a notice or a ticked checkbox surviving from a
-  // previous attempt would let the user confirm a plan they never read.
+  // Re-seed on open: a stale notice or ticked checkbox would let the user confirm
+  // a plan they never read.
   useEffect(() => {
     if (open) {
       setPlan(initialPlan);
@@ -96,8 +86,7 @@ export function RevokeVisibilityDialog({
       });
       onRevoked();
     } catch (err) {
-      // Someone bound or archived an agent while this dialog was open. The
-      // server wrote nothing; show the fresh plan and require a new tick.
+      // The set moved while the dialog was open; the server wrote nothing.
       const conflict = parseRuntimeRevokeConflict(err);
       if (conflict?.code === "runtime_visibility_plan_changed") {
         setPlan(conflict.plan);
@@ -140,27 +129,15 @@ export function RevokeVisibilityDialog({
             })}
           </p>
 
-          <div
-            role="alert"
-            className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-caption text-destructive"
-          >
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-            <span>{t(($) => $.detail.revoke_visibility_dialog.warning)}</span>
-          </div>
+          <Banner tone="destructive">
+            {t(($) => $.detail.revoke_visibility_dialog.warning)}
+          </Banner>
 
-          {/* The workspace-wide consequence users do not expect: Mika is one
-              per workspace, so unbinding her stops her for everyone, not just
-              for her owner. */}
+          {/* One Mika per workspace, so unbinding her stops her for everyone. */}
           {plan.mikaAffected && (
-            <div
-              role="alert"
-              className="mt-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-caption text-destructive"
-            >
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-              <span>
-                {t(($) => $.detail.revoke_visibility_dialog.mika_warning)}
-              </span>
-            </div>
+            <Banner tone="destructive">
+              {t(($) => $.detail.revoke_visibility_dialog.mika_warning)}
+            </Banner>
           )}
 
           {planChangedNotice && (
@@ -196,21 +173,14 @@ export function RevokeVisibilityDialog({
             </p>
           )}
 
-          {/* Builder carriers keep their binding — unbinding one strands a row
-              with no UI to repair, deleting it destroys the conversation — but
-              they cannot run here any more, so the copy points at the fix. */}
+          {/* Carriers keep their binding (unbinding strands them, deleting them
+              destroys the conversation) but cannot run here, so point at the fix. */}
           {plan.retainedAgentCount > 0 && (
-            <div
-              role="status"
-              className="mt-2 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-caption"
-            >
-              <Info className="mt-0.5 size-3.5 shrink-0 text-warning" />
-              <span>
-                {t(($) => $.detail.revoke_visibility_dialog.retained_note, {
-                  count: plan.retainedAgentCount,
-                })}
-              </span>
-            </div>
+            <Banner tone="warning">
+              {t(($) => $.detail.revoke_visibility_dialog.retained_note, {
+                count: plan.retainedAgentCount,
+              })}
+            </Banner>
           )}
 
           <label className="mt-4 flex cursor-pointer items-start gap-2 text-body">
@@ -254,6 +224,34 @@ export function RevokeVisibilityDialog({
   );
 }
 
+// Banner is the dialog's one inline-notice shape; tone picks destructive
+// (consequences of confirming) or warning (something to repair afterwards).
+function Banner({
+  tone,
+  children,
+}: {
+  tone: "destructive" | "warning";
+  children: ReactNode;
+}) {
+  const destructive = tone === "destructive";
+  const Icon = destructive ? AlertTriangle : Info;
+  return (
+    <div
+      role={destructive ? "alert" : "status"}
+      className={`mt-2 flex items-start gap-2 rounded-md border px-3 py-2 text-caption ${
+        destructive
+          ? "border-destructive/40 bg-destructive/5 text-destructive"
+          : "border-warning/40 bg-warning/5"
+      }`}
+    >
+      <Icon
+        className={`mt-0.5 size-3.5 shrink-0 ${destructive ? "" : "text-warning"}`}
+      />
+      <span>{children}</span>
+    </div>
+  );
+}
+
 export interface RuntimeRevokeConflict {
   code:
     | "runtime_visibility_has_foreign_agents"
@@ -262,17 +260,12 @@ export interface RuntimeRevokeConflict {
 }
 
 /**
- * Reads the structured 409 the visibility endpoints return, strictly.
- *
- * Fail closed, on purpose: anything unexpected — a different status, an unknown
- * code, a missing field, a wrong type — returns `null`, the caller falls through
- * to its generic error path, and no confirmation dialog opens. A tolerant parser
- * is not harmless here. `archived_agent_count` and `retained_agent_count` are NOT
- * part of `expected_active_agent_ids`, so the server's set comparison cannot
- * catch a plan that under-reports them: a body that dropped or mistyped those
- * counts would render "0 affected", and confirming it would still unbind
- * archived agents and cancel a retained carrier's work. The user would have
- * approved something they were never shown.
+ * Reads the structured 409 strictly, and fails closed: any unexpected status,
+ * code, missing field or wrong type returns `null` so the caller shows a plain
+ * error and no dialog opens. A tolerant parser is not harmless —
+ * `archived_agent_count` / `retained_agent_count` are not in
+ * `expected_active_agent_ids`, so the server's set comparison cannot catch a body
+ * that under-reports them, and the user would confirm a plan they never saw.
  */
 export function parseRuntimeRevokeConflict(
   err: unknown,

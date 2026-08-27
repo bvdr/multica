@@ -811,18 +811,6 @@ var errRuntimeMergeFenced = errors.New("runtime merge refused by the task-write 
 // Holding the fence lock from the first statement to COMMIT closes both: the
 // teardown cannot start deleting the target until this merge finishes, and any
 // failure rolls the whole merge back to its starting state.
-// runtimeByID picks one runtime out of a locked batch. LockRuntimesForMerge
-// returns both rows in id order, so the merge reads each one's pre-merge state
-// (visibility in particular) without a second query outside the lock.
-func runtimeByID(rows []db.AgentRuntime, id pgtype.UUID) (db.AgentRuntime, bool) {
-	for _, row := range rows {
-		if row.ID == id {
-			return row, true
-		}
-	}
-	return db.AgentRuntime{}, false
-}
-
 func (h *Handler) mergeLegacyRuntime(ctx context.Context, newRuntimeID, oldRuntimeID pgtype.UUID, legacyID, provider string) error {
 	tx, err := h.TxStarter.Begin(ctx)
 	if err != nil {
@@ -862,37 +850,16 @@ func (h *Handler) mergeLegacyRuntime(ctx context.Context, newRuntimeID, oldRunti
 		return errRuntimeMergeFenced
 	}
 
-	// The merged row inherits the legacy row's `public` visibility before the
-	// agents move (MUL-6704).
-	//
-	// This is one machine changing its identity key, not a new machine: a fresh
-	// registration row defaults to `private`, so without this a daemon that
-	// re-registers under a UUID would silently un-share a machine its owner had
-	// shared — and drag every teammate's agent onto a private runtime, where
-	// since #7571 nothing they own can be claimed. The agents would look bound
-	// and never run, which is precisely the state this issue removes elsewhere.
-	//
-	// Widening rather than narrowing is the safe direction here, and it is not a
-	// new decision: `public` is what the owner last chose for this machine.
-	// Reclaiming it goes through the confirmed revoke like any other machine, and
-	// that path can then tear the foreign bindings down properly. A mixed set of
-	// legacy rows resolves to public for the same reason — the surviving row must
-	// be able to run everything it just absorbed.
-	//
-	// The reverse case (legacy `private` carrying foreign agents from before
-	// #7571) is deliberately left alone: those agents were already unrunnable
-	// there, so the merge changes nothing about them.
-	visibilityInherited := false
-	if oldRow, ok := runtimeByID(locked, oldRuntimeID); ok && oldRow.Visibility == "public" {
-		if newRow, ok := runtimeByID(locked, newRuntimeID); ok && newRow.Visibility != "public" {
-			if _, err := qtx.UpdateAgentRuntimeVisibility(ctx, db.UpdateAgentRuntimeVisibilityParams{
-				ID:         newRuntimeID,
-				Visibility: "public",
-			}); err != nil {
-				return fmt.Errorf("inherit legacy visibility: %w", err)
-			}
-			visibilityInherited = true
-		}
+	// Keep the machine's sharing across an identity change, before the agents
+	// move: a fresh row defaults to private, and moving teammates' agents onto a
+	// private runtime strands them (MUL-6704). See the query for why this never
+	// narrows.
+	visibilityInherited, err := qtx.InheritPublicVisibilityFromLegacyRuntime(ctx, db.InheritPublicVisibilityFromLegacyRuntimeParams{
+		NewRuntimeID: newRuntimeID,
+		OldRuntimeID: oldRuntimeID,
+	})
+	if err != nil {
+		return fmt.Errorf("inherit legacy visibility: %w", err)
 	}
 
 	agents, err := qtx.ReassignAgentsToRuntime(ctx, db.ReassignAgentsToRuntimeParams{
@@ -927,7 +894,7 @@ func (h *Handler) mergeLegacyRuntime(ctx context.Context, newRuntimeID, oldRunti
 		"provider", provider,
 		"agents_reassigned", agents,
 		"tasks_reassigned", reassignment.ReassignedTasks,
-		"visibility_inherited_public", visibilityInherited,
+		"visibility_inherited_public", visibilityInherited > 0,
 	)
 	return nil
 }

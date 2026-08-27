@@ -171,11 +171,10 @@ describe("failureReasonLabel", () => {
   });
 });
 
-// MUL-6704 adds three runtime-ACCESS reasons, and they are written on CANCELLED
-// rows as well as failed ones — a reclaimed machine settles work by cancelling
-// it. Without copy for them the revoke would land the user on a cancelled task
-// with either a raw wire string or the generic "Cancelled by the system", which
-// is the unexplained state this work exists to remove.
+// MUL-6704 adds three runtime-ACCESS reasons, written on CANCELLED rows as well
+// as failed ones — a reclaimed machine settles work by cancelling it. Without copy
+// they would surface as a raw wire string or the generic "Cancelled by the
+// system", which is the unexplained state this work removes.
 describe("runtime access reasons (MUL-6704)", () => {
   const reasons = [
     "agent_runtime_required",
@@ -183,17 +182,11 @@ describe("runtime access reasons (MUL-6704)", () => {
     "agent_runtime_changed",
   ] as const;
 
-  it("is registered in the i18n key map", () => {
+  it("is registered and localized in every shipped locale", () => {
     for (const reason of reasons) {
       expect(FAILURE_REASON_I18N_KEYS).toHaveProperty(reason);
-    }
-  });
-
-  it("renders localized copy in every shipped locale, never the raw wire value", () => {
-    for (const locale of ["en", "zh-Hans", "ja", "ko"] as const) {
-      const t = fixedT(locale);
-      for (const reason of reasons) {
-        const label = failureReasonLabel(reason, t);
+      for (const locale of ["en", "zh-Hans", "ja", "ko"] as const) {
+        const label = failureReasonLabel(reason, fixedT(locale));
         expect(label).toBeTruthy();
         expect(label).not.toBe(reason);
       }
@@ -201,8 +194,8 @@ describe("runtime access reasons (MUL-6704)", () => {
   });
 
   it("explains a task the server cancelled to reclaim a runtime", () => {
-    // The revoke teardown cancels rather than fails, so this is the path that
-    // decides whether the user can see why their queued work disappeared.
+    // The revoke cancels rather than fails, so this path decides whether the user
+    // can see why their queued work disappeared.
     expect(
       cancelReasonLabel(
         {

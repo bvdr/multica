@@ -2659,23 +2659,6 @@ func (s *TaskService) CaptureCancelledTasks(ctx context.Context, cancelled []db.
 	}
 }
 
-// SettleCancelledTasksResolvingWorkspace is the sweeper-side counterpart of
-// BroadcastCancelledTasks: it resolves each row's workspace from the row itself
-// instead of taking one from the caller.
-//
-// That is safe here precisely because nothing was deleted — a background sweep
-// cancels rows whose agent, session and runtime all still exist, so
-// ResolveTaskWorkspaceID has something to read. A sweeper also has no single
-// "the workspace being torn down" to pass: its batch spans workspaces.
-func (s *TaskService) SettleCancelledTasksResolvingWorkspace(ctx context.Context, cancelled []db.AgentTaskQueue) {
-	for _, t := range cancelled {
-		s.captureTaskCancelled(ctx, t)
-		s.ReconcileAgentStatus(ctx, t.AgentID)
-		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, t)
-	}
-	s.notifyTasksFinished(cancelled)
-}
-
 type CancelledChatMessageResult struct {
 	ChatSessionID  string
 	MessageID      string

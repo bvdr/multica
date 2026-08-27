@@ -101,9 +101,9 @@ function renderDialog(plan: RuntimeRevokePlan, onRevoked = vi.fn()) {
   };
 }
 
-// MUL-6704. Reclaiming a shared machine cancels other people's work and pauses
-// their automations, so the dialog's job is to make sure the user approves the
-// exact set that will be affected — and re-approves it if that set moves.
+// MUL-6704. Reclaiming a shared machine cancels other people's work, so the
+// dialog's job is to make the user approve the exact affected set — and re-approve
+// it when that set moves.
 describe("RevokeVisibilityDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -128,11 +128,11 @@ describe("RevokeVisibilityDialog", () => {
     expect(confirmButton.disabled).toBe(false);
 
     fireEvent.click(confirmButton);
+    // The confirmed snapshot travels with the request; the server compares it
+    // under a lock so the user cannot approve plan A and get plan B.
     await waitFor(() =>
       expect(mockRevoke).toHaveBeenCalledWith({
         runtimeId: "rt-1",
-        // The confirmed snapshot travels with the request: the server compares
-        // it under a lock so the user cannot approve plan A and get plan B.
         expectedActiveAgentIds: ["agent-1"],
       }),
     );
@@ -153,9 +153,8 @@ describe("RevokeVisibilityDialog", () => {
   });
 
   it("explains that hidden builder sessions keep their binding but stop running", () => {
-    // The plan can be non-empty with zero NAMED agents: a builder carrier is
-    // invisible in the agent list but its work still gets cancelled, so the
-    // dialog has to open and say so rather than let a silent teardown through.
+    // A plan can be non-empty with zero NAMED agents: a carrier is invisible in
+    // the agent list, but its work is still cancelled, so the dialog must open.
     renderDialog(makePlan({ activeAgents: [], retainedAgentCount: 1 }));
     expect(
       screen.getByText(/hidden Agent Builder session stays attached/i),
@@ -191,14 +190,13 @@ describe("RevokeVisibilityDialog", () => {
         screen.getByText(/The affected agent set changed/i),
       ).toBeInTheDocument(),
     );
-    // The newly bound agent is now part of the visible plan...
+    // New agent visible, checkbox cleared, nothing reported done — the server
+    // wrote nothing.
     expect(screen.getByText("Second Agent")).toBeInTheDocument();
-    // ...the checkbox is unticked so the user has to approve the new plan...
     expect(
       (screen.getByRole("button", { name: "Make private" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
-    // ...and nothing was reported as done, because the server wrote nothing.
     expect(onRevoked).not.toHaveBeenCalled();
     expect(mockToastError).not.toHaveBeenCalled();
 
@@ -249,8 +247,7 @@ describe("parseRuntimeRevokeConflict", () => {
   });
 
   it("ignores anything that is not one of the two visibility conflicts", () => {
-    // A dialog must never open on a body it did not understand: the user would
-    // be confirming a plan nobody sent.
+    // A dialog must never open on a body it did not understand.
     expect(
       parseRuntimeRevokeConflict(
         new MockApiError(409, { code: "runtime_has_active_agents" }),
@@ -266,81 +263,48 @@ describe("parseRuntimeRevokeConflict", () => {
     expect(parseRuntimeRevokeConflict(new Error("network"))).toBeNull();
   });
 
-  // Fail closed, not "best effort" (MUL-6704 review). The server's set comparison
-  // only covers active agent ids — `archived_agent_count` and
-  // `retained_agent_count` are NOT in `expected_active_agent_ids`. So a body that
-  // dropped or mistyped those counts would render "nothing else affected" while a
-  // confirm still unbinds archived agents and cancels a retained carrier's work:
-  // the user would have approved something they were never shown. Every one of
-  // these must refuse to produce a plan.
+  // Fail closed, not best effort: the server's comparison covers only active agent
+  // ids, so a body that drops or mistypes the archived / retained counts would
+  // render "nothing else affected" while the confirm still unbinds archived agents
+  // and cancels a carrier's work. Every case below must refuse.
+  const VALID_BODY = {
+    code: "runtime_visibility_plan_changed",
+    active_agents: [{ id: "agent-1", name: "Teammate Agent" }],
+    archived_agent_count: 0,
+    retained_agent_count: 0,
+    mika_affected: false,
+  };
+
   it.each([
-    [
-      "active_agents is not an array",
-      { code: "runtime_visibility_plan_changed", active_agents: "not-an-array" },
-    ],
-    [
-      "an agent entry is missing its name",
-      {
-        code: "runtime_visibility_plan_changed",
-        active_agents: [{ id: "agent-1" }],
-        archived_agent_count: 0,
-        retained_agent_count: 0,
-        mika_affected: false,
-      },
-    ],
-    [
-      "archived_agent_count is the wrong type",
-      {
-        code: "runtime_visibility_plan_changed",
-        active_agents: [],
-        archived_agent_count: "many",
-        retained_agent_count: 0,
-        mika_affected: false,
-      },
-    ],
-    [
-      "retained_agent_count is missing",
-      {
-        code: "runtime_visibility_plan_changed",
-        active_agents: [],
-        archived_agent_count: 0,
-        mika_affected: false,
-      },
-    ],
-    [
-      "a count is negative",
-      {
-        code: "runtime_visibility_plan_changed",
-        active_agents: [],
-        archived_agent_count: -1,
-        retained_agent_count: 0,
-        mika_affected: false,
-      },
-    ],
-    [
-      "mika_affected is not a boolean",
-      {
-        code: "runtime_visibility_plan_changed",
-        active_agents: [],
-        archived_agent_count: 0,
-        retained_agent_count: 0,
-        mika_affected: "yes",
-      },
-    ],
-  ])("refuses a malformed payload: %s", (_name, body) => {
+    ["active_agents is not an array", { active_agents: "not-an-array" }],
+    ["an agent entry is missing its name", { active_agents: [{ id: "agent-1" }] }],
+    ["an agent id is empty", { active_agents: [{ id: "", name: "x" }] }],
+    ["a count is the wrong type", { archived_agent_count: "many" }],
+    ["a count is missing", { retained_agent_count: undefined }],
+    ["a count is negative", { archived_agent_count: -1 }],
+    ["a count is fractional", { retained_agent_count: 1.5 }],
+    ["mika_affected is not a boolean", { mika_affected: "yes" }],
+  ])("refuses a malformed payload: %s", (_name, override) => {
+    const body: Record<string, unknown> = { ...VALID_BODY, ...override };
+    // `undefined` in an override means "the server omitted this field".
+    for (const [key, value] of Object.entries(override)) {
+      if (value === undefined) delete body[key];
+    }
     expect(parseRuntimeRevokeConflict(new MockApiError(409, body))).toBeNull();
+    // Sanity: the base body itself must parse, or these cases prove nothing.
+    expect(parseRuntimeRevokeConflict(new MockApiError(409, VALID_BODY))).not.toBeNull();
   });
 });
 
-// A refused parse must reach the user as a plain failure, never as a dialog with
+// A refused parse reaches the user as a plain failure, never as a dialog showing
 // an under-reported plan.
 describe("VisibilityEditor + malformed 409", () => {
   it("does not open a confirmation when the plan cannot be trusted", async () => {
     mockRevoke.mockRejectedValueOnce(
+      // Counts dropped: the server's id comparison would not catch this.
       new MockApiError(409, {
         code: "runtime_visibility_plan_changed",
         active_agents: [{ id: "agent-1", name: "Teammate Agent" }],
-        // Counts dropped: the server's id comparison would not catch this.
         mika_affected: false,
       }),
     );
