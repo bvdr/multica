@@ -271,7 +271,7 @@ Supported keys:
 | `poll_interval` | `30s` | Task polling interval |
 | `heartbeat_interval` | `15s` | Heartbeat interval |
 | `agent_timeout` | unlimited | Absolute time limit per run |
-| `codex_semantic_inactivity_timeout` | `10m` | Codex semantic-silence threshold |
+| `codex_semantic_inactivity_timeout` | derived | Codex semantic-silence threshold. With nothing set it takes the larger of the idle and tool watchdog budgets; a tool budget of `0` falls back to the idle budget, and only when the whole watchdog suite is disabled does Codex keep its own `10m` |
 | `codex_handshake_timeout` | `30s` | Codex app-server handshake ceiling |
 | `disable_auto_update` | follows environment | `true` turns auto-update off; `false` clears the local override and returns to the env var or default |
 | `auto_update_check_interval` | `6h` | Update check interval |

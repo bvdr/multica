@@ -271,7 +271,7 @@ multica config show
 | `poll_interval` | `30s` | 실행 태스크 polling 간격 |
 | `heartbeat_interval` | `15s` | heartbeat 간격 |
 | `agent_timeout` | 제한 없음 | 단일 실행의 절대 시간 제한 |
-| `codex_semantic_inactivity_timeout` | `10m` | Codex 의미 활동 없음 기준값 |
+| `codex_semantic_inactivity_timeout` | 파생 | Codex 의미 활동 없음 기준값. 설정하지 않으면 idle과 tool watchdog 예산 중 큰 값을 따르고, tool 예산이 `0`이면 idle 예산으로 되돌아갑니다. Codex 자체의 `10m`은 watchdog 전체를 비활성화했을 때만 유지됩니다 |
 | `codex_handshake_timeout` | `30s` | Codex app-server handshake 상한 |
 | `disable_auto_update` | 환경을 따름 | `true`는 자동 업데이트를 끔. `false`는 로컬 덮어쓰기를 지우고 환경 변수 또는 기본값으로 복귀 |
 | `auto_update_check_interval` | `6h` | 업데이트 확인 간격 |

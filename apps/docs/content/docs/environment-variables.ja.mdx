@@ -271,7 +271,7 @@ multica config show
 | `poll_interval` | `30s` | タスクのポーリング間隔 |
 | `heartbeat_interval` | `15s` | ハートビート間隔 |
 | `agent_timeout` | 無制限 | 1 回の実行の絶対時間上限 |
-| `codex_semantic_inactivity_timeout` | `10m` | Codex のセマンティック静穏しきい値 |
+| `codex_semantic_inactivity_timeout` | 派生値 | Codex のセマンティック静穏しきい値。未設定なら idle と tool の watchdog 予算のうち大きい方を採用し、tool 予算が `0` の場合は idle 予算に回帰します。Codex 自身の `10m` が残るのは watchdog 一式を無効化したときだけです |
 | `codex_handshake_timeout` | `30s` | Codex app-server ハンドシェイクの上限 |
 | `disable_auto_update` | 環境に従う | `true` で自動更新を無効化。`false` はローカルの上書きをクリアし、環境変数またはデフォルトに戻します |
 | `auto_update_check_interval` | `6h` | 更新チェックの間隔 |

@@ -1177,7 +1177,8 @@ func TestExpireStaleQueuedTasks(t *testing.T) {
 		t.Fatal("runtime_offline retry must stay exempt from the queued sweep")
 	}
 
-	// DB assertions: both non-exempt rows → failed/queued_expired.
+	// DB assertions: the aged row failed as queued_expired; the fresh row is
+	// still queued because only one of the two conditions holds for it.
 	var oldStatus, oldReason, oldErr string
 	if err := testPool.QueryRow(ctx, `
 		SELECT status, COALESCE(failure_reason, ''), COALESCE(error, '')

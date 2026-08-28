@@ -1430,10 +1430,13 @@ RETURNING *;
 -- live paths: the schema already excludes both. runtime_id was NOT NULL from
 -- migration 004 until 251 replaced it with CHECK (runtime_id IS NOT NULL OR
 -- completed_at IS NOT NULL), which every insert and update is checked against
--- (NOT VALID only skips the backfill scan), so no queued row can be unbound;
--- and the migration-004 FK is ON DELETE RESTRICT, so runtime_id cannot point at
--- a deleted runtime. They are kept so a future schema change cannot silently
--- strand rows that have no liveness signal at all.
+-- (NOT VALID only skips the backfill scan), so no queued row can be unbound.
+-- A dangling reference is impossible because agent_task_queue_runtime_id_fkey
+-- (migration 004) is ON DELETE CASCADE: deleting a runtime removes the rows
+-- referencing it rather than orphaning them, and the normal delete path
+-- (migration 251, MUL-5559) explicitly unbinds history tasks first in the same
+-- transaction. They are kept so a future schema change cannot silently strand
+-- rows that have no liveness signal at all.
 --
 -- A retry created by runtime_offline is exempt: it deliberately waits for that
 -- runtime to reconnect, and FailExpiredRuntimeReconnectRetries owns its exit.

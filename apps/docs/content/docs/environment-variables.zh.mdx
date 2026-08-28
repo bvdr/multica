@@ -271,7 +271,7 @@ multica config show
 | `poll_interval` | `30s` | 执行任务轮询间隔 |
 | `heartbeat_interval` | `15s` | 心跳间隔 |
 | `agent_timeout` | 不限制 | 单次执行的绝对时限 |
-| `codex_semantic_inactivity_timeout` | `10m` | Codex 语义静默阈值 |
+| `codex_semantic_inactivity_timeout` | 派生 | Codex 语义静默阈值。未设置时取 idle 与 tool watchdog 预算中较大的那个；tool 预算为 `0` 时回落到 idle 预算；只有整套 watchdog 关闭时才保留 Codex 自己的 `10m` |
 | `codex_handshake_timeout` | `30s` | Codex app-server 握手上限 |
 | `disable_auto_update` | 跟随环境 | `true` 关闭自动更新；`false` 清除本地覆盖，回到环境变量或默认 |
 | `auto_update_check_interval` | `6h` | 检查更新的间隔 |
