@@ -296,7 +296,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.4.36",
         date: "2026-08-28",
-        title: "Custom property filters, Skill imports, and Cloud Issue limits",
+        title: "Custom property filters, Skill imports, and MCP for Oh My Pi",
         changes: [],
         features: [
           "Filter Issues by custom text, number, date, and URL properties.",
@@ -305,8 +305,6 @@ export function createEnDict(allowSignup: boolean): LandingDict {
           "Create a Skill by importing a local folder, a .skill file, or a .zip.",
           "Preview what's inside before you import, and catch name conflicts up front.",
           "Oh My Pi agents can now use MCP servers you manage on the agent page.",
-          "Cloud workspaces now have an Issue limit, with a clear upgrade path when you reach it.",
-          "Your draft is kept when you hit the limit, so nothing you typed is lost.",
         ],
         improvements: [
           "Runtimes are only reclaimed when it's safe, so nothing disappears mid-run.",

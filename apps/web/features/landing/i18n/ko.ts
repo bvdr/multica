@@ -271,7 +271,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         {
           version: "0.4.36",
           date: "2026-08-28",
-          title: "사용자 지정 속성 필터, 스킬 가져오기, Cloud Issue 한도",
+          title: "사용자 지정 속성 필터, 스킬 가져오기, Oh My Pi의 MCP 지원",
           changes: [],
           features: [
             "텍스트, 숫자, 날짜, URL 사용자 지정 속성으로 Issue를 필터링할 수 있습니다.",
@@ -280,8 +280,6 @@ export function createKoDict(allowSignup: boolean): LandingDict {
             "로컬 폴더, .skill, .zip 파일을 가져와 스킬을 만들 수 있습니다.",
             "가져오기 전에 내용을 미리 보고, 이름 충돌도 먼저 확인할 수 있습니다.",
             "Oh My Pi 에이전트도 에이전트 화면에서 MCP를 설정해 사용할 수 있습니다.",
-            "Cloud 워크스페이스에 Issue 개수 한도가 생기고, 도달하면 업그레이드를 안내합니다.",
-            "한도에 도달해도 작성한 내용이 남아 다시 쓰지 않아도 됩니다.",
           ],
           improvements: [
             "런타임은 정말 안전할 때만 회수되어 실행 중에 사라지지 않습니다.",

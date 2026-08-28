@@ -296,7 +296,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
       {
         version: "0.4.36",
         date: "2026-08-28",
-        title: "自定义属性筛选、技能本地导入、Cloud Issue 上限",
+        title: "自定义属性筛选、技能本地导入、Oh My Pi 的 MCP 支持",
         changes: [],
         features: [
           "Issue 可以按文本、数字、日期和 URL 类型的自定义属性筛选。",
@@ -305,8 +305,6 @@ export function createZhDict(allowSignup: boolean): LandingDict {
           "新建技能时可以直接导入本地文件夹、.skill 或 .zip 文件。",
           "导入前可以预览内容，名称冲突也会提前提示。",
           "Oh My Pi 智能体现在可以在智能体页面配置并使用 MCP。",
-          "Cloud 工作区新增 Issue 数量上限，达到上限会引导你升级。",
-          "达到上限时你写的内容会保留，不用再重新写一遍。",
         ],
         improvements: [
           "运行时只会在确实安全时被回收，不会在运行中途被收走。",

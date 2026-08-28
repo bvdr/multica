@@ -272,7 +272,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         {
           version: "0.4.36",
           date: "2026-08-28",
-          title: "カスタム プロパティの絞り込み、スキルのインポート、Cloud の Issue 上限",
+          title: "カスタム プロパティの絞り込み、スキルのインポート、Oh My Pi の MCP 対応",
           changes: [],
           features: [
             "テキスト、数値、日付、URL のカスタム プロパティで Issue を絞り込めます。",
@@ -281,8 +281,6 @@ export function createJaDict(allowSignup: boolean): LandingDict {
             "ローカルフォルダー、.skill、.zip からスキルを新規作成できます。",
             "取り込む前に中身をプレビューでき、名前の重複も事前に分かります。",
             "Oh My Pi のエージェントも、エージェント画面から MCP を設定して使えます。",
-            "Cloud のワークスペースに Issue の上限ができ、達するとアップグレードを案内します。",
-            "上限に達しても書いた内容は残るので、もう一度書き直す必要はありません。",
           ],
           improvements: [
             "ランタイムは本当に安全なときだけ回収され、実行の途中で消えません。",
