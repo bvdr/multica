@@ -3298,6 +3298,7 @@ const expireStaleQueuedTasks = `-- name: ExpireStaleQueuedTasks :many
 WITH victims AS (
     SELECT id FROM agent_task_queue
     WHERE status = 'queued'
+      AND created_at < now() - make_interval(secs => $1::double precision)
       AND (
           runtime_id IS NULL
           OR NOT EXISTS (
@@ -3328,6 +3329,7 @@ SET status = 'failed',
 FROM victims v
 WHERE t.id = v.id
   AND t.status = 'queued'
+  AND t.created_at < now() - make_interval(secs => $1::double precision)
   AND (
       t.runtime_id IS NULL
       OR NOT EXISTS (SELECT 1 FROM agent_runtime r WHERE r.id = t.runtime_id)
@@ -3368,12 +3370,29 @@ type ExpireStaleQueuedTasksParams struct {
 // dispatched/running rows, so a daemon going down now retires its queued and
 // its in-flight work on one clock instead of two.
 //
+// The row must ALSO have been queued for a full grace of its own. Enqueue binds
+// a task to agent.runtime_id without checking that the runtime is up, so
+// runtime liveness alone would fail a task the instant it is assigned to a
+// runtime that has been offline a while — a laptop closed overnight would turn
+// "assign this issue" into a failure inside one 30s sweep tick instead of
+// waiting for the machine to come back. Requiring the task's own age keeps the
+// promise the name makes: a queued task gets one full reconnect grace before it
+// is given up on, counted from when it started waiting. It also bounds the
+// scan, which would otherwise re-evaluate the runtime subquery against every
+// queued row on every tick.
+//
 // Heartbeat age is read directly rather than gated on runtime.status='online',
 // so a row stuck at 'online' with a long-dead heartbeat still releases its
-// queue. Rows with no usable runtime binding at all — runtime_id IS NULL
-// (possible for pre-migration-251 rows, whose CHECK landed NOT VALID) or a
-// runtime row that no longer exists — can never acquire a liveness signal, so
-// they are expired on sight rather than left to sit forever.
+// queue.
+//
+// The runtime_id IS NULL / missing-runtime arms are fail-closed defence, not
+// live paths: the schema already excludes both. runtime_id was NOT NULL from
+// migration 004 until 251 replaced it with CHECK (runtime_id IS NOT NULL OR
+// completed_at IS NOT NULL), which every insert and update is checked against
+// (NOT VALID only skips the backfill scan), so no queued row can be unbound;
+// and the migration-004 FK is ON DELETE RESTRICT, so runtime_id cannot point at
+// a deleted runtime. They are kept so a future schema change cannot silently
+// strand rows that have no liveness signal at all.
 //
 // A retry created by runtime_offline is exempt: it deliberately waits for that
 // runtime to reconnect, and FailExpiredRuntimeReconnectRetries owns its exit.
