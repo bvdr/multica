@@ -1616,6 +1616,16 @@ func TestConcurrentDerivedCreatesNeverConflict(t *testing.T) {
 		body    string
 	}
 
+	// Every derived name must be ALL non-ASCII, or it slugs to something and
+	// never reaches the fallback the test is about: "客户确认0-1" keeps its ASCII
+	// digits and derives `0_1`, which contends with nothing. Uniqueness comes
+	// from a distinct base per writer and a repeated character per round, so the
+	// names stay collision-free without smuggling in a digit.
+	bases := []string{"客户确认", "供应商确认", "财务确认", "法务确认", "安全确认", "运营确认"}
+	if len(bases) != derivedWriters {
+		t.Fatalf("need one non-ASCII base per derived writer, got %d for %d", len(bases), derivedWriters)
+	}
+
 	for round := range rounds {
 		t.Run(fmt.Sprintf("round-%d", round), func(t *testing.T) {
 			results := make(chan result, derivedWriters+2)
@@ -1635,7 +1645,7 @@ func TestConcurrentDerivedCreatesNeverConflict(t *testing.T) {
 			// Admins naming a status in a non-Latin script, all in one category,
 			// so every one of them derives from the same base.
 			for i := range derivedWriters {
-				name := fmt.Sprintf("客户确认%d-%d", round, i)
+				name := bases[i] + strings.Repeat("确", round+1)
 				wg.Add(1)
 				go post(true, name, map[string]any{
 					"name": name, "category": issuestatus.Blocked, "color": "#123456",
@@ -1688,6 +1698,14 @@ func TestConcurrentDerivedCreatesNeverConflict(t *testing.T) {
 					t.Errorf("a custom status shadowed the built-in key %q", r.key)
 				}
 				if r.derived {
+					// Pins the PREMISE: a derived name that slugs to anything at
+					// all takes the slug path and contends with nothing, which
+					// would leave this test green while exercising nothing.
+					if !strings.HasPrefix(r.key, issuestatus.Blocked+"_") {
+						t.Errorf("derived create %q produced key %q; the name must slug to nothing "+
+							"so it lands on the <category>_<n> fallback these writers contend for",
+							r.label, r.key)
+					}
 					derivedSucceeded++
 				}
 			}
