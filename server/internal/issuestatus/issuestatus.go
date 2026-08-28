@@ -138,11 +138,6 @@ func ValidateKey(key string) (string, error) {
 // dropped suffix is not.
 const maxKeyLen = 32
 
-// maxDerivedKeyOrdinal bounds the disambiguation scan. A workspace would need
-// hundreds of statuses whose names all collapse onto one slug to reach it; the
-// bound exists so a pathological catalog fails loudly instead of spinning.
-const maxDerivedKeyOrdinal = 1000
-
 // slugify reduces a display name to the ASCII key alphabet, returning "" when
 // nothing survives. Lowercase because `multica issue status <id> human_review`
 // has to be unambiguous to type; runs of everything else collapse to a single
@@ -201,7 +196,7 @@ func slugify(name string) string {
 // refusal left is a name that slugs ONTO a built-in key: that is a naming
 // collision the admin should see rather than have quietly renamed, and it is
 // unchanged from before.
-func DeriveKey(name, category string, taken func(string) bool) (string, error) {
+func DeriveKey(name, category string, taken map[string]bool) (string, error) {
 	if slug := slugify(name); slug != "" {
 		if IsBuiltIn(slug) {
 			return "", fmt.Errorf("%q is a built-in status key and cannot be reused; rename the status or pass an explicit key", slug)
@@ -219,17 +214,28 @@ func DeriveKey(name, category string, taken func(string) bool) (string, error) {
 
 // firstFreeKey returns base when it is unclaimed, otherwise the first
 // base_<n> that is. n starts at 2 so the series reads as "the second one".
-func firstFreeKey(base string, taken func(string) bool) (string, error) {
+//
+// The scan is bounded by the CATALOG, not by a policy number. Every candidate
+// it tests is distinct, and at most len(taken)+7 keys can be occupied (the
+// workspace's own plus the built-ins), so by the pigeonhole principle a free
+// one has to turn up within that many attempts plus one. Picking a round
+// constant instead would invent a cap on custom statuses that exists nowhere
+// else in the product, and would fail with "provide one explicitly" — the very
+// error this package was changed to stop showing a UI that has no key field.
+func firstFreeKey(base string, taken map[string]bool) (string, error) {
 	if !keyOccupied(base, taken) {
 		return ValidateKey(base)
 	}
-	for n := 2; n <= maxDerivedKeyOrdinal; n++ {
+	limit := len(taken) + len(canonicalOrder) + 2
+	for n := 2; n <= limit; n++ {
 		suffix := "_" + strconv.Itoa(n)
 		candidate := truncateForSuffix(base, len(suffix)) + suffix
 		if !keyOccupied(candidate, taken) {
 			return ValidateKey(candidate)
 		}
 	}
+	// Unreachable by the argument above; kept so a future change to candidate
+	// generation surfaces as an error rather than an infinite loop.
 	return "", errors.New("could not derive an unused status key from that name; provide one explicitly")
 }
 
@@ -237,11 +243,11 @@ func firstFreeKey(base string, taken func(string) bool) (string, error) {
 // counts as occupied even in a workspace whose catalog rows have not been
 // seeded yet, so an unseeded workspace cannot mint a custom status that
 // shadows one.
-func keyOccupied(key string, taken func(string) bool) bool {
+func keyOccupied(key string, taken map[string]bool) bool {
 	if IsBuiltIn(key) {
 		return true
 	}
-	return taken != nil && taken(key)
+	return taken[key]
 }
 
 // truncateForSuffix shortens base so base+suffix fits maxKeyLen. The trailing
@@ -289,6 +295,33 @@ func Effective(ctx context.Context, q Querier, workspaceID pgtype.UUID, status s
 		return status
 	}
 	return entry.Category
+}
+
+// EffectiveAndName resolves a status to BOTH its category and its display name
+// in one catalog read, for payload builders that need the pair.
+//
+// Two separate calls would double the query on every background event carrying
+// a custom status. Same fail-safe direction as Effective: an unresolvable key
+// yields the key unchanged and an empty name.
+//
+// The name is empty for a built-in on purpose — clients localize those from the
+// key, so echoing the seeded English one would be the single string a
+// non-English workspace has to ignore. (MUL-6749)
+func EffectiveAndName(ctx context.Context, q Querier, workspaceID pgtype.UUID, status string) (string, string) {
+	if IsBuiltIn(status) {
+		return status, ""
+	}
+	entry, err := q.GetIssueStatusEntryByKey(ctx, db.GetIssueStatusEntryByKeyParams{
+		WorkspaceID: workspaceID,
+		Key:         status,
+	})
+	if err != nil {
+		return status, ""
+	}
+	if !IsCategory(entry.Category) {
+		return status, entry.Name
+	}
+	return entry.Category, entry.Name
 }
 
 // Resolve validates that status is usable in this workspace, returning the

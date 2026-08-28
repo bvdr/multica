@@ -3,6 +3,7 @@ package issuestatus
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -242,12 +243,12 @@ func TestValidateKeyRejectsReservedAndMalformed(t *testing.T) {
 
 // takenSet builds the DeriveKey callback from a literal list of keys the
 // workspace already owns.
-func takenSet(keys ...string) func(string) bool {
+func takenSet(keys ...string) map[string]bool {
 	owned := make(map[string]bool, len(keys))
 	for _, k := range keys {
 		owned[k] = true
 	}
-	return func(k string) bool { return owned[k] }
+	return owned
 }
 
 // TestDeriveKeyKeepsTheSlugForSluggableNames pins the behavior an English
@@ -411,6 +412,39 @@ func TestDeriveKeyKeepsSuffixedKeysWithinTheStorageLimit(t *testing.T) {
 	}
 	if _, err := ValidateKey(suffixed); err != nil {
 		t.Errorf("suffixed key %q fails the storage pattern: %v", suffixed, err)
+	}
+}
+
+// TestDeriveKeyScanIsBoundedByTheCatalogNotAConstant pins that disambiguation
+// keeps going as long as the workspace has keys to collide with. An arbitrary
+// ceiling would fail with "provide one explicitly" — the exact error a UI with
+// no key field cannot act on, which is the whole reason this package changed.
+func TestDeriveKeyScanIsBoundedByTheCatalogNotAConstant(t *testing.T) {
+	// Every candidate `zz`, `zz_2` … `zz_1200` is already taken, so a fixed
+	// 1000-ish bound would give up here.
+	keys := []string{"zz"}
+	for n := 2; n <= 1200; n++ {
+		keys = append(keys, "zz_"+strconv.Itoa(n))
+	}
+	got, err := DeriveKey("ZZ", Todo, takenSet(keys...))
+	if err != nil {
+		t.Fatalf("DeriveKey gave up on a large catalog: %v", err)
+	}
+	if got != "zz_1201" {
+		t.Errorf("DeriveKey = %q, want %q", got, "zz_1201")
+	}
+
+	// Same for the non-Latin fallback: the ordinal walks past any fixed cap.
+	keys = nil
+	for n := 2; n <= 1100; n++ {
+		keys = append(keys, "todo_"+strconv.Itoa(n))
+	}
+	got, err = DeriveKey("待排期", Todo, takenSet(keys...))
+	if err != nil {
+		t.Fatalf("non-Latin fallback gave up on a large catalog: %v", err)
+	}
+	if got != "todo_1101" {
+		t.Errorf("non-Latin fallback = %q, want %q", got, "todo_1101")
 	}
 }
 

@@ -1206,6 +1206,10 @@ export const IssueSchema = z.object({
   // consumers must fall back to `status` rather than treat "" as a category.
   // (MUL-6243)
   status_category: z.string().optional(),
+  // A CUSTOM status's display name; "" for a built-in, which clients localize
+  // from the key. Optional so a response from a server that predates the field
+  // still validates instead of degrading the whole issue to a stub. (MUL-6749)
+  status_name: z.string().optional(),
   priority: z.string(),
   assignee_type: z.string().nullable(),
   assignee_id: z.string().nullable(),

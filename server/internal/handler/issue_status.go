@@ -198,15 +198,18 @@ func (h *Handler) CreateIssueStatus(w http.ResponseWriter, r *http.Request) {
 // display name when it arrives empty.
 //
 // Derivation READS the catalog to choose a key nothing already owns, so the
-// read and the insert have to be a single atomic step. Two admins creating a
+// read and the insert have to be a single atomic step: two admins creating a
 // Chinese-named in_review status at the same instant would otherwise both
 // compute `in_review_2`, and the loser would be told a key they never typed was
 // already taken. The EXCLUSIVE catalog lock — the same one archive takes —
 // serializes them.
 //
-// The lock is taken ONLY on the derive path. An explicit key reads nothing, so
-// it keeps the lock-free insert it has always had, with the unique index as its
-// arbiter.
+// EVERY create takes that lock, including one that supplies its own key.
+// Excluding those would leave the race half-closed: an explicit-key insert of
+// `in_review_2` could still land between a derive's catalog read and its
+// insert, and the derive — a UI request with no key field to blame — would come
+// back 409. The lock is only contended by catalog writes, which are rare admin
+// actions, so serializing them costs nothing worth keeping the hole for.
 //
 // A non-empty second return is a caller error the handler reports as 400,
 // distinct from a nil-error success and from an infrastructure failure.
@@ -218,10 +221,11 @@ func (h *Handler) createIssueStatusEntry(ctx context.Context, workspaceID pgtype
 	defer tx.Rollback(ctx)
 	qtx := h.Queries.WithTx(tx)
 
+	if err := qtx.LockIssueStatusCatalog(ctx, workspaceID); err != nil {
+		return db.IssueStatus{}, "", err
+	}
+
 	if arg.Key == "" {
-		if err := qtx.LockIssueStatusCatalog(ctx, workspaceID); err != nil {
-			return db.IssueStatus{}, "", err
-		}
 		// IncludeArchived, because idx_issue_status_workspace_key is NOT a
 		// partial index: a retired status still owns its key, so reusing it
 		// would fail on insert instead of producing a second candidate.
@@ -236,7 +240,7 @@ func (h *Handler) createIssueStatusEntry(ctx context.Context, workspaceID pgtype
 		for _, e := range entries {
 			taken[e.Key] = true
 		}
-		key, err := issuestatus.DeriveKey(arg.Name, arg.Category, func(k string) bool { return taken[k] })
+		key, err := issuestatus.DeriveKey(arg.Name, arg.Category, taken)
 		if err != nil {
 			return db.IssueStatus{}, err.Error(), nil
 		}

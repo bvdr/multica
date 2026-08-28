@@ -51,9 +51,16 @@ type IssueResponse struct {
 	// consumer that only ever sees `status` is not left holding a bare handle.
 	// A key derived from a non-Latin name is opaque by construction
 	// (`in_review_2`), and an agent reading an issue has nothing else to match
-	// against the status a human named for it. Empty for the built-ins, which
-	// every client localizes from the key. (MUL-6749)
-	StatusName    string  `json:"status_name,omitempty"`
+	// against the status a human named for it.
+	//
+	// Always emitted, unlike StatusCategory. Empty is a MEANING here — "this is
+	// a built-in, localize it from the key" — not the "this endpoint did not
+	// resolve it" that an absent status_category signals. Keeping the key
+	// present is also what lets TestIssueToMap_KeysMatchIssueResponse see the
+	// field at all: with omitempty a built-in fixture hides it from BOTH
+	// renderings, and the drift guard goes green on a payload that has drifted.
+	// (MUL-6749)
+	StatusName    string  `json:"status_name"`
 	Priority      string  `json:"priority"`
 	AssigneeType  *string `json:"assignee_type"`
 	AssigneeID    *string `json:"assignee_id"`
