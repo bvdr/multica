@@ -415,6 +415,23 @@ func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, que
 	gcCtx, cancelGC := context.WithTimeout(ctx, budget)
 	defer cancelGC()
 
+	blockedCtx, cancelBlocked := context.WithTimeout(gcCtx, runtimeGCOperationTimeout)
+	blocked, err := queries.CountStaleOfflineRuntimesBlockedByTasks(blockedCtx, db.CountStaleOfflineRuntimesBlockedByTasksParams{
+		StaleSeconds: offlineRuntimeTTLSeconds,
+		MaxRows:      runtimeGCBacklogScanLimit,
+	})
+	cancelBlocked()
+	if err != nil {
+		slog.Warn("runtime GC: failed to count task-blocked runtimes", "error", err)
+		metrics.RecordRuntimeGCBlockedObservationFailed()
+	} else {
+		metrics.SetRuntimeGCBlocked(blocked)
+		if blocked > 0 {
+			slog.Debug("runtime GC: stale runtimes blocked by non-terminal tasks",
+				"count", blocked, "count_capped", blocked == runtimeGCBacklogScanLimit)
+		}
+	}
+
 	countCtx, cancelCount := context.WithTimeout(gcCtx, runtimeGCOperationTimeout)
 	backlog, err := queries.CountStaleOfflineRuntimeGCBacklogByReason(countCtx, db.CountStaleOfflineRuntimeGCBacklogByReasonParams{
 		StaleSeconds: offlineRuntimeTTLSeconds,
@@ -428,6 +445,7 @@ func gcRuntimesWithBudget(ctx context.Context, txStarter runtimeGCTxStarter, que
 		for _, reason := range []string{
 			obsmetrics.RuntimeGCBacklogActiveAgent,
 			obsmetrics.RuntimeGCBacklogNonTerminalTask,
+			obsmetrics.RuntimeGCBacklogWorkspaceMismatch,
 			obsmetrics.RuntimeGCBacklogEligible,
 		} {
 			metrics.SetRuntimeGCBacklog(reason, 0)

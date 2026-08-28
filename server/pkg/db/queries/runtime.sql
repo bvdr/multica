@@ -531,14 +531,37 @@ SELECT EXISTS (
 -- aborts the transaction instead of relying on the legacy ON DELETE CASCADE.
 SELECT count(*) FROM agent_task_queue WHERE runtime_id = $1;
 
+-- name: CountStaleOfflineRuntimesBlockedByTasks :one
+-- Preserve the original blocked-runtimes signal for dashboard and alert
+-- compatibility. This deliberately counts only otherwise-unowned stale
+-- runtimes with a directly pinned non-terminal task; the broader reason
+-- inventory below is exposed under a separate backlog metric.
+SELECT count(*) FROM (
+  SELECT 1 FROM agent_runtime
+  WHERE status = 'offline'
+    AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM agent
+      WHERE agent.runtime_id = agent_runtime.id
+    )
+    AND EXISTS (
+      SELECT 1
+      FROM agent_task_queue
+      WHERE agent_task_queue.runtime_id = agent_runtime.id
+        AND agent_task_queue.completed_at IS NULL
+    )
+  LIMIT @max_rows::int
+) AS blocked_runtimes;
+
 -- name: CountStaleOfflineRuntimeGCBacklogByReason :many
 -- Classifies one bounded oldest-first cohort into mutually exclusive states.
--- active_agent has priority over non_terminal_task so the bucket sum is the
--- exact size of the sampled stale backlog. The task branch mirrors teardown's
--- fail-closed predicate, including tasks owned by a bound user agent but pinned
--- to another runtime after a historical move.
+-- active_agent has priority because it already makes the runtime ineligible;
+-- archived cross-workspace bindings get their own diagnostic bucket. The task
+-- branch mirrors teardown's fail-closed predicate, including tasks owned by a
+-- bound user agent but pinned to another runtime after a historical move.
 WITH stale_runtimes AS MATERIALIZED (
-  SELECT id FROM agent_runtime
+  SELECT id, workspace_id FROM agent_runtime
   WHERE status = 'offline'
     AND last_seen_at < now() - make_interval(secs => @stale_seconds::double precision)
   ORDER BY last_seen_at ASC, id ASC
@@ -552,15 +575,25 @@ WITH stale_runtimes AS MATERIALIZED (
         AND agent.archived_at IS NULL
     ) THEN 'active_agent'::text
     WHEN EXISTS (
+      SELECT 1 FROM agent
+      WHERE agent.runtime_id = stale_runtimes.id
+        AND agent.kind = 'user'
+        AND agent.workspace_id <> stale_runtimes.workspace_id
+    ) THEN 'workspace_mismatch'::text
+    WHEN EXISTS (
       SELECT 1 FROM agent_task_queue AS task
-      WHERE task.completed_at IS NULL
-        AND (
-          task.runtime_id = stale_runtimes.id
-          OR task.agent_id IN (
-            SELECT agent.id FROM agent
-            WHERE agent.runtime_id = stale_runtimes.id
-              AND agent.kind = 'user'
-          )
+      WHERE task.runtime_id = stale_runtimes.id
+        AND task.completed_at IS NULL
+    ) OR EXISTS (
+      SELECT 1
+      FROM agent AS owner
+      WHERE owner.runtime_id = stale_runtimes.id
+        AND owner.kind = 'user'
+        AND EXISTS (
+          SELECT 1
+          FROM agent_task_queue AS task
+          WHERE task.agent_id = owner.id
+            AND task.completed_at IS NULL
         )
     ) THEN 'non_terminal_task'::text
     ELSE 'eligible'::text

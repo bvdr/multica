@@ -443,6 +443,15 @@ func (h *Handler) DeleteRuntimeProfile(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
+			if errors.Is(err, service.ErrRuntimeWorkspaceMismatch) {
+				slog.Error("runtime profile delete aborted: agent workspace mismatch",
+					"runtime_id", uuidToString(rid), "profile_id", uuidToString(profileUUID), "error", err)
+				writeJSON(w, http.StatusConflict, map[string]any{
+					"error": "a runtime of this profile has an invalid cross-workspace agent binding.",
+					"code":  "runtime_delete_workspace_mismatch",
+				})
+				return
+			}
 			slog.Error("runtime profile delete teardown failed",
 				"runtime_id", uuidToString(rid), "profile_id", uuidToString(profileUUID), "error", err)
 			writeError(w, http.StatusInternalServerError, "failed to unbind agents")

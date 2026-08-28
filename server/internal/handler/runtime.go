@@ -909,6 +909,15 @@ func (h *Handler) DeleteAgentRuntime(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		if errors.Is(err, service.ErrRuntimeWorkspaceMismatch) {
+			slog.Error("runtime delete aborted: agent workspace mismatch",
+				"runtime_id", uuidToString(rt.ID), "error", err)
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error": "the runtime has an invalid cross-workspace agent binding.",
+				"code":  "runtime_delete_workspace_mismatch",
+			})
+			return
+		}
 		slog.Error("runtime delete teardown failed", "runtime_id", uuidToString(rt.ID), "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to delete runtime")
 		return

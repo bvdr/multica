@@ -53,7 +53,8 @@ func ValidateRuntimeAgentWorkspaces(runtime db.AgentRuntime, agents []db.Agent) 
 //
 // User agents are persistent business objects and survive unbound. System
 // agents are runtime-local infrastructure and are deleted only after their
-// non-FK dependencies are pruned. Task history is detached before runtime
+// non-FK dependencies are pruned; their runtime-local builder drafts and chat
+// draft restores are deleted with them. Task history is detached before runtime
 // deletion so the legacy ON DELETE CASCADE cannot erase it.
 func TeardownRuntime(ctx context.Context, qtx *db.Queries, runtimeID pgtype.UUID, opts RuntimeTeardownOptions) (RuntimeTeardownResult, error) {
 	var out RuntimeTeardownResult

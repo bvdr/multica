@@ -28,9 +28,10 @@ const (
 	RuntimeGCSkipNonTerminalTask    = "non_terminal_task"
 	RuntimeGCSkipWorkspaceMismatch  = "workspace_mismatch"
 
-	RuntimeGCBacklogActiveAgent     = "active_agent"
-	RuntimeGCBacklogNonTerminalTask = "non_terminal_task"
-	RuntimeGCBacklogEligible        = "eligible"
+	RuntimeGCBacklogActiveAgent       = "active_agent"
+	RuntimeGCBacklogNonTerminalTask   = "non_terminal_task"
+	RuntimeGCBacklogWorkspaceMismatch = "workspace_mismatch"
+	RuntimeGCBacklogEligible          = "eligible"
 )
 
 type activeTaskLabels struct {
@@ -66,6 +67,7 @@ type BusinessMetrics struct {
 	runtimeGCDeleted                  prometheus.Counter
 	runtimeGCFailed                   prometheus.Counter
 	runtimeGCSkipped                  *prometheus.CounterVec
+	runtimeGCBlocked                  prometheus.Gauge
 	runtimeGCBacklog                  *prometheus.GaugeVec
 	runtimeGCBlockedObservationFailed prometheus.Counter
 	entitlementConfigError            prometheus.Counter
@@ -243,12 +245,18 @@ func NewBusinessMetrics() *BusinessMetrics {
 			Name:      "skipped_total",
 			Help:      "Total runtime garbage-collection candidates safely skipped by reason.",
 		}, metricLabels("multica_runtime_gc_skipped_total")),
-		runtimeGCBacklog: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		runtimeGCBlocked: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "multica",
 			Subsystem: "runtime_gc",
 			Name:      "blocked_runtimes",
+			Help:      "Bounded count of stale offline runtimes blocked from garbage collection by non-terminal tasks.",
+		}),
+		runtimeGCBacklog: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "multica",
+			Subsystem: "runtime_gc",
+			Name:      "backlog_runtimes",
 			Help:      "Bounded oldest-first sample of stale offline runtimes classified by garbage-collection state.",
-		}, metricLabels("multica_runtime_gc_blocked_runtimes")),
+		}, metricLabels("multica_runtime_gc_backlog_runtimes")),
 		runtimeGCBlockedObservationFailed: prometheus.NewCounter(prometheus.CounterOpts{
 			Namespace: "multica",
 			Subsystem: "runtime_gc",
@@ -290,7 +298,7 @@ func NewBusinessMetrics() *BusinessMetrics {
 	for _, reason := range []string{RuntimeGCSkipEligibilityChanged, RuntimeGCSkipNonTerminalTask, RuntimeGCSkipWorkspaceMismatch} {
 		m.runtimeGCSkipped.WithLabelValues(reason).Add(0)
 	}
-	for _, reason := range []string{RuntimeGCBacklogActiveAgent, RuntimeGCBacklogNonTerminalTask, RuntimeGCBacklogEligible} {
+	for _, reason := range []string{RuntimeGCBacklogActiveAgent, RuntimeGCBacklogNonTerminalTask, RuntimeGCBacklogWorkspaceMismatch, RuntimeGCBacklogEligible} {
 		m.runtimeGCBacklog.WithLabelValues(reason).Set(0)
 	}
 	return m
@@ -323,6 +331,7 @@ func (m *BusinessMetrics) Collectors() []prometheus.Collector {
 		m.runtimeGCDeleted,
 		m.runtimeGCFailed,
 		m.runtimeGCSkipped,
+		m.runtimeGCBlocked,
 		m.runtimeGCBacklog,
 		m.runtimeGCBlockedObservationFailed,
 		m.entitlementConfigError,
@@ -407,6 +416,13 @@ func (m *BusinessMetrics) SetRuntimeGCBacklog(reason string, count int64) {
 	m.runtimeGCBacklog.WithLabelValues(normalizeRuntimeGCBacklogReason(reason)).Set(float64(count))
 }
 
+func (m *BusinessMetrics) SetRuntimeGCBlocked(count int64) {
+	if m == nil {
+		return
+	}
+	m.runtimeGCBlocked.Set(float64(count))
+}
+
 func (m *BusinessMetrics) RecordRuntimeGCBlockedObservationFailed() {
 	if m == nil {
 		return
@@ -425,7 +441,7 @@ func normalizeRuntimeGCSkipReason(reason string) string {
 
 func normalizeRuntimeGCBacklogReason(reason string) string {
 	switch reason {
-	case RuntimeGCBacklogActiveAgent, RuntimeGCBacklogNonTerminalTask, RuntimeGCBacklogEligible:
+	case RuntimeGCBacklogActiveAgent, RuntimeGCBacklogNonTerminalTask, RuntimeGCBacklogWorkspaceMismatch, RuntimeGCBacklogEligible:
 		return reason
 	default:
 		return "unknown"
