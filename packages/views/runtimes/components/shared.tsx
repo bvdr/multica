@@ -96,7 +96,7 @@ const HEALTH_LABEL_EN: Record<RuntimeHealth, string> = {
   online: "Online",
   recently_lost: "Recently lost",
   offline: "Offline",
-  long_offline: "Offline 6+ days",
+  long_offline: "Long offline",
 };
 
 export function healthLabel(health: RuntimeHealth | "loading"): string {

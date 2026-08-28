@@ -105,8 +105,8 @@
       "description": "No heartbeat for 5+ minutes. Restart the daemon or investigate the host."
     },
     "long_offline": {
-      "label": "Offline 6+ days",
-      "description": "No heartbeat for 6+ days. Restart the daemon or investigate the host."
+      "label": "Long offline",
+      "description": "No heartbeat for 6+ days. If this host will stay offline, rebind its agents to another runtime or delete this runtime."
     }
   },
   "detail": {
