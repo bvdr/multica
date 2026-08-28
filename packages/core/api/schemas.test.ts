@@ -178,6 +178,18 @@ describe("IssueSchema (via ListIssuesResponseSchema)", () => {
     });
     expect(parsed.issues[0]?.status_name).toBe("客户确认");
   });
+  it("drops only a malformed status_name, keeping the issue and the list", () => {
+    for (const bad of [42, { name: "x" }, ["x"], true]) {
+      const parsed = ListIssuesResponseSchema.parse({
+        issues: [{ ...baseIssue, status: "in_review_2", status_name: bad }],
+        total: 1,
+      });
+      expect(parsed.issues).toHaveLength(1);
+      expect(parsed.issues[0]?.id).toBe(baseIssue.id);
+      expect(parsed.issues[0]?.status).toBe("in_review_2");
+      expect(parsed.issues[0]?.status_name).toBeUndefined();
+    }
+  });
   it("still parses an issue from a server that does not send status_name", () => {
     const { status_name: _omitted, ...withoutName } = { ...baseIssue, status_name: "x" };
     const parsed = ListIssuesResponseSchema.parse({ issues: [withoutName], total: 1 });

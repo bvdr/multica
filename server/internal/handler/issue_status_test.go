@@ -1591,87 +1591,110 @@ func TestExplicitKeyCreateAlsoTakesTheCatalogLock(t *testing.T) {
 // fix: whatever else is writing the catalog, a create that supplied no key must
 // never come back 409. A caller who typed a key CAN legitimately be told it is
 // taken; a caller who typed only a display name has nothing to correct.
+//
+// Every result carries WHICH kind of writer produced it. Counting successes
+// without that — the first version of this test did — lets an explicit writer's
+// 201 stand in for a derived writer's 409 and passes on exactly the regression
+// it exists to catch.
+//
+// This is a probabilistic net, not a proof: the window it hunts for is the few
+// microseconds between a derive's catalog read and its insert, and in-process
+// it does not reliably open. TestExplicitKeyCreateAlsoTakesTheCatalogLock is
+// the deterministic guard on the lock itself — this one guards the OUTCOME, so
+// that any future path which lets a keyless create conflict shows up here even
+// if the lock is still nominally taken. Do not delete one for the other.
 func TestConcurrentDerivedCreatesNeverConflict(t *testing.T) {
 	seedTestCatalog(t)
 
-	const derived = 6
+	const derivedWriters = 6
+	const rounds = 4
 	type result struct {
-		code int
-		key  string
-		body string
-	}
-	results := make(chan result, derived+2)
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-
-	// Six admins naming a status in a non-Latin script, all in one category, so
-	// every one of them derives from the same base.
-	for i := range derived {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			<-start
-			rec := httptest.NewRecorder()
-			testHandler.CreateIssueStatus(rec, newRequest(http.MethodPost, "/api/issue-statuses", map[string]any{
-				"name": fmt.Sprintf("客户确认%d", i), "category": issuestatus.Blocked, "color": "#123456",
-			}))
-			var created IssueStatusResponse
-			json.Unmarshal(rec.Body.Bytes(), &created)
-			results <- result{rec.Code, created.Key, rec.Body.String()}
-		}(i)
-	}
-	// Two explicit-key writers aiming straight at the ordinals the derives want.
-	for _, key := range []string{"blocked_2", "blocked_3"} {
-		wg.Add(1)
-		go func(key string) {
-			defer wg.Done()
-			<-start
-			rec := httptest.NewRecorder()
-			testHandler.CreateIssueStatus(rec, newRequest(http.MethodPost, "/api/issue-statuses", map[string]any{
-				"name": "Zz " + key, "key": key, "category": issuestatus.Blocked, "color": "#123456",
-			}))
-			var created IssueStatusResponse
-			json.Unmarshal(rec.Body.Bytes(), &created)
-			results <- result{rec.Code, created.Key, rec.Body.String()}
-		}(key)
+		derived bool
+		label   string
+		code    int
+		key     string
+		body    string
 	}
 
-	close(start)
-	wg.Wait()
-	close(results)
+	for round := range rounds {
+		t.Run(fmt.Sprintf("round-%d", round), func(t *testing.T) {
+			results := make(chan result, derivedWriters+2)
+			start := make(chan struct{})
+			var wg sync.WaitGroup
 
-	t.Cleanup(func() {
-		testPool.Exec(context.Background(),
-			`DELETE FROM issue_status WHERE workspace_id = $1 AND category = 'blocked' AND is_system = FALSE`,
-			parseUUID(testWorkspaceID))
-	})
-
-	seen := map[string]bool{}
-	derivedOK := 0
-	for r := range results {
-		switch r.code {
-		case http.StatusCreated:
-			if seen[r.key] {
-				t.Errorf("two statuses were created with the same key %q", r.key)
+			post := func(derived bool, label string, body map[string]any) {
+				defer wg.Done()
+				<-start
+				rec := httptest.NewRecorder()
+				testHandler.CreateIssueStatus(rec, newRequest(http.MethodPost, "/api/issue-statuses", body))
+				var created IssueStatusResponse
+				json.Unmarshal(rec.Body.Bytes(), &created)
+				results <- result{derived, label, rec.Code, created.Key, rec.Body.String()}
 			}
-			seen[r.key] = true
-			if issuestatus.IsBuiltIn(r.key) {
-				t.Errorf("a custom status shadowed the built-in key %q", r.key)
+
+			// Admins naming a status in a non-Latin script, all in one category,
+			// so every one of them derives from the same base.
+			for i := range derivedWriters {
+				name := fmt.Sprintf("客户确认%d-%d", round, i)
+				wg.Add(1)
+				go post(true, name, map[string]any{
+					"name": name, "category": issuestatus.Blocked, "color": "#123456",
+				})
 			}
-			derivedOK++
-		case http.StatusConflict:
-			// Only tolerable for a caller who typed the key themselves.
-			if !strings.Contains(r.body, "already exists") {
-				t.Errorf("unexpected 409 body: %s", r.body)
+			// Explicit writers aiming straight at the ordinals the derives want.
+			for _, key := range []string{"blocked_2", "blocked_3"} {
+				wg.Add(1)
+				go post(false, key, map[string]any{
+					"name": fmt.Sprintf("Zz %s %d", key, round), "key": key,
+					"category": issuestatus.Blocked, "color": "#123456",
+				})
 			}
-		default:
-			t.Errorf("unexpected status %d: %s", r.code, r.body)
-		}
-	}
-	// Every derived create must have landed; only the two explicit writers may
-	// have lost a race for a key they named themselves.
-	if derivedOK < derived {
-		t.Errorf("%d of %d creates succeeded; a create with no key must never conflict", derivedOK, derived)
+
+			close(start)
+			wg.Wait()
+			close(results)
+
+			t.Cleanup(func() {
+				testPool.Exec(context.Background(),
+					`DELETE FROM issue_status WHERE workspace_id = $1 AND category = 'blocked' AND is_system = FALSE`,
+					parseUUID(testWorkspaceID))
+			})
+
+			seen := map[string]bool{}
+			derivedSucceeded := 0
+			for r := range results {
+				switch {
+				case r.derived && r.code != http.StatusCreated:
+					// The regression this test exists for: a writer with no key
+					// field to correct was told to correct one.
+					t.Errorf("derived create %q returned %d, want 201 — a create with no key must never conflict: %s",
+						r.label, r.code, r.body)
+					continue
+				case !r.derived && r.code != http.StatusCreated && r.code != http.StatusConflict:
+					t.Errorf("explicit create %q returned %d, want 201 or 409: %s", r.label, r.code, r.body)
+					continue
+				case r.code == http.StatusConflict:
+					// Only reachable for an explicit writer, by the branch above.
+					if !strings.Contains(r.body, "already exists") {
+						t.Errorf("unexpected 409 body for %q: %s", r.label, r.body)
+					}
+					continue
+				}
+				if seen[r.key] {
+					t.Errorf("two statuses were created with the same key %q", r.key)
+				}
+				seen[r.key] = true
+				if issuestatus.IsBuiltIn(r.key) {
+					t.Errorf("a custom status shadowed the built-in key %q", r.key)
+				}
+				if r.derived {
+					derivedSucceeded++
+				}
+			}
+			if derivedSucceeded != derivedWriters {
+				t.Errorf("%d of %d DERIVED creates succeeded", derivedSucceeded, derivedWriters)
+			}
+		})
 	}
 }
 
