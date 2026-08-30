@@ -325,6 +325,7 @@
     "add_sub_issues": "添加子任务",
     "add_sub_issue_tooltip": "添加子任务",
     "add_sub_issue_aria": "添加子任务",
+    "select_all_sub_issues_aria": "全选子任务",
     "section_properties": "属性",
     "section_parent_issue": "父任务",
     "section_pull_requests": "Pull Request",

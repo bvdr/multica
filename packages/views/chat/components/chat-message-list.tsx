@@ -718,7 +718,10 @@ function QuickActions({
 
   return (
     <div className="mt-2 border-t border-border/40 pt-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
-      <div className="flex flex-wrap items-center gap-2" aria-label="Suggested follow-ups">
+      <div
+        className="flex flex-wrap items-center gap-2"
+        aria-label={t(($) => $.message_list.quick_actions_aria)}
+      >
         <QuickActionsHeading />
         {actions.slice(0, 3).map((action, index) => (
           // The whole pill previews its hidden prompt on hover: clicking

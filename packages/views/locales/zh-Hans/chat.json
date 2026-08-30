@@ -78,6 +78,7 @@
     "copy_failed_toast": "复制失败",
     "loading_older": "正在加载更早的消息…",
     "quick_actions_heading": "后续提问",
+    "quick_actions_aria": "后续提问建议",
     "quick_actions_regenerate": "重新生成建议",
     "quick_actions_regenerate_failed": "无法重新生成建议，请重试。"
   },

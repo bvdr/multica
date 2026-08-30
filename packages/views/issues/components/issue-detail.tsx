@@ -3213,7 +3213,7 @@ export function IssueDetail({ issueId, onDelete, onDone, defaultSidebarOpen = tr
                       if (el) el.indeterminate = someChildrenSelected && !allChildrenSelected;
                     }}
                     onChange={handleToggleSelectAllChildren}
-                    aria-label="Select all sub-issues"
+                    aria-label={t(($) => $.detail.select_all_sub_issues_aria)}
                     className={cn(
                       "ml-1 cursor-pointer accent-primary transition-opacity",
                       someChildrenSelected
