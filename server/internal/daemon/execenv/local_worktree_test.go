@@ -1769,3 +1769,81 @@ func TestPrepareLocalWorktreeAlwaysGivesANewBranchACommitOfItsOwn(t *testing.T) 
 		t.Error("a turn that changed nothing left its branch behind")
 	}
 }
+
+// A follow-up turn brings the user's newest edits in as its own baseline
+// commit, and that commit — not the checkpoint the previous turn left — is what
+// the delivery has to keep. A run that resets past it has not delivered those
+// edits, and recording them as delivered is how they disappear from every later
+// turn without anyone seeing it.
+func TestFinalizeRefusesWhenAFollowUpResetsPastTheUserEditsItReplayed(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "agent.txt"), "turn one\n")
+	finalizeOK(t, first)
+	firstTip := gitRun(t, repo, "rev-parse", "agent/j/mul-6881")
+
+	// Between the turns the user edits a file of their own.
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "the user's newest edit\n")
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if !second.Continued {
+		t.Fatal("second turn did not continue the conversation's branch")
+	}
+	if got := readFile(t, filepath.Join(second.WorkDir, "tracked.txt")); got != "the user's newest edit\n" {
+		t.Fatalf("second turn did not replay the user's edit: %q", got)
+	}
+	// The agent throws the turn away, landing back on what turn one delivered.
+	gitRun(t, second.Path, "reset", "--hard", firstTip)
+
+	if _, err := second.Finalize(worktreeTestLogger()); err == nil {
+		t.Fatal("Finalize recorded the user's edits as delivered after they were reset away")
+	}
+	if _, statErr := os.Stat(second.Path); statErr != nil {
+		t.Errorf("worktree removed despite refusing the delivery: %v", statErr)
+	}
+	_ = removeLocalWorktreeDir(repo, second.Path, worktreeTestLogger())
+
+	// The property that matters: the third turn still sees the user's edit,
+	// whichever branch it ends up on.
+	third := prepareTurn(t, repo, "MUL-6881", turnThreeTask)
+	if got := readFile(t, filepath.Join(third.WorkDir, "tracked.txt")); got != "the user's newest edit\n" {
+		t.Errorf("third turn tracked.txt = %q, want the user's edit still present", got)
+	}
+	finalizeOK(t, third)
+}
+
+// The same rule where the merge conflicted: the branch only carries this turn's
+// snapshot once something is committed after the agent resolves. A resolution
+// that leaves no commit is indistinguishable from throwing the merge away, so
+// the record stays where it was and the edits come back next turn.
+func TestConflictResolvedWithoutACommitDoesNotAdvanceTheRecord(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "tracked.txt"), "rewritten by the agent\n")
+	finalizeOK(t, first)
+
+	// The user rewrites the same line, so the next turn starts mid-merge.
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "rewritten by the user instead\n")
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if len(second.ReplayConflicts) == 0 {
+		t.Fatal("second turn saw no conflict")
+	}
+	// The agent resolves in favour of what the branch already had, which leaves
+	// the tree exactly as it was and nothing to commit.
+	writeFile(t, filepath.Join(second.WorkDir, "tracked.txt"), "rewritten by the agent\n")
+	gitRun(t, second.Path, "add", "tracked.txt")
+	if outcome := finalizeOK(t, second); outcome.Branch != "agent/j/mul-6881" {
+		t.Fatalf("resolved turn delivered %q", outcome.Branch)
+	}
+
+	// Because nothing was committed, the user's edit is offered again rather
+	// than being recorded as something the branch took.
+	third := prepareTurn(t, repo, "MUL-6881", turnThreeTask)
+	if len(third.ReplayConflicts) == 0 {
+		t.Error("the user's edit was recorded as delivered even though no commit carried it")
+	}
+	finalizeAndDiscardForTest(t, third)
+}

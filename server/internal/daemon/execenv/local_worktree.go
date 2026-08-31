@@ -183,13 +183,26 @@ type LocalWorktree struct {
 	// task-scoped branch, or the one a busy sibling forked. Recording a
 	// snapshot for those would leave a ref nothing ever reads.
 	tracksState bool
-	// anchor is a commit this conversation is known to have put on the branch:
-	// the baseline this prepare committed, or the checkpoint a previous turn
-	// recorded and this one verified. Finalize refuses to record a delivery
-	// that no longer contains it — a tip without the anchor is a commit the
-	// user could equally be sitting at, and recording one is what would let a
-	// branch they recreate under the same name pass the ownership check.
+	// anchor is the newest commit known to carry userState into the branch: the
+	// baseline this prepare committed, or — when there was nothing to commit —
+	// the checkpoint a previous turn recorded and this one verified. Finalize
+	// refuses to record a delivery that no longer contains it.
+	//
+	// It proves two different things, which is why it has to track the LATEST
+	// such commit rather than any one of them. A tip without it is a commit the
+	// user could equally be sitting at, so recording one would let a branch they
+	// recreate under the same name pass the ownership check. And a tip without
+	// it no longer carries the snapshot this turn is about to record as
+	// delivered, so the next turn would compute its replay from a state the
+	// branch never took and the user's edits would go missing (MUL-6881 review).
 	anchor string
+	// priorState is the snapshot the branch carried when this turn started, and
+	// the one to record when this turn could not get its own into the branch.
+	priorState string
+	// snapshotPending is set when Prepare left the user's edits unmerged in the
+	// worktree: the branch does not carry userState yet, and only a commit made
+	// after the agent resolves can put it there.
+	snapshotPending bool
 	// aborted, when set, makes Finalize refuse to commit or remove anything.
 	// Set by the daemon when a pre-commit step failed in a way that would make
 	// the committed branch wrong (see AbortWithReason).
@@ -324,6 +337,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		Continued:     plan.continues,
 		createdBranch: createdBranch,
 		userState:     userState,
+		priorState:    plan.priorState,
 		owner:         plan.owner,
 		anchor:        plan.priorCheckpoint,
 		// A branch a sibling task forked because the conversation's own branch
@@ -357,6 +371,9 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		return nil, replayErr
 	}
 	wt.ReplayConflicts = replay.conflicts
+	// An unresolved merge means the branch does not carry this turn's snapshot
+	// yet; only a commit after the agent resolves can put it there.
+	wt.snapshotPending = len(replay.conflicts) > 0
 	// Whether the user has uncommitted work at all — replayed by this turn or
 	// already carried by the branch it continued.
 	_, diffErr := runGit(gitRoot, "diff", "--quiet", headSHA, userState)
@@ -395,12 +412,13 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 				rollback()
 				return nil, fmt.Errorf("execenv: could not record a baseline commit for the replayed state of %q: %w", gitRoot, baseErr)
 			}
+			// This commit exists only because this task made it, and it is the
+			// commit that carries the snapshot into the branch — so it replaces
+			// whatever the previous turn left as the anchor. Keeping the older
+			// one would let a run reset away this turn's baseline and still be
+			// recorded as having delivered the user's newest edits.
 			wt.BaseCommit = baseline
-			if !plan.continues {
-				// This commit exists only because this task made it, which is what
-				// makes it usable as proof later.
-				wt.anchor = baseline
-			}
+			wt.anchor = baseline
 		}
 		// The branch now carries this snapshot, so record it — together with the
 		// owner, which is what lets the next task prove this branch is its own
@@ -549,6 +567,33 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 	tip, err := runGitTrimmed(w.Path, "rev-parse", "--verify", "HEAD")
 	producedWork := err != nil || tip != w.BaseCommit
 	dropped := !producedWork && w.createdBranch
+
+	// A turn that started mid-merge only gets to advance the branch's recorded
+	// state if it committed something after resolving. When the branch never
+	// moved, nothing distinguishes "the agent resolved in favour of the version
+	// already on the branch" from "the agent threw the merge away" — the tree is
+	// identical either way — so the record keeps the state the branch is known
+	// to carry, and the next turn offers the user's edits again.
+	//
+	// The cost is a merge the agent may have to conclude more than once, in the
+	// one case where its conclusion left no trace. The alternative is recording
+	// edits as delivered that may have been discarded, which is how they go
+	// missing without anyone seeing it.
+	if w.snapshotPending && tip == w.anchor {
+		if w.priorState == "" {
+			outcome.Branch = ""
+			outcome.PreservedPath = w.Path
+			return outcome, fmt.Errorf(
+				"refusing to record branch %s: the merge with your local edits was never concluded and this branch has no earlier "+
+					"state to fall back on; the task worktree is preserved at %s (listed by `git worktree list` in %s)",
+				w.Branch, w.Path, w.GitRoot)
+		}
+		if logger != nil {
+			logger.Info("execenv: the run concluded its merge without committing; keeping the branch's previous recorded state so the edits are offered again",
+				"path", w.Path, "branch", w.Branch)
+		}
+		w.userState = w.priorState
+	}
 
 	// Record BEFORE the worktree goes away, and treat a failure as a failure to
 	// deliver. The record is what makes the branch continuable: without it the
