@@ -734,6 +734,33 @@ SET status = 'cancelled', completed_at = now(), prepare_lease_expires_at = NULL
 WHERE chat_session_id = $1 AND status IN ('queued', 'dispatched', 'running', 'waiting_local_directory', 'deferred')
 RETURNING *;
 
+-- name: ReleaseAgentTaskStopLease :one
+-- The daemon confirmed a cancelled run actually stopped. It posts the
+-- cancel-ack only after runTask has returned, which is the same moment its
+-- env root lock is released — so this is the earliest point at which a
+-- successor for the same (issue, agent) can safely start. Dropping the lease
+-- here is what turns the 30s deadline into a rarely-reached backstop instead
+-- of the normal wait (MUL-6880).
+--
+-- Returns a row only when a lease was actually released, so a replayed ack
+-- (the daemon retries this callback) costs one no-op UPDATE and no wakeup.
+UPDATE agent_task_queue
+SET stop_lease_expires_at = NULL
+WHERE id = $1 AND stop_lease_expires_at IS NOT NULL
+RETURNING *;
+
+-- name: ReleaseAgentTaskStopLeasesForRuntime :many
+-- A daemon that just restarted cannot still be executing anything from its
+-- previous incarnation, so every stop lease that incarnation left behind is
+-- stale by definition. Runs next to RecoverOrphanedTasksForRuntime, which
+-- fails that incarnation's in-flight rows for the same reason: without it, a
+-- crash between "agent killed" and "cancel-ack posted" would make the next
+-- task on that (issue, agent) wait out the full deadline (MUL-6880).
+UPDATE agent_task_queue
+SET stop_lease_expires_at = NULL
+WHERE runtime_id = $1 AND stop_lease_expires_at IS NOT NULL
+RETURNING *;
+
 -- name: GetAgentTask :one
 SELECT * FROM agent_task_queue
 WHERE id = $1;
@@ -770,8 +797,10 @@ WHERE atq.id = $1 AND a.workspace_id = $2;
 -- Claims the next queued task for an agent on one healthy runtime, enforcing
 -- per-(issue, agent) serialization:
 -- a task is only claimable when no other task for the same issue AND same agent is
--- already dispatched or running. This allows different agents to work on the same
--- issue in parallel while preventing a single agent from running duplicate tasks.
+-- already dispatched or running, or was cancelled so recently that its daemon may
+-- still be shutting it down (stop_lease_expires_at). This allows different agents
+-- to work on the same issue in parallel while preventing a single agent from
+-- running duplicate tasks.
 -- Chat tasks (issue_id IS NULL) use chat_session_id for serialization instead.
 -- Quick-create tasks have no issue / chat / autopilot link, so they serialize on
 -- "any other quick-create-shaped task" (all four FKs NULL) for the same agent —
@@ -816,7 +845,22 @@ WHERE id = (
       AND NOT EXISTS (
           SELECT 1 FROM agent_task_queue active
           WHERE active.agent_id = atq.agent_id
-            AND active.status IN ('dispatched', 'running', 'waiting_local_directory')
+            AND active.id <> atq.id
+            AND (
+              active.status IN ('dispatched', 'running', 'waiting_local_directory')
+              -- A cancelled run whose daemon has not yet confirmed it stopped
+              -- still owns the machine-side execution slot: its agent process
+              -- keeps running (and keeps the env root locked) until its own
+              -- cancel poll fires. Claiming the successor now is what made an
+              -- edited comment start a SECOND workdir and lose the provider
+              -- session (MUL-6880). See trg_arm_task_stop_lease.
+              --
+              -- Spelled with the status equality even though only a cancelled
+              -- row can carry a lease: every arm of this OR then matches on
+              -- status, so the subquery stays inside idx_agent_task_queue_agent
+              -- (agent_id, status) instead of scanning an agent's whole history.
+              OR (active.status = 'cancelled' AND active.stop_lease_expires_at > now())
+            )
             AND (
               (atq.issue_id IS NOT NULL AND active.issue_id = atq.issue_id)
               OR (atq.chat_session_id IS NOT NULL AND active.chat_session_id = atq.chat_session_id)

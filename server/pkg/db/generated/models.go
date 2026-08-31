@@ -172,6 +172,8 @@ type AgentTaskQueue struct {
 	BranchName                pgtype.Text `json:"branch_name"`
 	DurableWorkDir            pgtype.Text `json:"durable_work_dir"`
 	ChannelContextRevision    pgtype.Int8 `json:"channel_context_revision"`
+	// Cancelled-but-maybe-still-executing marker. While in the future, this row keeps blocking ClaimAgentTask for its (issue, agent) so a successor cannot race the dying run for the env root / provider session. Armed by trg_arm_task_stop_lease, cleared by the daemon cancel-ack and by runtime orphan recovery (MUL-6880).
+	StopLeaseExpiresAt pgtype.Timestamptz `json:"stop_lease_expires_at"`
 }
 
 type AgentToLabel struct {

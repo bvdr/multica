@@ -37,6 +37,13 @@ func (h *Handler) RecoverOrphanedTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A restarted daemon cannot still be shutting down a run its previous
+	// incarnation was cancelling, so any stop lease it left behind is stale.
+	// Clearing it alongside the orphan sweep keeps a crash between "agent
+	// killed" and "cancel-ack posted" from making the next task on that
+	// (issue, agent) wait out the lease deadline (MUL-6880).
+	staleLeases := h.TaskService.ReleaseStopLeasesForRuntime(r.Context(), parseUUID(runtimeID))
+
 	// Funnel through the shared post-failure pipeline so we get the same
 	// task:failed events, agent reconcile, issue rollback, and auto-retry
 	// behaviour as the runtime sweeper. This was previously a fast-path
@@ -44,11 +51,12 @@ func (h *Handler) RecoverOrphanedTasks(w http.ResponseWriter, r *http.Request) {
 	// was created (max_attempts exhausted, autopilot, non-retryable reason).
 	retried := h.TaskService.HandleFailedTasks(r.Context(), rows)
 
-	if len(rows) > 0 {
+	if len(rows) > 0 || staleLeases > 0 {
 		slog.Info("recover-orphans completed",
 			"runtime_id", runtimeID,
 			"orphaned", len(rows),
 			"retried", retried,
+			"stale_stop_leases", staleLeases,
 		)
 	}
 

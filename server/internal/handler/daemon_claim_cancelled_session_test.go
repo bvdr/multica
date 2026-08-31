@@ -314,6 +314,25 @@ func TestCancelTask_PointerAdvanceIsAtomicWithStatusFlip(t *testing.T) {
 		t.Fatalf("task status = %q, want cancelled", got)
 	}
 
+	// MUL-6880: the follow-up is not claimable yet. The cancelled turn's agent
+	// process only learns of the cancellation on its own poll tick, and until it
+	// exits it still holds the workdir — and therefore the session — the
+	// follow-up is about to resume.
+	stillStopping := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/claim", nil, testWorkspaceID, daemonID)
+	stillStopping = withURLParam(stillStopping, "runtimeId", runtimeID)
+	var duringStop struct {
+		Task *claimRuntimeGuardTask `json:"task"`
+	}
+	testutil.Call(t, testHandler.ClaimTaskByRuntime, stillStopping).Want(http.StatusOK).JSON(&duringStop)
+	if duringStop.Task != nil {
+		t.Fatal("the follow-up claimed while the cancelled turn was still shutting down")
+	}
+
+	// The daemon's cancel-ack is the proof that turn is over.
+	ack := newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskID+"/cancel-ack", nil, testWorkspaceID, daemonID)
+	ack = withURLParam(ack, "taskId", taskID)
+	testutil.Call(t, testHandler.AckTaskCancelled, ack).Want(http.StatusOK)
+
 	// The queued follow-up now claims onto the cancelled turn's session.
 	task := claimTaskForRuntimeGuard(t, runtimeID, daemonID)
 	if task.PriorSessionID != "turn2-session" {

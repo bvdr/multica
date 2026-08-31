@@ -4747,6 +4747,13 @@ func (h *Handler) AckTaskCancelled(w http.ResponseWriter, r *http.Request) {
 		// and will not refetch again on their own.
 		h.TaskService.RebroadcastCancelledTask(r.Context(), task.ID)
 	}
+	// The ack is also the only proof the server gets that the cancelled run's
+	// PROCESS is gone: the daemon posts it after runTask returned, which is
+	// when the env root lock is released. Releasing the stop lease here hands
+	// the (issue, agent) slot to whatever was queued behind this run — most
+	// often the replacement task an edited comment enqueued — so it reuses the
+	// same workdir and resumes the same provider session (MUL-6880).
+	h.TaskService.ReleaseStopLease(r.Context(), task.ID)
 	h.TaskService.FinalizeDeferredCancelledChat(r.Context(), task.ID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

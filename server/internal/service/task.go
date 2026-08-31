@@ -6544,6 +6544,42 @@ func (s *TaskService) NotifyTaskFinished(task db.AgentTaskQueue) {
 	s.notifyRuntimeMayHaveWork(task.RuntimeID, "")
 }
 
+// ReleaseStopLease drops the hold a cancelled run placed on its (issue, agent)
+// execution slot and wakes the runtime so a successor queued behind it starts
+// now instead of waiting out the lease deadline.
+//
+// The daemon's cancel-ack is the proof that the run is really over: it is
+// posted only after runTask returned, which is the same moment the env root
+// lock is released. Until then the successor must not be claimed — that race
+// is what made an edited comment start a second workdir and lose the provider
+// session (MUL-6880). A replayed ack releases nothing and skips the wakeup.
+func (s *TaskService) ReleaseStopLease(ctx context.Context, taskID pgtype.UUID) {
+	released, err := s.Queries.ReleaseAgentTaskStopLease(ctx, taskID)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("release task stop lease failed", "task_id", util.UUIDToString(taskID), "error", err)
+		}
+		return
+	}
+	s.notifyRuntimeMayHaveWork(released.RuntimeID, "")
+}
+
+// ReleaseStopLeasesForRuntime drops every stop lease a daemon's previous
+// incarnation left behind. A daemon that just restarted cannot still be
+// executing any of them, so holding their slots would only delay the tasks the
+// restart is trying to recover. Returns how many were released.
+func (s *TaskService) ReleaseStopLeasesForRuntime(ctx context.Context, runtimeID pgtype.UUID) int {
+	released, err := s.Queries.ReleaseAgentTaskStopLeasesForRuntime(ctx, runtimeID)
+	if err != nil {
+		slog.Warn("release runtime stop leases failed", "runtime_id", util.UUIDToString(runtimeID), "error", err)
+		return 0
+	}
+	if len(released) > 0 {
+		s.notifyRuntimeMayHaveWork(runtimeID, "")
+	}
+	return len(released)
+}
+
 // notifyTasksFinished is the batch form used by bulk terminal transitions.
 // Coalesce by runtime so cancelling many tasks on one machine produces one
 // cache bump and one websocket hint rather than a burst of identical work.
