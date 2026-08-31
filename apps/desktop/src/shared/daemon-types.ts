@@ -5,6 +5,9 @@ export type DaemonState =
   | "stopping"
   | "installing_cli"
   | "cli_not_found"
+  // Automatic starts hit the rolling safety budget. The daemon is offline and
+  // a member must explicitly Start/Restart before recovery resumes.
+  | "recovery_paused"
   // The daemon can't start because the server rejected its credentials (the
   // cached PAT expired / was revoked, or the session token is dead). Without
   // this, an auth failure silently sticks at "starting" forever — see #3512.
@@ -22,8 +25,6 @@ export interface DaemonStatus {
   profile?: string;
   /** Backend URL the daemon connects to. */
   serverUrl?: string;
-  /** Process manager reported by /health (for example, "desktop"). */
-  launchedBy?: string;
   /**
    * True when a daemon is running but in an environment the app can't control
    * — its reported OS differs from the desktop host's (e.g. a Linux daemon
@@ -58,6 +59,7 @@ export const DAEMON_STATE_COLORS: Record<DaemonState, string> = {
   stopping: "bg-amber-500 animate-pulse",
   installing_cli: "bg-sky-500 animate-pulse",
   cli_not_found: "bg-red-500",
+  recovery_paused: "bg-amber-500",
   auth_expired: "bg-red-500",
 };
 
@@ -68,6 +70,7 @@ export const DAEMON_STATE_LABELS: Record<DaemonState, string> = {
   stopping: "Stopping…",
   installing_cli: "Setting up…",
   cli_not_found: "Setup Failed",
+  recovery_paused: "Recovery paused",
   auth_expired: "Sign-in required",
 };
 
@@ -122,6 +125,8 @@ export function daemonStateDescription(state: DaemonState, runtimeCount: number)
       return "Setting up the runtime for the first time. Only happens once.";
     case "cli_not_found":
       return "Setup failed · couldn't download the runtime. Check your network.";
+    case "recovery_paused":
+      return "Automatic recovery paused after repeated failures · start manually to retry.";
     case "auth_expired":
       return "Sign-in expired · sign in again to bring this device back online.";
   }

@@ -135,7 +135,7 @@ export function DaemonSettingsTab() {
       <SettingsCard>
         <SettingsRow
           label="Auto-start on launch"
-          description="Automatically start the daemon when the app opens and you are logged in."
+          description="Start the daemon when you log in and keep it running while the app is open."
         >
           <Switch
             checked={prefs.autoStart}
