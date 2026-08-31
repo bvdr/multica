@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import type { DaemonState } from "../shared/daemon-types";
 
 // The normal poll runs every 5s. Requiring three misses gives a transient slow
@@ -233,18 +235,30 @@ const OPERATION_BUSY: OperationBusyResult = {
  * Serializes lifecycle work. One-shot member/login intents use runForeground:
  * they wait for already-running background maintenance instead of disappearing.
  * Only work driven by a recurring poll uses runBackground, whose busy result is
- * intentionally dropped because the next poll safely retries it.
+ * intentionally dropped because the next poll safely retries it. Calling
+ * runForeground from inside either gated mode throws before it can self-wait.
  */
 export class DaemonOperationGate {
   private busy = false;
   private foregroundQueued = 0;
   private completion: Promise<void> = Promise.resolve();
+  private activeOperation: symbol | null = null;
+  private readonly operationContext = new AsyncLocalStorage<symbol>();
 
   get inProgress(): boolean {
     return this.busy || this.foregroundQueued > 0;
   }
 
   async runForeground<T>(fn: () => Promise<T>): Promise<T> {
+    const currentOperation = this.operationContext.getStore();
+    if (
+      currentOperation !== undefined &&
+      currentOperation === this.activeOperation
+    ) {
+      throw new Error(
+        "DaemonOperationGate.runForeground cannot be called from inside a gated operation",
+      );
+    }
     const previous = this.completion;
     let release: () => void = () => {};
     const current = new Promise<void>((resolve) => {
@@ -258,11 +272,9 @@ export class DaemonOperationGate {
 
     await previous;
     this.foregroundQueued -= 1;
-    this.busy = true;
     try {
-      return await fn();
+      return await this.execute(fn);
     } finally {
-      this.busy = false;
       release();
     }
   }
@@ -271,20 +283,25 @@ export class DaemonOperationGate {
     fn: () => Promise<T>,
   ): Promise<T | OperationBusyResult> {
     if (this.inProgress) return Promise.resolve(OPERATION_BUSY);
-    this.busy = true;
-    const operation = (async () => {
-      try {
-        return await fn();
-      } finally {
-        this.busy = false;
-      }
-    })();
+    const operation = this.execute(fn);
     const completion = operation.then(
       () => undefined,
       () => undefined,
     );
     this.completion = completion;
     return operation;
+  }
+
+  private async execute<T>(fn: () => Promise<T>): Promise<T> {
+    const operation = Symbol("daemon-operation");
+    this.busy = true;
+    this.activeOperation = operation;
+    try {
+      return await this.operationContext.run(operation, fn);
+    } finally {
+      this.busy = false;
+      if (this.activeOperation === operation) this.activeOperation = null;
+    }
   }
 }
 

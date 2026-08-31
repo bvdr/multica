@@ -688,13 +688,13 @@ async function mintPat(jwt: string): Promise<string> {
  *   mint a fresh PAT, overwriting any stale cached PAT. This is the critical
  *   path: without it, a previous user's PAT would be used by a new session.
  * - If the caller happens to pass a PAT directly, write it through.
- * - When we mint fresh and a daemon is already running, restart it so the
- *   new credentials take effect (the Go daemon reads config at startup).
+ * - Reports a user mismatch to the caller; the IPC boundary owns the gated
+ *   restart so internal callers such as reauthenticate never re-enter it.
  */
 async function syncToken(
   tokenFromRenderer: string,
   userId: string,
-): Promise<void> {
+): Promise<{ active: ActiveProfile; userChanged: boolean }> {
   const active = await ensureActiveProfile();
   if (!active) {
     // Writing here would land the token and server_url in the user's default
@@ -733,31 +733,31 @@ async function syncToken(
   await writeProfileConfig(active.name, config);
   await writeProfileUserId(active.name, userId);
 
+  return { active, userChanged };
+}
+
+async function restartDaemonAfterUserSwitch(
+  active: ActiveProfile,
+): Promise<void> {
   // If we just rotated credentials onto a running daemon, restart it so the
   // in-memory token in the Go process matches the new config.
-  if (userChanged) {
-    try {
-      const existing = await fetchHealthAtPort(active.port);
-      if (daemonStatusAlive(existing?.status)) {
-        // Restart whether it's "running" or still "starting" — a booting daemon
-        // already loaded the old token at startup, so it must be restarted to
-        // pick up the rotated credentials.
-        console.log(
-          "[daemon] user switched — restarting daemon with new credentials",
-        );
-        // Credential rotation is a one-shot login intent, not poll-driven
-        // maintenance: wait for bootstrap/recovery instead of dropping it.
-        const restarted = await lifecycleOperations.runForeground(() =>
-          restartDaemon(),
-        );
-        if (!restarted.success) {
-          console.warn(
-            `[daemon] restart-on-user-switch failed: ${restarted.error ?? "unknown error"}`,
-          );
-        }
-      }
-    } catch (err) {
-      console.warn("[daemon] restart-on-user-switch failed:", err);
+  const existing = await fetchHealthAtPort(active.port);
+  if (daemonStatusAlive(existing?.status)) {
+    // Restart whether it's "running" or still "starting" — a booting daemon
+    // already loaded the old token at startup, so it must be restarted to
+    // pick up the rotated credentials.
+    console.log(
+      "[daemon] user switched — restarting daemon with new credentials",
+    );
+    // Credential rotation is a one-shot login intent, not poll-driven
+    // maintenance: wait for bootstrap/recovery instead of dropping it.
+    const restarted = await lifecycleOperations.runForeground(() =>
+      restartDaemon(),
+    );
+    if (!restarted.success) {
+      console.warn(
+        `[daemon] restart-on-user-switch failed: ${restarted.error ?? "unknown error"}`,
+      );
     }
   }
 }
@@ -1207,9 +1207,11 @@ async function pollOnce(): Promise<void> {
     // Retry a deferred version-mismatch restart once the daemon drains. Route
     // it through the same singleflight guard as user and recovery operations.
     if (pendingVersionRestart && status.state === "running") {
-      void lifecycleOperations.runBackground(() =>
-        ensureRunningDaemonVersionMatches(),
-      );
+      void lifecycleOperations
+        .runBackground(() => ensureRunningDaemonVersionMatches())
+        .catch((err) => {
+          console.warn("[daemon] deferred version restart failed:", err);
+        });
     }
   } finally {
     statusPollInProgress = false;
@@ -1381,7 +1383,12 @@ export function setupDaemonManager(
   ipcMain.handle("daemon:get-host-name", () => hostname());
   ipcMain.handle(
     "daemon:sync-token",
-    (_event, token: string, userId: string) => syncToken(token, userId),
+    async (_event, token: string, userId: string) => {
+      const result = await syncToken(token, userId);
+      if (result.userChanged) {
+        await restartDaemonAfterUserSwitch(result.active);
+      }
+    },
   );
   ipcMain.handle("daemon:clear-token", () => {
     setDesiredDaemonRunning(false, true);

@@ -343,6 +343,20 @@ describe("recovery orchestration guards", () => {
     expect(secondFn).toHaveBeenCalledOnce();
   });
 
+  it("rejects foreground reentrancy instead of waiting on itself", async () => {
+    const gate = new DaemonOperationGate();
+    const nested = vi.fn(async () => "nested");
+
+    await expect(
+      gate.runForeground(() => gate.runForeground(nested)),
+    ).rejects.toThrow("cannot be called from inside a gated operation");
+    expect(nested).not.toHaveBeenCalled();
+    expect(gate.inProgress).toBe(false);
+    await expect(gate.runForeground(async () => "recovered")).resolves.toBe(
+      "recovered",
+    );
+  });
+
   it("lets a queued member stop revoke recovery intent immediately", async () => {
     const gate = new DaemonOperationGate();
     let desiredRunning = true;
