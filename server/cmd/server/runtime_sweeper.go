@@ -95,8 +95,18 @@ const (
 	chatFinalizeGraceSeconds = 60.0
 	// chatFinalizeBatchSize caps deferred finalizations per tick.
 	chatFinalizeBatchSize = 100
+	// delegatedFailureRecoverySweepInterval is the cadence of the durable
+	// recovery outbox, which is a crash backstop rather than a liveness signal
+	// (see runDelegatedFailureRecoverySweeper).
+	delegatedFailureRecoverySweepInterval = 5 * time.Minute
+	// delegatedFailureRecoveryLeaseTTL admits one replica per round. It is
+	// shorter than the interval so a replica that dies holding it delays at
+	// most one round, and long enough to cover a round that is slow rather than
+	// hung — a bounded batch of at most delegatedFailureRecoveryBatchSize
+	// dispatches.
+	delegatedFailureRecoveryLeaseTTL = 4 * time.Minute
 	// delegatedFailureRecoveryBatchSize bounds the durable recovery-outbox
-	// replay so a historical backlog cannot monopolise the runtime sweep tick.
+	// replay so a historical backlog cannot monopolise one round.
 	delegatedFailureRecoveryBatchSize = 100
 )
 
@@ -155,16 +165,16 @@ func runPeriodicSweep(ctx context.Context, interval time.Duration, sweep func())
 // stale window — that is the original behavior.
 func runRuntimeSweeper(ctx context.Context, queries *db.Queries, liveness handler.LivenessStore, taskSvc *service.TaskService, bus *events.Bus, reconnectGrace time.Duration) {
 	runPeriodicSweep(ctx, sweepInterval, func() {
-		// These stages retain the existing cadence and ordering in PR1 so the
-		// rollout changes no business predicate or recovery semantics. Runtime
-		// GC is the one exception: its seven-day retention work now runs in the
-		// independent hourly loop below and cannot delay this liveness path.
+		// These stages retain the existing cadence and ordering so the rollout
+		// changes no business predicate or recovery semantics. Two exceptions
+		// have moved to independent loops below because neither is a liveness
+		// signal: runtime GC's seven-day retention scan, and the durable
+		// delegated-failure recovery outbox.
 		sweepStaleRuntimes(ctx, queries, liveness, taskSvc, bus)
 		sweepOfflineRuntimeTasks(ctx, queries, taskSvc, reconnectGrace)
 		sweepExpiredRuntimeReconnectRetries(ctx, queries, taskSvc, reconnectGrace)
 		sweepStaleTasks(ctx, queries, taskSvc, bus, reconnectGrace)
 		sweepExpiredQueuedTasks(ctx, queries, taskSvc, reconnectGrace)
-		sweepPendingDelegatedFailureRecoveries(ctx, taskSvc)
 		sweepDeferredChatFinalizations(ctx, queries, taskSvc)
 	})
 }
@@ -175,10 +185,59 @@ func runRuntimeGCSweeper(ctx context.Context, txStarter runtimeGCTxStarter, quer
 	})
 }
 
+// runDelegatedFailureRecoverySweeper owns the durable recovery outbox on its
+// own cadence.
+//
+// The 30-second liveness tick was never this scan's requirement. The normal
+// terminal-failure path dispatches the coordinator handoff immediately; this
+// sweep exists only to repair the narrow window where the recovery comment
+// committed but its dispatch did not — a transient database error, or a process
+// that exited in between. Running that repair 2,880 times a day per replica
+// bought latency nobody was waiting on.
+//
+// Two changes replace that cadence. The scan runs once at startup, because a
+// process that just started is precisely the aftermath of the exit this repairs
+// and is when a stranded obligation is most likely to exist. It then runs every
+// five minutes, gated so one replica per round does the work.
+//
+// The tradeoff is the worst-case age of an obligation stranded by a crash that
+// is NOT followed by a restart: previously 30 seconds, now five minutes. Every
+// other path to a recovery is unchanged and still immediate.
+func runDelegatedFailureRecoverySweeper(ctx context.Context, taskSvc *service.TaskService, lease sweepLease) {
+	runLeasedSweep(ctx, delegatedFailureRecoverySweepInterval, delegatedFailureRecoveryLeaseTTL, lease, func() {
+		sweepPendingDelegatedFailureRecoveries(ctx, taskSvc)
+	})
+}
+
+// runLeasedSweep runs sweep once immediately and then on every interval tick,
+// skipping any round this replica does not win the lease for.
+//
+// The startup round is deliberately leased too. What it repairs is global
+// database state, not anything owned by this process, so one replica covering
+// the round covers it for all of them — and during a rolling deploy that is the
+// difference between one scan and one scan per replica restarted.
+func runLeasedSweep(ctx context.Context, interval, leaseTTL time.Duration, lease sweepLease, sweep func()) {
+	guarded := func() {
+		if ctx.Err() != nil {
+			return
+		}
+		if !lease.Acquire(ctx, leaseTTL) {
+			// Deliberately not observed as a sweep stage: a zero-duration,
+			// zero-candidate sample would be indistinguishable from a round
+			// that ran and found nothing.
+			slog.Debug("leased sweep: another replica holds this round")
+			return
+		}
+		sweep()
+	}
+	guarded()
+	runPeriodicSweep(ctx, interval, guarded)
+}
+
 // sweepPendingDelegatedFailureRecoveries retries durable coordinator handoffs
-// that were not acquired by an executable task. It runs even when no stale
-// task was found in this tick, which is what repairs a recovery dispatch lost
-// before a server restart.
+// that were not acquired by an executable task. It is unconditional — nothing
+// earlier has to have found stale work — because what it repairs is a dispatch
+// lost before a server restart, which leaves no other trace.
 func sweepPendingDelegatedFailureRecoveries(ctx context.Context, taskSvc *service.TaskService) (stats runtimeSweepStageStats) {
 	startedAt := time.Now()
 	defer func() {

@@ -651,6 +651,15 @@ func main() {
 	// its bounded transactions run independently once per hour, so a slow GC
 	// round cannot delay offline detection or task recovery.
 	go runRuntimeGCSweeper(sweepCtx, pool, queries, taskSvc.Metrics, h)
+	// The durable delegated-failure recovery outbox is a crash backstop, not a
+	// liveness signal, so it gets its own low-frequency loop and a Redis lease
+	// that admits one replica per round. Without Redis every replica runs every
+	// round, which is what it did before at ten times the rate.
+	var recoverySweepLease sweepLease = unleased{}
+	if storeRedis != nil {
+		recoverySweepLease = newRedisSweepLease(storeRedis, delegatedFailureRecoveryLeaseKey)
+	}
+	go runDelegatedFailureRecoverySweeper(sweepCtx, taskSvc, recoverySweepLease)
 	// Source-context cleanup is object-store work, so it gets its own goroutine
 	// instead of a slot in the runtime sweep tick.
 	go runSourceContextSweeper(sweepCtx, taskSvc)
