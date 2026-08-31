@@ -114,6 +114,20 @@ JOIN agent_skill ask ON ask.skill_id = s.id
 WHERE ask.agent_id = $1 AND ask.enabled = TRUE
 ORDER BY s.name ASC;
 
+-- name: ListAgentSkillsByIDs :many
+-- Scoped variant of ListAgentSkills: the same junction predicate, narrowed to
+-- a set of requested skill IDs. The skill-bundle resolve path asks for one
+-- skill per request, so loading the agent's whole set there costs a full read
+-- and hash of every skill on every request. The junction predicate is also the
+-- authorization: an ID the agent does not have enabled simply returns no row,
+-- which the caller reports as not-found.
+SELECT s.* FROM skill s
+JOIN agent_skill ask ON ask.skill_id = s.id
+WHERE ask.agent_id = $1
+  AND ask.enabled = TRUE
+  AND s.id = ANY(sqlc.arg('skill_ids')::uuid[])
+ORDER BY s.name ASC;
+
 -- name: ListAgentSkillSummaries :many
 -- Summary variant for the agent skills list endpoint — omits `content` for
 -- the same reason as ListSkillSummariesByWorkspace.

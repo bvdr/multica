@@ -94,6 +94,23 @@ type Metrics interface {
 	// rate would be paged for deliveries that happened.
 	RecordOutboundUnconfirmed(reason string)
 	RecordAttachmentUnconfirmed(reason string)
+
+	// RecordRelayShed counts an ADMISSION decision on the cross-replica
+	// dispatcher: one routed frame refused because its queue was full. Its own
+	// unit, labelled by what kind of frame it was, because the reply counters
+	// above are per REPLY and the relay carries inbox notifications too — an
+	// inbox push counted as a dropped reply would make the delivered/dropped
+	// ratio track which replica happened to hold a socket rather than any
+	// outcome. Always recorded, on whichever replica refused the frame.
+	//
+	// It moves no reply counter, not even on the replica holding the socket.
+	// Every replica reads every frame, and during a lease handoff two of them
+	// hold a sender at once, so no replica can tell locally whether its own
+	// shed cost the user anything — each one answering for itself is what
+	// reported a single reply as delivered and dropped together. Whether a shed
+	// reply was really lost is settled once by the replica that routed it, in
+	// RelayOutbound.watchOutcomes.
+	RecordRelayShed(kind string)
 }
 
 // nopMetrics is what the constructor falls back to. A nil sink must never be a
@@ -112,6 +129,7 @@ func (nopMetrics) RecordAttachmentDropped(string)     {}
 func (nopMetrics) RecordAttachmentDeliveryShed()      {}
 func (nopMetrics) RecordOutboundUnconfirmed(string)   {}
 func (nopMetrics) RecordAttachmentUnconfirmed(string) {}
+func (nopMetrics) RecordRelayShed(string)             {}
 
 // orNopMetrics turns an unset sink into one that is safe to call.
 func orNopMetrics(m Metrics) Metrics {

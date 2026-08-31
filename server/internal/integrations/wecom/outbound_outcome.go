@@ -31,12 +31,13 @@ import (
 type dropReason string
 
 const (
-	// dropNoConnection — no live WebSocket for this installation in THIS
-	// process. Either the Supervisor is mid-reconnect, or, on a multi-replica
-	// deployment, the lease is held by a different replica than the one that
-	// published the completion, which is the constraint SELF_HOSTING.md
-	// documents. The two are indistinguishable from here; a deployment's
-	// replica count is what tells them apart.
+	// dropNoConnection — no live WebSocket carried this reply. Two situations
+	// reach it. Without a relay: none in THIS process, which on a
+	// multi-replica deployment cannot be told apart from the lease simply
+	// being held elsewhere. With one: the reply WAS routed to every replica
+	// and none of them held a connection either, which is the residual window
+	// SELF_HOSTING.md describes — recorded once, by the replica that routed
+	// it, from the claim nobody took (RelayOutbound.watchOutcomes).
 	dropNoConnection dropReason = "no_live_connection"
 
 	// dropTaskMissing — the task the completion belongs to could not be
