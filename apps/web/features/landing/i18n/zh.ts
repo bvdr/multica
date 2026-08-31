@@ -296,7 +296,7 @@ export function createZhDict(allowSignup: boolean): LandingDict {
       {
         version: "0.4.37",
         date: "2026-08-31",
-        title: "CodeArts 运行时、iPad 原生支持、更可靠的企业微信机器人",
+        title: "Issue 列表更快、长任务更稳、多语言文案更全",
         changes: [],
         features: [
           "华为云 CodeArts 现已成为内置的智能体运行时。",

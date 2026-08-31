@@ -296,7 +296,7 @@ export function createEnDict(allowSignup: boolean): LandingDict {
       {
         version: "0.4.37",
         date: "2026-08-31",
-        title: "The CodeArts runtime, native iPad support, and more reliable WeCom bots",
+        title: "Faster Issue lists, steadier long runs, and more complete localization",
         changes: [],
         features: [
           "Use Huawei Cloud CodeArts as a native agent runtime.",

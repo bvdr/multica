@@ -271,7 +271,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         {
           version: "0.4.37",
           date: "2026-08-31",
-          title: "CodeArts 런타임, iPad 네이티브 지원, 더 안정적인 WeCom 봇",
+          title: "더 빠른 Issue 목록, 더 안정적인 장시간 태스크, 더 완전한 다국어 표시",
           changes: [],
           features: [
             "Huawei Cloud CodeArts를 기본 에이전트 런타임으로 사용할 수 있습니다.",

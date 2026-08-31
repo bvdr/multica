@@ -272,7 +272,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
         {
           version: "0.4.37",
           date: "2026-08-31",
-          title: "CodeArts ランタイム、iPad ネイティブ対応、より確実な WeCom ボット",
+          title: "より速い Issue 一覧、より安定した長時間タスク、より充実した多言語表示",
           changes: [],
           features: [
             "Huawei Cloud CodeArts を標準のエージェント ランタイムとして使えます。",
