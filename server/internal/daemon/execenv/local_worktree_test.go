@@ -752,3 +752,292 @@ func TestDiscardRemovesWorktreeAndBranch(t *testing.T) {
 		t.Errorf("branch survived Discard, resolves to %s", out)
 	}
 }
+
+// prepareTurn runs one turn of a conversation: a fresh task id and env root on
+// the same conversation key, which is what a follow-up comment on an issue
+// produces.
+func prepareTurn(t *testing.T, localPath, conversationKey, taskID string) *LocalWorktree {
+	t.Helper()
+	wt, err := PrepareLocalWorktree(LocalWorktreeParams{
+		LocalPath:       localPath,
+		EnvRoot:         t.TempDir(),
+		AgentName:       "J",
+		TaskID:          taskID,
+		ConversationKey: conversationKey,
+	}, worktreeTestLogger())
+	if err != nil {
+		t.Fatalf("PrepareLocalWorktree(%s): %v", taskID, err)
+	}
+	return wt
+}
+
+const (
+	turnOneTask   = "11112222-3333-4444-5555-aaaaaaaaaaaa"
+	turnTwoTask   = "11112222-3333-4444-5555-bbbbbbbbbbbb"
+	turnThreeTask = "11112222-3333-4444-5555-cccccccccccc"
+)
+
+// The bug this fixes: every comment on one issue produced a new branch forked
+// from HEAD, so the second turn stood in a tree that did not contain the first
+// turn's work and nothing said so (MUL-6881).
+func TestPrepareLocalWorktreeContinuesTheConversationBranch(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	if first.Branch != "agent/j/mul-6881" {
+		t.Fatalf("first turn branch = %q, want agent/j/mul-6881", first.Branch)
+	}
+	if first.Continued {
+		t.Error("first turn reports Continued = true; there was nothing to continue")
+	}
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	firstOutcome := finalizeOK(t, first)
+	if firstOutcome.Branch != "agent/j/mul-6881" {
+		t.Fatalf("first outcome branch = %q", firstOutcome.Branch)
+	}
+	firstTip := gitRun(t, repo, "rev-parse", "agent/j/mul-6881")
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if second.Branch != "agent/j/mul-6881" {
+		t.Fatalf("second turn branch = %q, want the conversation's branch", second.Branch)
+	}
+	if !second.Continued {
+		t.Error("second turn reports Continued = false, want true")
+	}
+	if second.BaseCommit != firstTip {
+		t.Errorf("second turn base = %s, want the first turn's tip %s", second.BaseCommit, firstTip)
+	}
+	if got := readFile(t, filepath.Join(second.WorkDir, "turn-one.txt")); got != "work from turn one\n" {
+		t.Errorf("turn one's work is missing from turn two's tree: %q", got)
+	}
+
+	writeFile(t, filepath.Join(second.WorkDir, "turn-two.txt"), "work from turn two\n")
+	finalizeOK(t, second)
+
+	third := prepareTurn(t, repo, "MUL-6881", turnThreeTask)
+	for _, name := range []string{"turn-one.txt", "turn-two.txt"} {
+		if _, err := os.Stat(filepath.Join(third.WorkDir, name)); err != nil {
+			t.Errorf("turn three is missing %s: %v", name, err)
+		}
+	}
+	finalizeOK(t, third)
+
+	// One branch for the whole conversation, not one per comment.
+	branches := gitRun(t, repo, "branch", "--list", "agent/j/*")
+	if strings.Count(branches, "agent/j/") != 1 {
+		t.Errorf("conversation produced more than one branch:\n%s", branches)
+	}
+}
+
+// The user's uncommitted work reaches the branch once, as turn one's baseline.
+// Replaying their whole tree again on every turn would ask git to merge their
+// copy of a file against the agent's edits to it — a conflict raised precisely
+// when the agent did what it was asked to do — so only what they changed since
+// is replayed.
+func TestPrepareLocalWorktreeReplaysOnlyTheUserEditsSinceTheLastTurn(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	if got := readFile(t, filepath.Join(first.WorkDir, "tracked.txt")); got != "user work in progress\n" {
+		t.Fatalf("turn one did not see the user's uncommitted work: %q", got)
+	}
+	// The agent edits the very line the user was working on.
+	writeFile(t, filepath.Join(first.WorkDir, "tracked.txt"), "user work in progress, finished by the agent\n")
+	finalizeOK(t, first)
+
+	// Between the turns the user edits a different file and leaves the first
+	// one exactly as it was.
+	writeFile(t, filepath.Join(repo, "keep.txt"), "user edited this between turns\n")
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if got := readFile(t, filepath.Join(second.WorkDir, "tracked.txt")); got != "user work in progress, finished by the agent\n" {
+		t.Errorf("the agent's edit was reverted by replaying the user's older copy: %q", got)
+	}
+	if got := readFile(t, filepath.Join(second.WorkDir, "keep.txt")); got != "user edited this between turns\n" {
+		t.Errorf("the user's edit between turns did not reach the worktree: %q", got)
+	}
+	if strings.Contains(readFile(t, filepath.Join(second.WorkDir, "tracked.txt")), "<<<<<<<") {
+		t.Error("the worktree was handed to the agent with conflict markers in it")
+	}
+	// The user's own directory is never written to, on any turn.
+	if got := readFile(t, filepath.Join(repo, "tracked.txt")); got != "user work in progress\n" {
+		t.Errorf("the user's directory was modified: %q", got)
+	}
+}
+
+// A real conflict — the user rewrites lines the agent also rewrote — must not
+// strand the conversation. The turn runs on the branch as it stands, which is
+// the tree the agent worked in last time.
+func TestPrepareLocalWorktreeSurvivesConflictingUserEdits(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "tracked.txt"), "rewritten by the agent\n")
+	finalizeOK(t, first)
+
+	// The user rewrites the same line their own way.
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "rewritten by the user instead\n")
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	got := readFile(t, filepath.Join(second.WorkDir, "tracked.txt"))
+	if got != "rewritten by the agent\n" {
+		t.Errorf("tracked.txt = %q, want the branch's own version", got)
+	}
+	if status := gitRun(t, second.Path, "status", "--porcelain"); status != "" {
+		t.Errorf("worktree left dirty after a conflicting replay:\n%s", status)
+	}
+}
+
+// An untracked file becomes part of the branch at the turn that first sees it.
+// Copying the user's older copy over it on the next turn would revert whatever
+// the agent did to it — silently, every turn.
+func TestPrepareLocalWorktreeKeepsAgentEditsToOnceUntrackedFiles(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "scratch.txt"), "user scratch\n")
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "scratch.txt"), "scratch, rewritten by the agent\n")
+	finalizeOK(t, first)
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if got := readFile(t, filepath.Join(second.WorkDir, "scratch.txt")); got != "scratch, rewritten by the agent\n" {
+		t.Errorf("scratch.txt = %q, want the agent's version", got)
+	}
+}
+
+// A turn that only reads must leave the conversation's branch alone: it holds
+// every turn before it, and the read-only cleanup would take those with it.
+func TestFinalizeKeepsTheConversationBranchAfterAReadOnlyTurn(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	outcome := finalizeOK(t, second)
+	if outcome.Branch != "agent/j/mul-6881" {
+		t.Errorf("read-only turn reported branch %q, want the conversation's branch", outcome.Branch)
+	}
+	if _, err := gitTry(t, repo, "rev-parse", "--verify", "agent/j/mul-6881"); err != nil {
+		t.Fatal("the conversation's branch was deleted by a turn that changed nothing")
+	}
+	if got := gitRun(t, repo, "show", "agent/j/mul-6881:turn-one.txt"); got != "work from turn one" {
+		t.Errorf("turn one's work is gone from the branch: %q", got)
+	}
+}
+
+// Discard runs when preparation fails after the worktree exists. It may only
+// drop a branch this prepare created.
+func TestDiscardKeepsTheContinuedBranch(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	second.Discard(worktreeTestLogger())
+
+	if _, err := gitTry(t, repo, "rev-parse", "--verify", "agent/j/mul-6881"); err != nil {
+		t.Fatal("discarding a follow-up turn deleted the conversation's branch")
+	}
+	if _, err := os.Stat(second.Path); !os.IsNotExist(err) {
+		t.Errorf("worktree still on disk after Discard: %v", err)
+	}
+}
+
+// git allows one worktree per branch. A sibling task on the same conversation
+// still has to run, and it should start from the conversation's latest work
+// rather than from HEAD.
+func TestPrepareLocalWorktreeForksWhenTheConversationBranchIsBusy(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	// Commit inside the worktree so the sibling has something to inherit while
+	// the branch is still checked out here.
+	gitRun(t, first.Path, "add", "-A")
+	gitRun(t, first.Path, "commit", "-m", "turn one")
+	tip := gitRun(t, repo, "rev-parse", "agent/j/mul-6881")
+
+	sibling := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if sibling.Branch == first.Branch {
+		t.Fatalf("sibling took the branch already checked out at %s", first.Path)
+	}
+	if want := "agent/j/mul-6881-" + taskKey(turnTwoTask); sibling.Branch != want {
+		t.Errorf("sibling branch = %q, want %q", sibling.Branch, want)
+	}
+	if sibling.BaseCommit != tip {
+		t.Errorf("sibling base = %s, want the conversation's tip %s", sibling.BaseCommit, tip)
+	}
+	if _, err := os.Stat(filepath.Join(sibling.WorkDir, "turn-one.txt")); err != nil {
+		t.Errorf("sibling does not carry the conversation's work: %v", err)
+	}
+	finalizeOK(t, sibling)
+	finalizeOK(t, first)
+}
+
+// Once the user merges the branch, its tip carries nothing HEAD does not.
+// Continuing from it would leave the next turn behind the user's own commits.
+func TestPrepareLocalWorktreeRestartsAMergedConversationBranch(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
+	finalizeOK(t, first)
+
+	gitRun(t, repo, "merge", "--no-edit", "agent/j/mul-6881")
+	writeFile(t, filepath.Join(repo, "user-commit.txt"), "the user kept working\n")
+	gitRun(t, repo, "add", "-A")
+	gitRun(t, repo, "commit", "-m", "user work after the merge")
+	head := gitRun(t, repo, "rev-parse", "HEAD")
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if second.Continued {
+		t.Error("continued a branch the user had already merged")
+	}
+	if second.BaseCommit != head {
+		t.Errorf("second turn base = %s, want the user's HEAD %s", second.BaseCommit, head)
+	}
+	if _, err := os.Stat(filepath.Join(second.WorkDir, "user-commit.txt")); err != nil {
+		t.Errorf("the user's commits after the merge are missing: %v", err)
+	}
+}
+
+// A task with no conversation behind it — no issue, no chat session — has
+// nothing to continue and keeps the task-scoped branch.
+func TestPrepareLocalWorktreeKeepsTaskScopedBranchWithoutAConversation(t *testing.T) {
+	repo := newTestRepo(t)
+	wt := prepareForTest(t, repo)
+	if want := "agent/j/" + taskKey("11112222-3333-4444-5555-666677778888"); wt.Branch != want {
+		t.Errorf("branch = %q, want %q", wt.Branch, want)
+	}
+	if wt.Continued {
+		t.Error("a task with no conversation reports Continued = true")
+	}
+}
+
+func TestLocalWorktreeConversationKey(t *testing.T) {
+	issueID := "01a056ac-0eda-797d-8ac2-b7d7a3935ae7"
+	chatID := "01a056ad-5b37-762a-a15f-390717f4dae1"
+	tests := []struct {
+		name   string
+		params PrepareParams
+		want   string
+	}{
+		{"issue identifier is preferred", PrepareParams{IssueIdentifier: "MUL-6881", Task: TaskContextForEnv{IssueID: issueID}}, "MUL-6881"},
+		{"issue without an identifier", PrepareParams{Task: TaskContextForEnv{IssueID: issueID}}, taskKey(issueID)},
+		{"chat session", PrepareParams{Task: TaskContextForEnv{ChatSessionID: chatID}}, "chat-" + taskKey(chatID)},
+		{"neither", PrepareParams{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := localWorktreeConversationKey(tt.params); got != tt.want {
+				t.Errorf("localWorktreeConversationKey() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

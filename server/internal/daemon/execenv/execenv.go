@@ -530,6 +530,7 @@ func Prepare(params PrepareParams, logger *slog.Logger) (*Environment, error) {
 		wtParams.EnvRoot = envRoot
 		wtParams.AgentName = params.AgentName
 		wtParams.TaskID = params.TaskID
+		wtParams.ConversationKey = localWorktreeConversationKey(params)
 		var err error
 		localWorktree, err = PrepareLocalWorktree(wtParams, logger)
 		if err != nil {
