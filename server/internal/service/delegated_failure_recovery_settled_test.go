@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/util"
+	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
 // seedRecoverySignal drives one delegated failure to the point where the
@@ -197,5 +198,75 @@ func TestExhaustedRecoveryIsSettled(t *testing.T) {
 		if c.ID == recoveryCommentID {
 			t.Fatal("exhausted recovery still scanned as pending")
 		}
+	}
+}
+
+// A manual rerun clears the pending slot with its own bulk cancel. That
+// statement terminates a coordinator task that may already hold a recovery
+// receipt, so it has to settle like every other terminal path — otherwise the
+// row stays in the unsettled index forever and the index regrows the unbounded
+// history this change set removes.
+func TestManualRerunSettlesDeliveredRecovery(t *testing.T) {
+	f, svc := seedDelegatedFailureFixture(t)
+	ctx := context.Background()
+	recoveryTaskID, recoveryCommentID := f.seedRecoverySignal(t, svc)
+
+	// The rerun path only clears tasks that have not begun executing, so leave
+	// the coordinator task queued and give it the dispatch receipt.
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE agent_task_queue SET delivered_comment_ids = ARRAY[$2]::uuid[] WHERE id = $1`,
+		recoveryTaskID, recoveryCommentID); err != nil {
+		t.Fatalf("mark recovery delivered: %v", err)
+	}
+
+	issueID, err := util.ParseUUID(f.issueID)
+	if err != nil {
+		t.Fatalf("parse issue id: %v", err)
+	}
+	actorID, err := util.ParseUUID(f.userID)
+	if err != nil {
+		t.Fatalf("parse actor id: %v", err)
+	}
+	if _, err := svc.RerunIssue(ctx, issueID, pgtype.UUID{}, pgtype.UUID{}, actorID, func(db.Agent) bool { return true }); err != nil {
+		t.Fatalf("RerunIssue: %v", err)
+	}
+
+	var status string
+	if err := f.pool.QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id = $1`, recoveryTaskID).Scan(&status); err != nil {
+		t.Fatalf("read coordinator task status: %v", err)
+	}
+	if status != "cancelled" {
+		t.Fatalf("rerun left the pending coordinator task in %q; the test no longer covers the cancel path", status)
+	}
+	if !f.settled(t, recoveryCommentID) {
+		t.Fatal("manual rerun cancelled a task holding a recovery receipt without settling it")
+	}
+}
+
+// Archiving an agent cancels its tasks with a bulk statement and then calls
+// CaptureCancelledTasks. That call is the only follow-up those rows get, so it
+// is where settlement has to live for the archive path to close its receipts.
+func TestCaptureCancelledTasksSettlesDeliveredRecovery(t *testing.T) {
+	f, svc := seedDelegatedFailureFixture(t)
+	ctx := context.Background()
+	recoveryTaskID, recoveryCommentID := f.seedRecoverySignal(t, svc)
+	f.markDelivered(t, recoveryTaskID, recoveryCommentID)
+
+	cancelled, err := f.pool.Query(ctx, `
+		UPDATE agent_task_queue SET status = 'cancelled', completed_at = now()
+		WHERE id = $1 RETURNING id`, recoveryTaskID)
+	if err != nil {
+		t.Fatalf("bulk cancel: %v", err)
+	}
+	cancelled.Close()
+
+	task, err := svc.Queries.GetAgentTask(ctx, recoveryTaskID)
+	if err != nil {
+		t.Fatalf("load cancelled task: %v", err)
+	}
+	svc.CaptureCancelledTasks(ctx, []db.AgentTaskQueue{task})
+
+	if !f.settled(t, recoveryCommentID) {
+		t.Fatal("bulk cancellation follow-up did not settle the delivered recovery receipt")
 	}
 }

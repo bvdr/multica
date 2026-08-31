@@ -3379,6 +3379,9 @@ func (h *Handler) UpdateComment(w http.ResponseWriter, r *http.Request) {
 		}
 		if err == nil && oldContent != req.Content && strictContentEdit {
 			cancelled, err = qtx.CancelAgentTasksByTriggerComment(r.Context(), existing.ID)
+			if err == nil {
+				err = service.SettleDeliveredDelegatedFailureRecoveries(r.Context(), qtx, cancelled...)
+			}
 		}
 		if err == nil && replaceAttachments {
 			var changed int64
