@@ -70,6 +70,12 @@ type BusinessMetrics struct {
 	entitlementVersionRegression   prometheus.Counter
 	autopilotQuotaDecision         *prometheus.CounterVec
 
+	// agentRuntimeLookup counts single-row agent_runtime reads by product
+	// source. Every source shares one SQL fingerprint, so this is the only
+	// place the split between daemon heartbeats, browser polling, and
+	// readiness gates is observable. See labels.go for the closed enum.
+	agentRuntimeLookup *prometheus.CounterVec
+
 	activeMu    sync.Mutex
 	activeTasks map[string]activeTaskLabels
 
@@ -265,12 +271,25 @@ func NewBusinessMetrics() *BusinessMetrics {
 			Namespace: "multica", Subsystem: "autopilot_quota", Name: "decision_total",
 			Help: "Total autopilot quota admission outcomes.",
 		}, metricLabels("multica_autopilot_quota_decision_total")),
+		agentRuntimeLookup: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "multica", Subsystem: "agent_runtime", Name: "lookup_total",
+			Help: "Total single-row agent_runtime reads by product source and outcome.",
+		}, metricLabels("multica_agent_runtime_lookup_total")),
 		activeTasks: map[string]activeTaskLabels{},
 		events:      newBusinessEventMetrics(),
 	}
 	m.prewarmFailureReasons()
 	for _, reason := range []string{RuntimeGCSkipEligibilityChanged, RuntimeGCSkipNonTerminalTask, RuntimeGCSkipWorkspaceMismatch} {
 		m.runtimeGCSkipped.WithLabelValues(reason).Add(0)
+	}
+	// Prewarm the full source x result grid (45 series) so a source that has
+	// not fired since this process started reads as zero rather than as a
+	// missing series — rate() over an absent series returns nothing, which on
+	// a dashboard is indistinguishable from "we never instrumented that path".
+	for _, source := range AllRuntimeLookupSources() {
+		for _, result := range AllRuntimeLookupResults() {
+			m.agentRuntimeLookup.WithLabelValues(source, result).Add(0)
+		}
 	}
 	return m
 }
@@ -309,6 +328,7 @@ func (m *BusinessMetrics) Collectors() []prometheus.Collector {
 		m.entitlementDecision,
 		m.entitlementVersionRegression,
 		m.autopilotQuotaDecision,
+		m.agentRuntimeLookup,
 	}, m.events.collectors()...)
 }
 
@@ -336,6 +356,22 @@ func (m *BusinessMetrics) RecordEntitlementDecision(gate, action, reason string)
 	if m != nil {
 		m.entitlementDecision.WithLabelValues(gate, action, reason).Inc()
 	}
+}
+
+// RecordAgentRuntimeLookup counts one single-row agent_runtime read.
+//
+// Call it from service.RuntimeLookup and nowhere else: the point of the metric
+// is that every read is attributed, and a second entry point is how a call site
+// ends up counted twice or not at all. Both labels are normalized here, so a
+// typo at a call site degrades to "other"/"error" instead of minting a series.
+func (m *BusinessMetrics) RecordAgentRuntimeLookup(source, result string) {
+	if m == nil {
+		return
+	}
+	m.agentRuntimeLookup.WithLabelValues(
+		NormalizeAgentRuntimeLookupSource(source),
+		NormalizeAgentRuntimeLookupResult(result),
+	).Inc()
 }
 
 func (m *BusinessMetrics) RecordEntitlementVersionRegression() {
