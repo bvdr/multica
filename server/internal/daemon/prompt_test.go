@@ -1920,17 +1920,49 @@ func TestWorktreeReplayConflictBlock(t *testing.T) {
 		}
 	})
 
-	t.Run("a pathological list is bounded", func(t *testing.T) {
-		files := make([]string, 200)
-		for i := range files {
-			files[i] = fmt.Sprintf("pkg/file%03d.go", i)
+	// The bound is on rendered BYTES, not on entries: a git path is as long as
+	// the filesystem allows, so counting entries bounds nothing.
+	t.Run("the rendered list is bounded in bytes", func(t *testing.T) {
+		long := make([]string, 40)
+		for i := range long {
+			long[i] = "pkg/" + strings.Repeat(fmt.Sprintf("deep%02d/", i), 40) + "file.go"
 		}
-		out := BuildPrompt(task, "claude", WithWorktreeReplayConflicts(files))
-		if !strings.Contains(out, "and 150 more") {
-			t.Fatalf("list was not bounded:\n%s", out)
+		out := BuildPrompt(task, "claude", WithWorktreeReplayConflicts(long))
+		block := out[strings.Index(out, "## Unresolved merge"):]
+		if len(block) > maxConflictListBytes*2 {
+			t.Fatalf("block grew to %d bytes for %d long paths", len(block), len(long))
 		}
-		if strings.Contains(out, "file199.go") {
-			t.Fatalf("list was not truncated:\n%s", out)
+		if !strings.Contains(out, " more; `git status`") {
+			t.Fatalf("the remainder was not reported:\n%s", block)
+		}
+		if !strings.Contains(out, "deep00/") {
+			t.Fatalf("no path was listed at all:\n%s", block)
+		}
+
+		// A single path longer than the whole budget must not overrun it — the
+		// count line alone carries the news.
+		huge := []string{"pkg/" + strings.Repeat("x", maxConflictListBytes*2) + ".go"}
+		out = BuildPrompt(task, "claude", WithWorktreeReplayConflicts(huge))
+		block = out[strings.Index(out, "## Unresolved merge"):]
+		if len(block) > maxConflictListBytes {
+			t.Fatalf("one oversized path overran the budget: %d bytes", len(block))
+		}
+		if !strings.Contains(block, "and 1 more") {
+			t.Fatalf("the dropped path was not counted:\n%s", block)
+		}
+
+		// Many short paths are still bounded, and the remainder counted.
+		short := make([]string, 500)
+		for i := range short {
+			short[i] = fmt.Sprintf("pkg/file%03d.go", i)
+		}
+		out = BuildPrompt(task, "claude", WithWorktreeReplayConflicts(short))
+		block = out[strings.Index(out, "## Unresolved merge"):]
+		if len(block) > maxConflictListBytes*2 {
+			t.Fatalf("block grew to %d bytes for %d short paths", len(block), len(short))
+		}
+		if !strings.Contains(out, " more; `git status`") {
+			t.Fatalf("the remainder was not reported for a long list:\n%s", block)
 		}
 	})
 }

@@ -121,10 +121,15 @@ func buildSharedLocalDirectoryBlock(shared bool) string {
 	return b.String()
 }
 
-// maxListedConflicts bounds the file list. A conflict this wide is a merge the
-// agent will work through with git rather than by reading names, and a
-// pathological repo must not be able to spend the turn's context on filenames.
-const maxListedConflicts = 50
+// maxConflictListBytes bounds the RENDERED file list, in bytes of the escaped
+// output rather than in entries: a git path can be as long as the filesystem
+// allows, so a per-entry count bounds nothing. 4 KiB is roughly a thousand
+// tokens — small next to any provider's context, large enough for the tens of
+// paths a real merge conflict spans, and the remainder is one `git status` away
+// inside the worktree. It is the whole block's share of the turn: this text is
+// re-sent every turn the merge stays open, and a pathological repository must
+// not be able to spend that turn on filenames.
+const maxConflictListBytes = 4 << 10
 
 // buildWorktreeReplayConflictBlock tells the turn that its own working tree
 // starts out mid-merge, and that finishing that merge comes before the task.
@@ -148,12 +153,21 @@ func buildWorktreeReplayConflictBlock(files []string) string {
 	var b strings.Builder
 	b.WriteString("## Unresolved merge in your working tree\n\n")
 	b.WriteString("This branch carries your previous turn's work. Since then the user edited the same lines in their own directory, and git could not merge the two (paths are quoted Go string literals — a filename may itself contain quotes or newlines):\n\n")
-	for i, file := range files {
-		if i == maxListedConflicts {
-			fmt.Fprintf(&b, "- …and %d more; `git status` in this worktree lists them all\n", len(files)-i)
+	listed, used := 0, 0
+	for _, file := range files {
+		entry := fmt.Sprintf("- %q\n", file)
+		// Budget checked before writing, so a single very long path cannot
+		// overrun it either — in that case the list is empty and the line below
+		// carries the whole count.
+		if used+len(entry) > maxConflictListBytes {
 			break
 		}
-		fmt.Fprintf(&b, "- %q\n", file)
+		b.WriteString(entry)
+		used += len(entry)
+		listed++
+	}
+	if listed < len(files) {
+		fmt.Fprintf(&b, "- …and %d more; `git status` in this worktree lists them all\n", len(files)-listed)
 	}
 	b.WriteString("\nResolve it before anything else, with ordinary git commands — `git status` lists the unmerged paths, `git diff` shows both sides, `git add <file>` marks each one done. The \"ours\" side is what you wrote last turn; \"theirs\" is the user's newer edit, and it is the side you have not seen before, so read it before choosing. Keep both intentions where they are compatible; where they are not, prefer the user's and say so in your reply.\n\n")
 	b.WriteString("This run cannot deliver its branch while any file is still unmerged — the task fails and the worktree is kept for a human instead. Do not commit conflict markers.\n\n")

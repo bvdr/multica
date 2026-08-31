@@ -1134,8 +1134,16 @@ func TestDiscardKeepsTheContinuedBranch(t *testing.T) {
 // git allows one worktree per branch. A sibling task on the same conversation
 // still has to run, and it should start from the conversation's latest work
 // rather than from HEAD.
+//
+// The user's tree is dirty here, which is what puts a record on the branch
+// before the first turn finishes: the baseline commit moves the branch off the
+// user's HEAD, and only then is there a checkpoint worth recording (see
+// recordState). A sibling racing the very first turn of a conversation on a
+// clean tree finds no record yet and starts its own line of work instead —
+// safe, and the price of never continuing a branch we cannot prove is ours.
 func TestPrepareLocalWorktreeForksWhenTheConversationBranchIsBusy(t *testing.T) {
 	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
 
 	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
 	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
@@ -1394,7 +1402,7 @@ func TestBranchRecordRoundTrips(t *testing.T) {
 	}
 	gitRun(t, repo, "branch", "agent/j/mul-6881")
 
-	recorded, err := writeBranchRecord(repo, "agent/j/mul-6881", snapshot, testBranchOwner)
+	recorded, err := writeBranchRecord(repo, "agent/j/mul-6881", snapshot, head, testBranchOwner)
 	if err != nil {
 		t.Fatalf("writeBranchRecord: %v", err)
 	}
@@ -1522,4 +1530,111 @@ func TestPrepareLocalWorktreeContinuesAfterTheUserCommitsOnTheBranch(t *testing.
 		}
 	}
 	finalizeOK(t, second)
+}
+
+// The record IS part of delivering the branch. If it cannot be written, the
+// branch is not continuable and the turn has not delivered what it claims — so
+// the task fails and the worktree is kept, rather than reporting success and
+// leaving a stale record behind to authorise the next turn.
+func TestFinalizeFailsWhenTheBranchRecordCannotBeWritten(t *testing.T) {
+	repo := newTestRepo(t)
+
+	wt := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(wt.WorkDir, "agent.txt"), "turn one\n")
+
+	// Hold the ref's lock so only the final update-ref fails, the way a crashed
+	// git or a concurrent writer would leave it.
+	lock := filepath.Join(repo, ".git", filepath.FromSlash(userStateRef("agent/j/mul-6881"))+".lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatalf("prepare ref lock dir: %v", err)
+	}
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatalf("hold ref lock: %v", err)
+	}
+
+	outcome, err := wt.Finalize(worktreeTestLogger())
+	if err == nil {
+		t.Fatal("Finalize reported success without recording the branch")
+	}
+	if outcome.PreservedPath != wt.Path {
+		t.Errorf("PreservedPath = %q, want the worktree at %q", outcome.PreservedPath, wt.Path)
+	}
+	if _, statErr := os.Stat(wt.Path); statErr != nil {
+		t.Errorf("worktree removed even though the branch could not be recorded: %v", statErr)
+	}
+	// The agent's work is committed to the branch regardless — that commit
+	// happens before the record, and losing it would be the worse failure.
+	if got := gitRun(t, repo, "show", "agent/j/mul-6881:agent.txt"); got != "turn one" {
+		t.Errorf("branch content = %q, want the agent's work committed", got)
+	}
+
+	// And with no record, a later turn must not adopt the branch: the hole this
+	// closes is the user deleting it and recreating one of their own at the
+	// commit the prepare-time record used to point at.
+	if err := os.Remove(lock); err != nil {
+		t.Fatalf("release ref lock: %v", err)
+	}
+	_ = removeLocalWorktreeDir(repo, wt.Path, worktreeTestLogger())
+	gitRun(t, repo, "branch", "-D", "agent/j/mul-6881")
+	gitRun(t, repo, "branch", "agent/j/mul-6881")
+	worktree := filepath.Join(t.TempDir(), "theirs")
+	gitRun(t, repo, "worktree", "add", "--quiet", worktree, "agent/j/mul-6881")
+	writeFile(t, filepath.Join(worktree, "unrelated.txt"), "the user's own work\n")
+	gitRun(t, worktree, "add", "-A")
+	gitRun(t, worktree, "commit", "-m", "the user's own commit")
+	gitRun(t, repo, "worktree", "remove", "--force", worktree)
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if second.Continued || second.Branch == "agent/j/mul-6881" {
+		t.Errorf("second turn adopted the user's branch: branch = %q, continued = %v", second.Branch, second.Continued)
+	}
+	if _, err := os.Stat(filepath.Join(second.WorkDir, "unrelated.txt")); err == nil {
+		t.Error("the user's unrelated work leaked into this task's tree")
+	}
+	finalizeOK(t, second)
+}
+
+// The checkpoint is the commit the turn DELIVERED, not whatever the branch ref
+// says afterwards. A branch moved between the delivery and any later read is
+// therefore refused rather than silently continued.
+func TestBranchRecordPinsTheDeliveredCommitNotTheLiveRef(t *testing.T) {
+	repo := newTestRepo(t)
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "agent.txt"), "turn one\n")
+	finalizeOK(t, first)
+	delivered := gitRun(t, repo, "rev-parse", "agent/j/mul-6881")
+
+	ref, err := readUserStateRef(repo, "agent/j/mul-6881")
+	if err != nil {
+		t.Fatalf("readUserStateRef: %v", err)
+	}
+	record, err := readBranchRecord(repo, ref)
+	if err != nil {
+		t.Fatalf("readBranchRecord: %v", err)
+	}
+	if record.checkpoint != delivered {
+		t.Fatalf("checkpoint = %s, want the delivered tip %s", record.checkpoint, delivered)
+	}
+
+	// Someone moves the branch after delivery — a force-push, a reset, a script.
+	gitRun(t, repo, "branch", "-f", "agent/j/mul-6881", "HEAD")
+	if _, owned := branchOwnedBy(repo, "agent/j/mul-6881", testBranchOwner, worktreeTestLogger()); owned {
+		t.Error("a branch moved off the delivered commit still counted as ours")
+	}
+
+	// The deterministic form of the same race: a record written while the ref
+	// already points somewhere else must still pin what was delivered, not
+	// whatever the ref says at the moment of writing.
+	written, err := writeBranchRecord(repo, "agent/j/mul-6881", record.state, delivered, testBranchOwner)
+	if err != nil {
+		t.Fatalf("writeBranchRecord: %v", err)
+	}
+	rewritten, err := readBranchRecord(repo, written)
+	if err != nil {
+		t.Fatalf("readBranchRecord: %v", err)
+	}
+	if rewritten.checkpoint != delivered {
+		t.Errorf("checkpoint = %s, want the commit passed in (%s), not the live ref", rewritten.checkpoint, delivered)
+	}
 }

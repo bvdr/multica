@@ -384,9 +384,21 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		}
 		// The branch now carries this snapshot, so record it — together with the
 		// owner, which is what lets the next task prove this branch is its own
-		// before continuing it. Recorded here rather than at Finalize so a turn
+		// before continuing it. Recorded here as well as at Finalize so a turn
 		// that never reaches Finalize still leaves the branch identifiable.
-		wt.recordState(logger)
+		//
+		// Only when the branch has moved off the user's HEAD, which is the case
+		// whenever they had uncommitted work (it is now the baseline commit) or
+		// this branch was continued. A record pointing at their bare HEAD would
+		// prove nothing about the branch: see recordState. A fresh branch on a
+		// clean tree therefore stays unrecorded until Finalize, and a turn that
+		// dies before then leaves it to be superseded rather than continued.
+		if wt.BaseCommit != headSHA {
+			if err := wt.recordState(wt.BaseCommit, logger); err != nil && logger != nil {
+				logger.Warn("execenv: could not record the task branch before the run (non-fatal; Finalize records the delivered tip)",
+					"branch", wt.Branch, "error", err)
+			}
+		}
 	}
 
 	// Note on keeping sidecars out of the delivered branch: we deliberately do
@@ -527,6 +539,27 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 	producedWork := err != nil || tip != w.BaseCommit
 	dropped := !producedWork && w.createdBranch
 
+	// Record BEFORE the worktree goes away, and treat a failure as a failure to
+	// deliver. The record is what makes the branch continuable: without it the
+	// next turn cannot prove the branch is this conversation's and starts a new
+	// line of work, stranding what this turn produced. Ordering it first is what
+	// makes that recoverable — the worktree is still there to preserve, exactly
+	// as for a commit that could not be made.
+	if !dropped {
+		if recErr := w.recordState(tip, logger); recErr != nil {
+			outcome.PreservedPath = w.Path
+			if logger != nil {
+				logger.Error("execenv: could not record the delivered task branch; keeping the worktree",
+					"path", w.Path, "branch", w.Branch, "git_root", w.GitRoot, "error", recErr)
+			}
+			return outcome, fmt.Errorf(
+				"could not record branch %s as this conversation's: %w; the work is committed to that branch and the "+
+					"task worktree is preserved at %s (listed by `git worktree list` in %s) — a follow-up run will start "+
+					"a new branch instead of continuing this one",
+				w.Branch, recErr, w.Path, w.GitRoot)
+		}
+	}
+
 	if removeErr := removeLocalWorktreeDir(w.GitRoot, w.Path, logger); removeErr != nil {
 		outcome.PreservedPath = w.Path
 		return outcome, fmt.Errorf(
@@ -537,14 +570,6 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 	if dropped {
 		dropBranch(w.GitRoot, w.Branch, logger)
 		outcome.Branch = ""
-	} else {
-		// Re-record against the tip this turn actually delivered. Prepare's
-		// record was written before the agent had committed anything, and a
-		// checkpoint sitting at the branch's base cannot tell this branch apart
-		// from one recreated at the same commit. This is also where a turn that
-		// started with a conflict records for the first time, now that the
-		// agent's resolution is committed.
-		w.recordState(logger)
 	}
 
 	if logger != nil {
@@ -890,15 +915,20 @@ type branchRecord struct {
 	owner      branchOwner
 }
 
-// writeBranchRecord records the branch as carrying userState at its current
-// tip, and points the branch's ref at that record.
-func writeBranchRecord(gitRoot, branch, userState string, owner branchOwner) (string, error) {
-	tip, err := runGitTrimmed(gitRoot, "rev-parse", "--verify", "refs/heads/"+branch)
-	if err != nil {
-		return "", fmt.Errorf("resolve branch %s: %w", branch, err)
+// writeBranchRecord records the branch as carrying userState at checkpoint, and
+// points the branch's ref at that record.
+//
+// The checkpoint is passed in, never re-read from the branch ref here: the
+// caller knows which commit it actually delivered, while the ref is the user's
+// and can move between the delivery and this write. Recording what we delivered
+// means a branch that moved in that window simply fails the ancestor test next
+// time, which is the safe direction.
+func writeBranchRecord(gitRoot, branch, userState, checkpoint string, owner branchOwner) (string, error) {
+	if checkpoint == "" {
+		return "", fmt.Errorf("no checkpoint to record for branch %s", branch)
 	}
 	args := append(commitIdentityArgs(gitRoot), "commit-tree", userState+"^{tree}",
-		"-p", userState, "-p", tip, "-m", branchRecordMessage(owner))
+		"-p", userState, "-p", checkpoint, "-m", branchRecordMessage(owner))
 	record, err := runGitTrimmed(gitRoot, args...)
 	if err != nil {
 		return "", fmt.Errorf("git commit-tree: %w", err)
@@ -1287,27 +1317,29 @@ func readUserStateRef(gitRoot, branch string) (string, error) {
 }
 
 // recordState pins the user's directory as this task saw it together with the
-// branch tip it currently sits on. Two things depend on the record: the next
-// turn replays from its tree, and every later task proves the branch is still
-// its own from its owner and checkpoint.
+// commit the branch stands at. Two things depend on the record: the next turn
+// replays from its tree, and every later task proves the branch is still its
+// own from its owner and checkpoint.
 //
-// Called twice in a normal turn, and both matter. Prepare records as soon as
-// the branch carries the snapshot, so a turn that dies before Finalize still
-// leaves the branch identifiable. Finalize records again, because by then the
-// agent's commits have moved the tip and a checkpoint left behind at the base
-// is no proof at all — it is exactly where a branch the user deleted and
-// recreated from HEAD would sit.
-//
-// Best-effort on failure — losing the record costs the next turn its
-// incremental replay and, at worst, a differently-named branch, never any work.
-func (w *LocalWorktree) recordState(logger *slog.Logger) {
+// The checkpoint must be a commit the branch could not plausibly be sitting at
+// WITHOUT this conversation's work — that is the whole proof. A tip that is
+// still the user's own HEAD is not one: it is exactly where a branch they
+// delete and recreate lands, and recording it would authorise a later turn to
+// append onto their unrelated work. Prepare therefore records only once the
+// branch carries a commit of ours, and Finalize records the tip it actually
+// delivered.
+func (w *LocalWorktree) recordState(checkpoint string, logger *slog.Logger) error {
 	if w == nil || !w.tracksState || w.Branch == "" || w.userState == "" {
-		return
+		return nil
 	}
-	if _, err := writeBranchRecord(w.GitRoot, w.Branch, w.userState, w.owner); err != nil && logger != nil {
-		logger.Warn("execenv: could not record the local-directory snapshot for the task branch (non-fatal)",
-			"branch", w.Branch, "error", err)
+	if _, err := writeBranchRecord(w.GitRoot, w.Branch, w.userState, checkpoint, w.owner); err != nil {
+		return err
 	}
+	if logger != nil {
+		logger.Debug("execenv: recorded the local-directory snapshot for the task branch",
+			"branch", w.Branch, "checkpoint", checkpoint)
+	}
+	return nil
 }
 
 // dropBranch deletes a task branch that carries nothing worth keeping, together
