@@ -7406,6 +7406,13 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	if localAssignment != nil && !localAssignment.UsesWorktree() && localDirectoryLockExempt(task) {
 		promptOptions = append(promptOptions, WithSharedLocalDirectory())
 	}
+	// Worktree mode hands this turn a tree that is mid-merge when the user's
+	// edits since the previous turn collided with the branch's own work. The
+	// conflict is deliberately left in place for the agent to resolve, so the
+	// prompt has to be the thing that tells it (MUL-6881).
+	if env.LocalWorktree != nil && len(env.LocalWorktree.ReplayConflicts) > 0 {
+		promptOptions = append(promptOptions, WithWorktreeReplayConflicts(env.LocalWorktree.ReplayConflicts))
+	}
 	prompt := BuildPrompt(task, provider, promptOptions...)
 
 	// Pass task-scoped auth credentials and context so the spawned agent CLI

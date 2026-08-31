@@ -2,6 +2,8 @@ package execenv
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -42,23 +44,27 @@ const (
 	// slot forever.
 	gitTimeout = 2 * time.Minute
 
-	// maxUntrackedFiles / maxUntrackedBytes bound the untracked-file replay.
-	// `--exclude-standard` already drops anything gitignored (node_modules,
-	// build output, venvs), so a repo hitting these limits has an unusual
-	// amount of untracked-but-not-ignored content. We copy up to the bound and
-	// report the remainder rather than silently truncating or hanging on a
-	// multi-gigabyte copy.
+	// maxUntrackedFiles / maxUntrackedBytes bound the untracked content a task
+	// will replay. `--exclude-standard` already drops anything gitignored
+	// (node_modules, build output, venvs), so a repo hitting these limits has an
+	// unusual amount of untracked-but-not-ignored content, and snapshotting it
+	// would write every byte of it into the user's own object database. The
+	// task refuses instead, naming the fix.
 	maxUntrackedFiles = 2000
 	maxUntrackedBytes = 200 << 20 // 200 MiB
 
-	// stashCaptureAttempts / stashCaptureRetryDelay bound the retry on the
-	// dirty-state capture. The contention this rides out is a user tool
-	// holding .git/index.lock for the length of one git command, so the total
-	// window (0.1s + 0.2s + 0.4s + 0.8s ≈ 1.5s) is sized for that and not for
-	// a wedged lock — a stale index.lock is a repo the user has to fix, and
-	// waiting minutes on it would only delay telling them so.
-	stashCaptureAttempts   = 5
-	stashCaptureRetryDelay = 100 * time.Millisecond
+	// snapshotIndexFileName is the private index captureUserSnapshot builds the
+	// user's snapshot in. It lives in the task's env root, never in the user's
+	// repository: pointing GIT_INDEX_FILE at our own file is what keeps the
+	// capture off the user's index entirely — no writes to it, and no wait on
+	// .git/index.lock, which used to be able to end the task (#7434).
+	snapshotIndexFileName = ".multica-snapshot-index"
+
+	// localStateRefPrefix namespaces the per-branch record of the user's
+	// directory. Outside refs/heads so it never appears in the user's
+	// `git branch`, and a ref rather than a loose object so `git gc` in their
+	// repo cannot reclaim a snapshot between two turns.
+	localStateRefPrefix = "refs/multica/local-state/"
 )
 
 // LocalWorktreeParams describes the worktree Prepare should build for a
@@ -80,25 +86,50 @@ type LocalWorktreeParams struct {
 	// turn of a conversation continues the first turn's work instead of
 	// forking from HEAD again (MUL-6881). Empty for a task with no durable
 	// conversation behind it; those keep the task-scoped branch.
+	//
+	// It is a DISPLAY key: `mul-6881` is what the user recognises in
+	// `git branch`, and two workspaces can produce the same one. Continuing a
+	// branch is therefore never decided by the name — see WorkspaceID /
+	// AgentID / ConversationID, which are what a branch's recorded owner is
+	// compared against.
 	ConversationKey string
+	// WorkspaceID, AgentID and ConversationID identify the conversation
+	// itself. They are recorded with the branch and re-checked before any
+	// later task continues it, so a same-named branch belonging to the user,
+	// to another agent, or to another workspace is never adopted. All three
+	// empty means "no conversation": the task gets a task-scoped branch.
+	WorkspaceID    string
+	AgentID        string
+	ConversationID string
 }
 
-// localWorktreeConversationKey names the work line a worktree task belongs to,
-// so every turn of it delivers onto one branch (MUL-6881). The issue key is
-// preferred because it is what the user recognises in `git branch` —
-// agent/j/mul-6881 rather than a task uuid tail. Tasks with neither an issue
-// nor a chat session have no conversation to continue and get "".
-func localWorktreeConversationKey(params PrepareParams) string {
+// owner is the identity a branch created for this task is recorded under.
+func (p LocalWorktreeParams) owner() branchOwner {
+	return branchOwner{WorkspaceID: p.WorkspaceID, AgentID: p.AgentID, ConversationID: p.ConversationID}
+}
+
+// localWorktreeConversation names the work line a worktree task belongs to, so
+// every turn of it delivers onto one branch (MUL-6881).
+//
+// Two values, because they answer different questions. The key is what the
+// branch is CALLED — the issue identifier is preferred there because it is what
+// the user recognises in `git branch`, agent/j/mul-6881 rather than a uuid
+// tail. The id is what the branch BELONGS to, and only it decides whether a
+// later task may continue that branch: identifiers are per-workspace and
+// human-chosen, so two workspaces can mint the same one for different issues.
+// Tasks with neither an issue nor a chat session have no conversation to
+// continue and get "", "".
+func localWorktreeConversation(params PrepareParams) (key, id string) {
 	if params.Task.IssueID != "" {
 		if params.IssueIdentifier != "" {
-			return params.IssueIdentifier
+			return params.IssueIdentifier, params.Task.IssueID
 		}
-		return taskKey(params.Task.IssueID)
+		return taskKey(params.Task.IssueID), params.Task.IssueID
 	}
 	if params.Task.ChatSessionID != "" {
-		return "chat-" + taskKey(params.Task.ChatSessionID)
+		return "chat-" + taskKey(params.Task.ChatSessionID), params.Task.ChatSessionID
 	}
-	return ""
+	return "", ""
 }
 
 // LocalWorktree is a prepared worktree plus everything the daemon needs to
@@ -123,25 +154,39 @@ type LocalWorktree struct {
 	// of the same conversation left behind, instead of forking a new one from
 	// the user's HEAD.
 	Continued bool
+	// ReplayConflicts names the files where the user's edits since the previous
+	// turn could not be merged with what the branch already carries. The
+	// worktree is handed to the agent WITH those conflicts in it — resolving
+	// them is ordinary git work, and it is the only party that can judge which
+	// version is right — so this is what the turn's prompt tells it to fix.
+	// Finalize refuses to deliver while any of them are still unmerged.
+	ReplayConflicts []string
 	// createdBranch records that this prepare put the branch where it is, so
 	// dropping it discards nothing an earlier turn delivered. False for a
 	// continued branch: that one has to survive even a turn that produced
 	// nothing, because it carries every turn before it.
 	createdBranch bool
 	// userState is the commit describing the user's directory as this task saw
-	// it — their uncommitted tree, or HEAD when it was clean. Finalize records
-	// it against the branch so the next turn replays only what changed since.
+	// it: their tracked edits and untracked files in one tree. Recorded against
+	// the branch once it actually carries them, so the next turn replays only
+	// what changed after that.
 	userState string
+	// owner is the conversation this branch belongs to, recorded with the
+	// snapshot so a later task can prove the branch is its own before
+	// continuing it.
+	owner branchOwner
+	// tracksState is false for a branch no later turn will continue — a
+	// task-scoped branch, or the one a busy sibling forked. Recording a
+	// snapshot for those would leave a ref nothing ever reads.
+	tracksState bool
+	// stateRecorded is true once this task's snapshot is recorded against the
+	// branch. Prepare does it as soon as the branch carries the snapshot;
+	// Finalize does it for a turn that had to resolve a conflict first.
+	stateRecorded bool
 	// aborted, when set, makes Finalize refuse to commit or remove anything.
 	// Set by the daemon when a pre-commit step failed in a way that would make
 	// the committed branch wrong (see AbortWithReason).
 	aborted error
-	// UntrackedCopied / UntrackedSkipped report the untracked-file replay.
-	// A non-zero skip count means the bounds below were hit and the agent is
-	// looking at less than the user has on disk; it is logged at warn level so
-	// the gap is findable rather than invisible.
-	UntrackedCopied  int
-	UntrackedSkipped int
 }
 
 // LocalWorktreeOutcome is what a finished worktree task delivered.
@@ -201,13 +246,12 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 
 	worktreePath := filepath.Join(params.EnvRoot, localWorktreeDirName)
 
-	// Everything below either mutates the repo's worktree admin state or needs
-	// its index lock, so take the per-repo lock first. That covers the
-	// stale-path cleanup, which runs `git worktree remove` and would otherwise
-	// race a sibling task's `worktree add`, and the `git stash create` capture
-	// below — the step that actually lost this race in production, because the
-	// lock used to be in-process only while every prepare runs in its own
-	// helper process (#7434).
+	// Everything below mutates the repo's worktree admin state or its refs, so
+	// take the per-repo lock first. It covers the stale-path cleanup, which runs
+	// `git worktree remove` and would otherwise race a sibling task's `worktree
+	// add`, and the branch decision, which has to see a branch that another task
+	// is creating at the same moment. The lock is cross-process because every
+	// prepare runs in its own helper process (#7434).
 	unlock, err := lockGitRoot(gitRoot, logger)
 	if err != nil {
 		return nil, err
@@ -228,6 +272,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		logger.Warn("execenv: git worktree prune failed (non-fatal)",
 			"git_root", gitRoot, "output", out, "error", pruneErr)
 	}
+	pruneOrphanedStateRefs(gitRoot, logger)
 
 	headSHA, err := runGitTrimmed(gitRoot, "rev-parse", "--verify", "HEAD")
 	if err != nil {
@@ -235,30 +280,26 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 			"(worktree mode needs at least one commit; make an initial commit or switch the resource back to in_place): %w", gitRoot, err)
 	}
 
-	// `git stash create` builds a commit capturing tracked modifications and
-	// returns its sha WITHOUT stashing — the user's index and working tree are
-	// untouched. Empty output means the tree is clean. The identity args cover
-	// a repo with no user.email configured: writing a commit object needs a
-	// committer, and without them the user's uncommitted work would be dropped
-	// on a technicality.
-	stashSHA, stashErr := captureDirtyState(gitRoot, logger)
-	if stashErr != nil {
+	// Refuse an untracked payload too large to reproduce BEFORE snapshotting it:
+	// the snapshot writes every one of those bytes into the user's own object
+	// database, which is not something to do by accident on a directory full of
+	// un-ignored build output.
+	if err := checkUntrackedReplayable(gitRoot, logger); err != nil {
+		return nil, err
+	}
+
+	// The commit describing the user's directory as this task sees it — their
+	// tracked edits and their untracked files in one tree. Everything below
+	// reasons about the user's state through this single object.
+	userState, err := captureUserSnapshot(gitRoot, params.EnvRoot, headSHA, params.owner(), logger)
+	if err != nil {
 		// Fail closed. The promise of this mode is that the agent reasons about
 		// the code the user actually has; silently starting from HEAD instead
 		// would have it review a tree the user never saw and report confidently
 		// on it. A task that does not start is recoverable — one that answers
 		// from the wrong sources is not.
 		return nil, fmt.Errorf("execenv: could not capture the uncommitted changes in %q, "+
-			"so the worktree would not match what you have on disk: %w", gitRoot, stashErr)
-	}
-
-	// The commit that describes the user's directory as this task sees it:
-	// their uncommitted tree when they have one, HEAD when the tree is clean.
-	// Finalize records it against the branch, and the next turn on this
-	// conversation replays the difference — see replayUserEditsSinceLastTurn.
-	userState := headSHA
-	if stashSHA != "" {
-		userState = stashSHA
+			"so the worktree would not match what you have on disk: %w", gitRoot, err)
 	}
 
 	plan := resolveTaskBranch(gitRoot, params, headSHA, logger)
@@ -276,6 +317,10 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		Continued:     plan.continues,
 		createdBranch: createdBranch,
 		userState:     userState,
+		owner:         plan.owner,
+		// A branch a sibling task forked because the conversation's own branch
+		// was busy is delivered once and never continued, so it records nothing.
+		tracksState: plan.tracksState && actualBranch == plan.name,
 	}
 
 	// Tear the worktree back down on every failure below. A half-replayed tree
@@ -292,54 +337,22 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		}
 	}
 
-	// Replay the user's uncommitted work.
+	// Replay the user's directory into the worktree.
 	//
-	// A branch forked from HEAD has none of it, so the whole uncommitted tree
-	// goes in as unstaged modifications: the branch history stays linear and
-	// the agent sees the same work-in-progress the user has open in their
-	// editor. A continued branch already carries it — the turn that created the
-	// branch committed it as the baseline, and the agent's commits sit on top
-	// — so only what the user changed since is new information there.
-	switch {
-	case plan.continues:
-		// Keyed to plan.name, not to actualBranch: when a sibling task already
-		// held the conversation's branch this worktree forked from that branch's
-		// tip onto a name of its own, and the snapshot it needs is still the
-		// one the conversation recorded.
-		if err := replayUserEditsSinceLastTurn(gitRoot, worktreePath, plan.name, userState, logger); err != nil {
-			rollback()
-			return nil, err
-		}
-	case stashSHA != "":
-		if out, applyErr := runGit(worktreePath, "stash", "apply", stashSHA); applyErr != nil {
-			rollback()
-			return nil, fmt.Errorf("execenv: could not replay the uncommitted changes from %q into the task worktree "+
-				"(the agent would have seen a different tree than you have): %s: %w",
-				gitRoot, strings.TrimSpace(out), applyErr)
-		}
-	}
-	wt.DirtyBaseCaptured = stashSHA != ""
-
-	copied, skipped, err := copyUntrackedFiles(gitRoot, worktreePath, logger)
-	if err != nil {
+	// A branch forked from HEAD carries none of it, so the whole snapshot goes
+	// in. A continued branch already carries the snapshot the previous turn
+	// recorded, and the agent's commits sit on top of it, so only what the user
+	// changed after that is new information there.
+	replay, replayErr := replayUserState(worktreePath, plan, userState, logger)
+	if replayErr != nil {
 		rollback()
-		return nil, fmt.Errorf("execenv: could not replay the untracked files from %q into the task worktree: %w", gitRoot, err)
+		return nil, replayErr
 	}
-	if skipped > 0 {
-		// Any untracked file we could not reproduce makes the worktree a tree
-		// the user would not recognise, so this fails rather than quietly
-		// under-copying. Causes: the size/count bounds (usually build output
-		// that should have been gitignored), an untracked symlink, or a file
-		// that disappeared mid-snapshot. The message names the common fix
-		// without claiming to know which one it was.
-		rollback()
-		return nil, fmt.Errorf("execenv: could not replay every untracked file from %q into the task worktree "+
-			"(copied %d, %d left over; the replay covers regular files up to %d files / %d MiB and does not follow symlinks) "+
-			"— gitignore or clean up the untracked files, or switch the resource back to in_place",
-			gitRoot, copied, skipped, maxUntrackedFiles, maxUntrackedBytes>>20)
-	}
-	wt.UntrackedCopied = copied
-	wt.UntrackedSkipped = skipped
+	wt.ReplayConflicts = replay.conflicts
+	// Whether the user has uncommitted work at all — replayed by this turn or
+	// already carried by the branch it continued.
+	_, diffErr := runGit(gitRoot, "diff", "--quiet", headSHA, userState)
+	wt.DirtyBaseCaptured = diffErr != nil
 
 	// Commit the replayed state as a baseline so "did this task change
 	// anything?" has an exact answer later. Without it the user's own
@@ -348,21 +361,32 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 	// behind a branch the agent never touched. The baseline also makes the
 	// delivered branch readable — `git diff <baseline>..<branch>` is precisely
 	// the agent's work, with the user's WIP as its own labelled commit.
-	dirty, dirtyErr := worktreeIsDirty(worktreePath)
-	if dirtyErr != nil {
-		rollback()
-		return nil, fmt.Errorf("execenv: could not inspect the prepared worktree for %q: %w", gitRoot, dirtyErr)
-	}
-	if dirty {
-		baseline, baseErr := commitBaseline(worktreePath, plan.continues)
-		if baseErr != nil {
-			// Without a baseline the task cannot tell the user's work from the
-			// agent's, so it would later commit the user's files as if the agent
-			// had produced them. Refuse rather than deliver a misleading branch.
+	//
+	// Skipped entirely while the replay is unresolved: an index with unmerged
+	// entries cannot be committed without committing conflict markers, and the
+	// agent has not had its turn at them yet.
+	if len(replay.conflicts) == 0 {
+		dirty, dirtyErr := worktreeIsDirty(worktreePath)
+		if dirtyErr != nil {
 			rollback()
-			return nil, fmt.Errorf("execenv: could not record a baseline commit for the replayed state of %q: %w", gitRoot, baseErr)
+			return nil, fmt.Errorf("execenv: could not inspect the prepared worktree for %q: %w", gitRoot, dirtyErr)
 		}
-		wt.BaseCommit = baseline
+		if dirty {
+			baseline, baseErr := commitBaseline(worktreePath, plan.continues)
+			if baseErr != nil {
+				// Without a baseline the task cannot tell the user's work from the
+				// agent's, so it would later commit the user's files as if the agent
+				// had produced them. Refuse rather than deliver a misleading branch.
+				rollback()
+				return nil, fmt.Errorf("execenv: could not record a baseline commit for the replayed state of %q: %w", gitRoot, baseErr)
+			}
+			wt.BaseCommit = baseline
+		}
+		// The branch now carries this snapshot, so record it — together with the
+		// owner, which is what lets the next task prove this branch is its own
+		// before continuing it. Recorded here rather than at Finalize so a turn
+		// that never reaches Finalize still leaves the branch identifiable.
+		wt.recordState(logger)
 	}
 
 	// Note on keeping sidecars out of the delivered branch: we deliberately do
@@ -383,8 +407,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 			"base", wt.BaseCommit,
 			"continued", wt.Continued,
 			"dirty_base_captured", wt.DirtyBaseCaptured,
-			"untracked_copied", copied,
-			"untracked_skipped", skipped,
+			"replay_conflicts", len(wt.ReplayConflicts),
 		)
 	}
 	return wt, nil
@@ -444,6 +467,31 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 			w.Branch, w.aborted, w.Path, w.GitRoot)
 	}
 
+	// An unresolved merge is never committed. The worktree may be carrying the
+	// user's edits from before this turn (replayUserState hands the conflict to
+	// the agent rather than dropping it), and `git add -A` would turn conflict
+	// markers into a delivered commit — the one way this mode can produce a
+	// branch that compiles nowhere and looks deliberate. Keep the worktree, say
+	// which files are still open, and leave the snapshot unrecorded so the next
+	// turn replays the same edits instead of assuming they landed.
+	if unmerged, unmergedErr := unmergedPaths(w.Path); unmergedErr != nil || len(unmerged) > 0 {
+		outcome.Branch = ""
+		outcome.PreservedPath = w.Path
+		if unmergedErr != nil {
+			return outcome, fmt.Errorf("could not check %s for an unresolved merge: %w; "+
+				"the work is preserved in the worktree at %s", w.Branch, unmergedErr, w.Path)
+		}
+		if logger != nil {
+			logger.Error("execenv: worktree left with an unresolved merge; nothing committed, worktree kept",
+				"path", w.Path, "branch", w.Branch, "files", unmerged)
+		}
+		return outcome, fmt.Errorf(
+			"refusing to deliver branch %s: your local edits to %s are still unmerged in the task worktree; "+
+				"the worktree is preserved at %s (listed by `git worktree list` in %s) — resolve the conflict there, "+
+				"or re-run the task and let the agent finish the merge",
+			w.Branch, strings.Join(unmerged, ", "), w.Path, w.GitRoot)
+	}
+
 	// Treat "can't tell" like "dirty": committing costs an empty commit at
 	// worst, while assuming clean risks deleting the agent's edits.
 	dirty, statusErr := worktreeIsDirty(w.Path)
@@ -490,10 +538,10 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 		dropBranch(w.GitRoot, w.Branch, logger)
 		outcome.Branch = ""
 	} else {
-		// The branch now carries the user's directory as this task found it, so
-		// record that snapshot: the next turn replays only what they change
-		// from here, instead of re-applying work this branch already has.
-		recordUserState(w.GitRoot, w.Branch, w.userState, logger)
+		// Records only what Prepare could not: a turn that started with a
+		// conflict, which the agent has now resolved and this Finalize has just
+		// committed. Everything else recorded at prepare time.
+		w.recordState(logger)
 	}
 
 	if logger != nil {
@@ -696,73 +744,167 @@ func resolveGitRoot(dir string) (string, error) {
 	return filepath.Clean(root), nil
 }
 
-// captureDirtyState builds the commit object that carries the user's tracked
-// edits, retrying a lost index-lock race instead of failing the task over it.
+// captureUserSnapshot records the user's working directory as one commit: their
+// tracked modifications AND their untracked-but-not-ignored files, in a single
+// tree parented at their HEAD.
 //
-// lockGitRoot already excludes Multica's own tasks, but the repository belongs
-// to the user: an editor's auto-fetch, a git hook, a `git status` in another
-// terminal or a background `git gc` can hold .git/index.lock at any moment,
-// and the window is milliseconds. That is a transient condition worth waiting
-// out — before this retry it ended the whole task, and nothing re-dispatched
-// it.
+// One snapshot rather than the older split — a `git stash create` for tracked
+// edits and a file copy for untracked ones — because a continued branch has to
+// answer "what has the user changed since the turn I already carry?", and that
+// question is unanswerable for a file no snapshot ever recorded: an untracked
+// file the agent then edited would be re-copied from the user's older version
+// every turn, or its later deletion would never carry. A tree also expresses
+// deletions and mode changes, which a copy cannot.
 //
-// Retrying is safe because `stash create` has no side effects to repeat: it
-// writes a commit object and returns its sha, leaving the index, the refs and
-// the working tree exactly as they were. A failed attempt leaves nothing
-// behind, and a repeated one just writes an identical object.
-func captureDirtyState(gitRoot string, logger *slog.Logger) (string, error) {
-	args := append(commitIdentityArgs(gitRoot), "stash", "create")
-	started := time.Now()
-	delay := stashCaptureRetryDelay
+// Nothing here touches the user's index, working tree or refs. GIT_INDEX_FILE
+// points at a private index in the task's env root, so `git add` writes only
+// blob objects and that file — which is also what makes the capture immune to
+// the .git/index.lock races that used to be able to end the task (#7434): the
+// only lock taken is on our own temporary file.
+func captureUserSnapshot(gitRoot, envRoot, headSHA string, owner branchOwner, logger *slog.Logger) (string, error) {
+	if envRoot == "" {
+		return "", errors.New("execenv: user snapshot requires an env root to build its index in")
+	}
+	indexPath := filepath.Join(envRoot, snapshotIndexFileName)
+	if err := os.Remove(indexPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("clear snapshot index: %w", err)
+	}
+	// It is scratch space, not task state: the env root is handed to the agent.
+	defer os.Remove(indexPath)
+	env := []string{"GIT_INDEX_FILE=" + indexPath}
 
-	var lastErr error
-	for attempt := 1; attempt <= stashCaptureAttempts; attempt++ {
-		sha, err := runGitTrimmed(gitRoot, args...)
-		if err == nil {
-			if attempt > 1 && logger != nil {
-				logger.Info("execenv: captured the uncommitted changes after retrying",
-					"git_root", gitRoot, "attempts", attempt, "elapsed", time.Since(started))
-			}
-			return sha, nil
-		}
-		lastErr = err
-		if attempt == stashCaptureAttempts {
-			break
+	// Seed from the user's own index so git can trust its stat cache instead of
+	// re-hashing the whole repository on every turn. A missing or torn copy is
+	// not a failure — read-tree rebuilds a correct index, merely a colder one —
+	// so the fallback runs on any error from the add, not just from the copy.
+	seeded := seedSnapshotIndex(gitRoot, indexPath)
+	addArgs := append([]string{"add", "-A", "--"}, snapshotExcludes()...)
+	if out, err := runGitEnv(gitRoot, env, addArgs...); err != nil {
+		if !seeded {
+			return "", fmt.Errorf("git add: %s: %w", strings.TrimSpace(out), err)
 		}
 		if logger != nil {
-			logger.Debug("execenv: capture attempt failed, retrying",
-				"git_root", gitRoot, "attempt", attempt, "error", err)
+			logger.Debug("execenv: snapshot index seeded from the repository index was unusable; rebuilding it",
+				"git_root", gitRoot, "output", strings.TrimSpace(out), "error", err)
 		}
-		time.Sleep(delay)
-		delay *= 2
+		if out, resetErr := runGitEnv(gitRoot, env, "read-tree", headSHA); resetErr != nil {
+			return "", fmt.Errorf("git read-tree: %s: %w", strings.TrimSpace(out), resetErr)
+		}
+		if out, retryErr := runGitEnv(gitRoot, env, addArgs...); retryErr != nil {
+			return "", fmt.Errorf("git add: %s: %w", strings.TrimSpace(out), retryErr)
+		}
 	}
-
-	return "", fmt.Errorf("git stash create failed %d times over %s%s: %w",
-		stashCaptureAttempts, time.Since(started).Round(time.Millisecond), indexLockHint(gitRoot), lastErr)
+	tree, err := runGitTrimmedEnv(gitRoot, env, "write-tree")
+	if err != nil {
+		return "", fmt.Errorf("git write-tree: %w", err)
+	}
+	// The identity args cover a repo with no user.email configured: writing a
+	// commit object needs a committer, and without them the user's uncommitted
+	// work would be dropped on a technicality.
+	args := append(commitIdentityArgs(gitRoot), "commit-tree", tree, "-p", headSHA, "-m", snapshotMessage(owner))
+	snapshot, err := runGitTrimmed(gitRoot, args...)
+	if err != nil {
+		return "", fmt.Errorf("git commit-tree: %w", err)
+	}
+	return snapshot, nil
 }
 
-// indexLockHint names the index lock when it is what blocked us.
-//
-// git is silent on this failure — losing the index lock in `stash create`
-// produces exit status 1 with NOTHING on stderr — so surfacing git's output is
-// not enough on its own, and the bare exit status is what made this class of
-// failure undiagnosable in the field. Looking for the lock file gives the
-// message the one fact that actually points somewhere.
-//
-// Advisory only: the holder may have released it between git's attempt and
-// ours, in which case we say nothing extra and the wrapped error still carries
-// whatever git did report.
-func indexLockHint(gitRoot string) string {
-	gitDir, err := gitDirFor(gitRoot)
+// seedSnapshotIndex copies the repository's index to path, reporting whether it
+// got one. Read as a plain file rather than through git: git would want the
+// index lock, and this copy exists precisely to avoid waiting on it.
+func seedSnapshotIndex(gitRoot, path string) bool {
+	src, err := runGitTrimmed(gitRoot, "rev-parse", "--git-path", "index")
+	if err != nil || src == "" {
+		return false
+	}
+	if !filepath.IsAbs(src) {
+		src = filepath.Join(gitRoot, src)
+	}
+	return copyFile(src, path) == nil
+}
+
+// snapshotExcludes keeps the daemon's own sidecars out of the user's snapshot.
+// They are untracked files in the user's directory whenever an in_place task is
+// mid-flight on the same path, or was killed before its cleanup ran; carrying
+// them would put another issue's brief inside this task's worktree — where the
+// agent would read it as its own context — and commit it to the branch.
+// Matched at any depth, because an in_place resource may point at a
+// subdirectory of this repo.
+func snapshotExcludes() []string {
+	specs := make([]string, 0, len(multicaSidecarDirNames))
+	for _, name := range multicaSidecarDirNames {
+		specs = append(specs, ":(exclude,glob)**/"+name+"/**")
+	}
+	return specs
+}
+
+// branchOwner is the conversation a task branch belongs to. Recorded with the
+// branch's snapshot and compared before any later task continues it: the branch
+// NAME carries a human-readable issue key, which the user can also type and
+// which two workspaces can mint identically, so the name alone can never
+// establish that a branch is ours to append to (MUL-6881 review).
+type branchOwner struct {
+	WorkspaceID    string
+	AgentID        string
+	ConversationID string
+}
+
+func (o branchOwner) valid() bool {
+	return o.WorkspaceID != "" && o.AgentID != "" && o.ConversationID != ""
+}
+
+// fingerprint is the stable, collision-resistant form of the same identity,
+// used to name a branch when the readable name is already taken by someone
+// else's. Stable across turns, so the fallback branch is continued too.
+func (o branchOwner) fingerprint() string {
+	sum := sha256.Sum256([]byte(o.WorkspaceID + "\x00" + o.AgentID + "\x00" + o.ConversationID))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+const (
+	ownerTrailerWorkspace    = "Multica-Workspace"
+	ownerTrailerAgent        = "Multica-Agent"
+	ownerTrailerConversation = "Multica-Conversation"
+)
+
+func snapshotMessage(owner branchOwner) string {
+	var b strings.Builder
+	b.WriteString("multica: local directory snapshot\n\n")
+	b.WriteString("The tree of this commit is the user's working directory as a task saw it.\n")
+	b.WriteString("Recorded under refs/multica/local-state/<branch> so the next turn on that\n")
+	b.WriteString("branch can replay only what changed after it. Safe to delete along with\n")
+	b.WriteString("the branch.\n\n")
+	fmt.Fprintf(&b, "%s: %s\n", ownerTrailerWorkspace, owner.WorkspaceID)
+	fmt.Fprintf(&b, "%s: %s\n", ownerTrailerAgent, owner.AgentID)
+	fmt.Fprintf(&b, "%s: %s\n", ownerTrailerConversation, owner.ConversationID)
+	return b.String()
+}
+
+// readSnapshotOwner reads back the identity a snapshot commit was recorded
+// under. A commit without all three trailers — anything not written by this
+// code — yields a zero owner, which never matches a valid one.
+func readSnapshotOwner(gitRoot, commit string) (branchOwner, error) {
+	body, err := runGitTrimmed(gitRoot, "log", "-1", "--format=%B", commit)
 	if err != nil {
-		return ""
+		return branchOwner{}, err
 	}
-	lock := filepath.Join(gitDir, "index.lock")
-	if _, statErr := os.Stat(lock); statErr != nil {
-		return ""
+	var owner branchOwner
+	for _, line := range strings.Split(body, "\n") {
+		key, value, found := strings.Cut(strings.TrimSpace(line), ":")
+		if !found {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		switch key {
+		case ownerTrailerWorkspace:
+			owner.WorkspaceID = value
+		case ownerTrailerAgent:
+			owner.AgentID = value
+		case ownerTrailerConversation:
+			owner.ConversationID = value
+		}
 	}
-	return fmt.Sprintf(" (another process is holding %s — usually an editor, a git hook,"+
-		" or a git command running in that repository)", lock)
+	return owner, nil
 }
 
 // addLocalWorktree creates the worktree, retrying once under a suffixed branch
@@ -778,12 +920,21 @@ type taskBranchPlan struct {
 	// continues is true when base is an earlier turn's branch tip rather than
 	// the user's HEAD, so the checkout already carries that turn's work.
 	continues bool
+	// priorState is the user snapshot that branch is recorded as already
+	// carrying. Set only when continues is true; it is the merge base for this
+	// turn's replay.
+	priorState string
 	// reset is true when the conversation's branch exists but is fully merged
 	// into HEAD, and this task restarts it there.
 	reset bool
 	// conversational is true when name is keyed to the conversation rather than
 	// to this one task, so a sibling task may legitimately want it too.
 	conversational bool
+	// tracksState is true when a later turn may continue this branch, and it
+	// therefore has to record what the user's directory looked like.
+	tracksState bool
+	// owner is the identity the branch is recorded under.
+	owner branchOwner
 }
 
 // altName disambiguates a branch a live sibling already holds.
@@ -808,37 +959,86 @@ func (p taskBranchPlan) altName(taskID string) string {
 // stay as they are — sibling tasks still run concurrently, they just deliver
 // onto the branch their conversation owns.
 //
-// Two cases keep a task off the conversation branch. A task with no
-// conversation (no issue, no chat session) has nothing to continue and gets the
-// task-scoped name. And a conversation branch already merged into HEAD carries
-// nothing HEAD does not: continuing from its tip would strand the task behind
-// the user's own commits, so it restarts from HEAD instead.
+// Continuing a branch is decided by its recorded OWNER, never by its name.
+// `agent/j/mul-6881` is a name the user can type, another agent of the same
+// display name can produce, and a second workspace can mint for a different
+// issue; appending to any of those would silently mix two lines of work. So a
+// same-named branch we cannot prove is ours pushes this task onto
+// `agent/j/mul-6881-<fingerprint>` — stable for this exact conversation, so its
+// own follow-ups continue it — and, if that is somehow taken too, onto a
+// task-scoped branch that continues nothing.
 func resolveTaskBranch(gitRoot string, params LocalWorktreeParams, headSHA string, logger *slog.Logger) taskBranchPlan {
 	agentSegment := sanitizeName(params.AgentName)
-	if params.ConversationKey == "" {
-		return taskBranchPlan{name: fmt.Sprintf("agent/%s/%s", agentSegment, taskKey(params.TaskID)), base: headSHA}
-	}
+	taskScoped := taskBranchPlan{name: fmt.Sprintf("agent/%s/%s", agentSegment, taskKey(params.TaskID)), base: headSHA}
 
+	owner := params.owner()
+	if params.ConversationKey == "" || !owner.valid() {
+		return taskScoped
+	}
+	preferred := fmt.Sprintf("agent/%s/%s", agentSegment, sanitizeName(params.ConversationKey))
+	for _, name := range []string{preferred, preferred + "-" + owner.fingerprint()} {
+		plan, ok := planForConversationBranch(gitRoot, name, headSHA, owner, logger)
+		if ok {
+			return plan
+		}
+		if logger != nil {
+			logger.Info("execenv: branch exists but is not this conversation's; not continuing it",
+				"git_root", gitRoot, "branch", name)
+		}
+	}
+	return taskScoped
+}
+
+// planForConversationBranch reports how this task would use one candidate
+// branch name, and whether it may use it at all.
+func planForConversationBranch(gitRoot, name, headSHA string, owner branchOwner, logger *slog.Logger) (taskBranchPlan, bool) {
 	plan := taskBranchPlan{
-		name:           fmt.Sprintf("agent/%s/%s", agentSegment, sanitizeName(params.ConversationKey)),
+		name:           name,
 		base:           headSHA,
 		conversational: true,
+		tracksState:    true,
+		owner:          owner,
 	}
-	tip, err := runGitTrimmed(gitRoot, "rev-parse", "--verify", "--quiet", "refs/heads/"+plan.name)
+	tip, err := runGitTrimmed(gitRoot, "rev-parse", "--verify", "--quiet", "refs/heads/"+name)
 	if err != nil || tip == "" {
-		return plan
+		// Free to create.
+		return plan, true
 	}
-	if _, mergedErr := runGit(gitRoot, "merge-base", "--is-ancestor", plan.name, "HEAD"); mergedErr == nil {
+	state, owned := branchOwnedBy(gitRoot, name, owner)
+	if !owned {
+		return taskBranchPlan{}, false
+	}
+	// The user merged it: the branch tip carries nothing HEAD does not, so
+	// continuing from it would strand this task behind their own commits.
+	if _, mergedErr := runGit(gitRoot, "merge-base", "--is-ancestor", name, "HEAD"); mergedErr == nil {
 		plan.reset = true
-		return plan
+		return plan, true
 	}
 	plan.base = tip
 	plan.continues = true
+	plan.priorState = state
 	if logger != nil {
 		logger.Info("execenv: continuing the conversation's existing branch",
-			"git_root", gitRoot, "branch", plan.name, "tip", tip)
+			"git_root", gitRoot, "branch", name, "tip", tip)
 	}
-	return plan
+	return plan, true
+}
+
+// branchOwnedBy reports whether a branch is this conversation's, returning the
+// user snapshot it is recorded as already carrying.
+//
+// A branch with no recorded state is not ours by definition: every branch this
+// code creates records one before its task is allowed to run.
+func branchOwnedBy(gitRoot, branch string, owner branchOwner) (string, bool) {
+	state, err := readUserStateRef(gitRoot, branch)
+	if err != nil || state == "" {
+		return "", false
+	}
+	recorded, err := readSnapshotOwner(gitRoot, state)
+	if err != nil || recorded != owner {
+		return "", false
+	}
+	return state, true
 }
 
 // addLocalWorktree materialises the planned branch as a worktree and reports
@@ -884,93 +1084,154 @@ func branchUnavailable(out string) bool {
 		strings.Contains(lower, "already used by worktree")
 }
 
-// replayUserEditsSinceLastTurn brings the user's directory changes made since
-// the previous turn into a continued worktree.
+// replayResult is what the replay left in the worktree.
+type replayResult struct {
+	// conflicts names the files git could not merge. Non-empty means the
+	// worktree holds an unresolved merge, on purpose.
+	conflicts []string
+}
+
+// replayUserState brings the user's directory into the worktree.
 //
-// It cannot simply replay the whole uncommitted tree the way a fresh worktree
-// does. That merge takes the user's HEAD as its base, and this branch has
-// already moved past it: the previous turn committed the same uncommitted work
-// as the baseline and the agent edited it from there. Re-applying the user's
-// copy would then ask git to reconcile "the file as the user left it" against
-// "the file after the agent did what it was asked to do", which conflicts
-// precisely when the agent did its job. Only what the user changed SINCE that
-// snapshot is new information, so only that is replayed — as a cherry-pick of a
-// commit whose parent is the recorded snapshot, which is what makes git use it
-// as the merge base.
+// Both branch kinds run the same operation against a different starting point:
+// cherry-pick the difference between the state the checkout already carries and
+// the state the user is in now. For a branch forked from HEAD the first is HEAD
+// itself, so the whole snapshot applies and cannot conflict. For a continued
+// branch it is the snapshot that branch recorded, which is what makes this a
+// replay of the user's LAST-TURN-TO-NOW edits rather than of their whole tree.
 //
-// Two things stop it short, both leaving the branch's own state in place: no
-// recorded snapshot (a branch from before this existed, or a turn whose
-// Finalize never ran — the branch already carries the user's work either way),
-// and a genuine conflict, where the user has since rewritten lines the agent
-// also rewrote. Failing the task there would strand the conversation in a
-// conflict the user cannot even see, so the turn continues on the branch tip —
-// the same tree the agent worked in last turn — and says so in the log.
-func replayUserEditsSinceLastTurn(gitRoot, worktreePath, branch, userState string, logger *slog.Logger) error {
-	previous, err := readUserStateRef(gitRoot, branch)
-	if err != nil || previous == "" {
-		return nil
+// Replaying the whole tree onto a continued branch is the tempting version and
+// it is wrong: that merge takes the user's HEAD as its base, so it re-proposes
+// work the branch already has, and conflicts against the agent's edits to the
+// same lines — which is to say, it conflicts exactly when the agent did what it
+// was asked to do. Verified: with the user's directory untouched between turns,
+// a plain `stash apply` onto the branch tip already fails.
+//
+// A conflict here is a real disagreement — the user rewrote lines the agent
+// also rewrote — and it stays in the worktree for the agent to resolve with
+// ordinary git commands, which is both what the agent is for and the only way
+// the user's newer edit survives. Dropping it would lose that edit twice over:
+// once from this turn's tree, and again from every later turn, because the
+// snapshot would advance past a change the branch never took.
+func replayUserState(worktreePath string, plan taskBranchPlan, snapshot string, logger *slog.Logger) (replayResult, error) {
+	carried := plan.base
+	if plan.continues {
+		carried = plan.priorState
 	}
-	if _, diffErr := runGit(gitRoot, "diff", "--quiet", previous, userState); diffErr == nil {
-		// The user has not touched the directory since the last turn, which is
-		// the ordinary shape of a follow-up comment.
-		return nil
+	if carried == "" {
+		return replayResult{}, fmt.Errorf("execenv: no baseline to replay the local directory against for branch %s", plan.name)
+	}
+	// Nothing new since the state this checkout already carries. On a follow-up
+	// turn that is the ordinary case: the user commented, they did not edit.
+	if _, err := runGit(worktreePath, "diff", "--quiet", carried, snapshot); err == nil {
+		return replayResult{}, nil
 	}
 
-	args := append(commitIdentityArgs(gitRoot), "commit-tree", userState+"^{tree}", "-p", previous,
-		"-m", "multica: local directory edits since the previous turn")
-	increment, err := runGitTrimmed(gitRoot, args...)
+	// A commit whose parent is the carried state and whose tree is the user's
+	// current one. Its parent is what git uses as the merge base, and that is
+	// the entire point: it is not reachable any other way.
+	args := append(commitIdentityArgs(worktreePath), "commit-tree", snapshot+"^{tree}", "-p", carried,
+		"-m", "multica: local directory edits to replay")
+	increment, err := runGitTrimmed(worktreePath, args...)
 	if err != nil || increment == "" {
-		if logger != nil {
-			logger.Warn("execenv: could not describe the user's edits since the last turn; continuing on the branch as it stands",
-				"git_root", gitRoot, "branch", branch, "error", err)
-		}
-		return nil
+		return replayResult{}, fmt.Errorf("execenv: could not describe your local edits for replay into the task worktree: %w", err)
 	}
-	if out, pickErr := runGit(worktreePath, "cherry-pick", "--no-commit", increment); pickErr != nil {
-		if logger != nil {
-			logger.Warn("execenv: the user's edits since the last turn conflict with the work already on this branch; continuing without them",
-				"git_root", gitRoot, "branch", branch, "output", strings.TrimSpace(out), "error", pickErr)
-		}
-		// Back out of the half-applied merge. Anything short of this hands the
-		// agent a tree with conflict markers in it.
-		if out, resetErr := runGit(worktreePath, "reset", "--hard", "HEAD"); resetErr != nil {
-			return fmt.Errorf("execenv: could not restore the task worktree for %q after a failed replay of your local edits: %s: %w",
-				gitRoot, strings.TrimSpace(out), resetErr)
-		}
-		if out, cleanErr := runGit(worktreePath, "clean", "-fdq"); cleanErr != nil {
-			return fmt.Errorf("execenv: could not clean the task worktree for %q after a failed replay of your local edits: %s: %w",
-				gitRoot, strings.TrimSpace(out), cleanErr)
+
+	out, pickErr := runGit(worktreePath, "cherry-pick", "--no-commit", increment)
+	if pickErr == nil {
+		return replayResult{}, nil
+	}
+	conflicts, listErr := unmergedPaths(worktreePath)
+	if listErr != nil || len(conflicts) == 0 {
+		// Not a conflict, so the replay failed for a reason the agent cannot
+		// resolve. Fail closed rather than start on a half-applied tree.
+		abortCherryPick(worktreePath, logger)
+		return replayResult{}, fmt.Errorf("execenv: could not replay your local edits into the task worktree "+
+			"(the agent would have seen a different tree than you have): %s: %w", strings.TrimSpace(out), pickErr)
+	}
+	if !plan.continues {
+		// Unreachable by construction: a fresh branch is checked out at the
+		// increment's own parent, so there is nothing for git to disagree with.
+		// If it ever happens the tree is not one the user would recognise, and
+		// the old fail-closed rule is the right one.
+		abortCherryPick(worktreePath, logger)
+		return replayResult{}, fmt.Errorf("execenv: could not replay your local edits onto a fresh task worktree: %s: %w",
+			strings.TrimSpace(out), pickErr)
+	}
+
+	// Keep the conflict, drop only the sequencer state: the agent should see an
+	// ordinary conflicted worktree it can resolve with `git status` / `git add`,
+	// not a cherry-pick it is expected to conclude with a command it never
+	// started.
+	if out, quitErr := runGit(worktreePath, "cherry-pick", "--quit"); quitErr != nil && logger != nil {
+		logger.Warn("execenv: could not clear the cherry-pick state after a conflicting replay (non-fatal)",
+			"path", worktreePath, "output", strings.TrimSpace(out), "error", quitErr)
+	}
+	if logger != nil {
+		logger.Warn("execenv: your local edits since the previous turn conflict with the work on this branch; handing the conflict to the agent",
+			"path", worktreePath, "branch", plan.name, "files", conflicts)
+	}
+	return replayResult{conflicts: conflicts}, nil
+}
+
+// unmergedPaths lists the files git considers unresolved in a worktree.
+func unmergedPaths(worktreePath string) ([]string, error) {
+	out, err := runGitStdout(worktreePath, "diff", "--name-only", "--diff-filter=U", "-z")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, name := range strings.Split(out, "\x00") {
+		if name != "" {
+			paths = append(paths, name)
 		}
 	}
-	return nil
+	return paths, nil
+}
+
+// abortCherryPick returns the worktree to the branch tip. Used only where the
+// conflict is not something the agent can act on; the ordinary conflict path
+// deliberately leaves the worktree as git left it.
+func abortCherryPick(worktreePath string, logger *slog.Logger) {
+	for _, args := range [][]string{{"cherry-pick", "--quit"}, {"reset", "--hard", "HEAD"}, {"clean", "-fdq"}} {
+		if out, err := runGit(worktreePath, args...); err != nil && logger != nil {
+			logger.Warn("execenv: could not restore the task worktree after a failed replay",
+				"path", worktreePath, "command", args[0], "output", strings.TrimSpace(out), "error", err)
+		}
+	}
 }
 
 // userStateRef is where a branch records the snapshot of the user's directory
-// it already carries. Deliberately outside refs/heads, so it never shows up in
-// the user's `git branch`, and a ref rather than a loose commit, so `git gc` in
-// the user's repo cannot reclaim the snapshot between two turns.
+// it already carries, and the conversation it belongs to.
 func userStateRef(branch string) string {
-	return "refs/multica/local-state/" + branch
+	return localStateRefPrefix + branch
 }
 
 // readUserStateRef returns the recorded snapshot, or "" when the branch has
-// none — every caller treats that as "the branch already carries whatever the
-// user had", which is the safe reading.
+// none.
 func readUserStateRef(gitRoot, branch string) (string, error) {
 	return runGitTrimmed(gitRoot, "rev-parse", "--verify", "--quiet", userStateRef(branch))
 }
 
-// recordUserState pins the user's directory as this turn saw it, so the next
-// turn can tell which of their edits the branch is still missing. Best-effort:
-// losing the pointer costs one turn's incremental replay, never any work.
-func recordUserState(gitRoot, branch, userState string, logger *slog.Logger) {
-	if branch == "" || userState == "" {
+// recordState pins the user's directory as this task saw it, once the branch
+// actually carries it. Two things depend on the ref existing: the next turn
+// replays from it, and every later task proves the branch is its own by the
+// owner recorded in it.
+//
+// Best-effort on failure — losing the pointer costs the next turn its
+// incremental replay and, at worst, a differently-named branch, never any work.
+func (w *LocalWorktree) recordState(logger *slog.Logger) {
+	if w == nil || !w.tracksState || w.stateRecorded || w.Branch == "" || w.userState == "" {
 		return
 	}
-	if out, err := runGit(gitRoot, "update-ref", userStateRef(branch), userState); err != nil && logger != nil {
-		logger.Warn("execenv: could not record the local-directory snapshot for the task branch (non-fatal)",
-			"branch", branch, "output", strings.TrimSpace(out), "error", err)
+	if out, err := runGit(w.GitRoot, "update-ref", userStateRef(w.Branch), w.userState); err != nil {
+		if logger != nil {
+			logger.Warn("execenv: could not record the local-directory snapshot for the task branch (non-fatal)",
+				"branch", w.Branch, "output", strings.TrimSpace(out), "error", err)
+		}
+		return
 	}
+	w.stateRecorded = true
 }
 
 // dropBranch deletes a task branch that carries nothing worth keeping, together
@@ -986,106 +1247,103 @@ func dropBranch(gitRoot, branch string, logger *slog.Logger) {
 	}
 }
 
-// copyUntrackedFiles replays the user's untracked-but-not-ignored files into
-// the worktree. `git worktree add` only materialises committed content, so
-// without this a brand-new file the user just created would be invisible to the
-// agent. Bounded by maxUntrackedFiles / maxUntrackedBytes; the number skipped
-// is returned so the caller can tell the user instead of quietly under-copying.
+// pruneOrphanedStateRefs drops the snapshot of any branch that is no longer
+// there. Multica deletes both together, but the branch is the user's to delete,
+// rename or merge away at any time, and a ref left behind would pin their whole
+// working tree as of some past turn against `git gc` forever.
 //
-// A path the worktree already has is left alone. That can only happen on a
-// continued branch, where an untracked file the user had at an earlier turn was
-// committed as that turn's baseline and the agent may have edited it since.
-// The user's copy is the older one — worktree mode never writes back to their
-// directory — so copying it over would silently revert the agent's work on
-// every follow-up turn.
-func copyUntrackedFiles(gitRoot, worktreePath string, logger *slog.Logger) (copied, skipped int, err error) {
-	// stdout only: a warning on stderr would otherwise be split apart and
-	// treated as file paths to copy. Raw, not trimmed: with -z the entries are
-	// exact filenames, and a file whose name begins or ends with whitespace
-	// would be trim-corrupted into a path that fails to stat and silently
-	// vanishes from the replay.
-	out, err := runGitStdout(gitRoot, "ls-files", "--others", "--exclude-standard", "-z")
+// Best-effort and non-fatal: this is housekeeping in the user's repository, not
+// a precondition for the task.
+func pruneOrphanedStateRefs(gitRoot string, logger *slog.Logger) {
+	out, err := runGitTrimmed(gitRoot, "for-each-ref", "--format=%(refname)", localStateRefPrefix)
 	if err != nil {
-		return 0, 0, fmt.Errorf("git ls-files: %w", err)
+		if logger != nil {
+			logger.Debug("execenv: could not list local-directory snapshots", "git_root", gitRoot, "error", err)
+		}
+		return
 	}
-
-	var budget int64 = maxUntrackedBytes
-	carried := 0
-	for _, rel := range strings.Split(out, "\x00") {
-		if rel == "" {
+	for _, ref := range strings.Split(out, "\n") {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
 			continue
 		}
-		// Never replay Multica's own sidecars. They are untracked files in the
-		// user's directory whenever an in_place task is mid-flight on the same
-		// path, or was killed before its cleanup ran. Copying them would put
-		// another issue's brief inside this task's worktree — where the agent
-		// would read it as its own context — and commit it to the branch.
-		if isMulticaSidecarPath(rel) {
+		branch := strings.TrimPrefix(ref, localStateRefPrefix)
+		if branch == ref {
 			continue
 		}
-		if copied >= maxUntrackedFiles || budget <= 0 {
-			skipped++
+		if _, headErr := runGit(gitRoot, "show-ref", "--verify", "--quiet", "refs/heads/"+branch); headErr == nil {
 			continue
 		}
-		if _, existsErr := os.Lstat(filepath.Join(worktreePath, rel)); existsErr == nil {
-			carried++
-			continue
-		}
-		src := filepath.Join(gitRoot, rel)
-		info, statErr := os.Lstat(src)
-		if statErr != nil {
-			// Listed a moment ago, unreadable now — the tree changed under us,
-			// so the snapshot no longer matches what the user has. Counted, not
-			// skipped silently: the caller fails the task on a non-zero count.
-			skipped++
+		if out, delErr := runGit(gitRoot, "update-ref", "-d", ref); delErr != nil {
 			if logger != nil {
-				logger.Warn("execenv: untracked file vanished between listing and copy",
-					"file", rel, "error", statErr)
+				logger.Warn("execenv: could not drop the snapshot of a deleted task branch (non-fatal)",
+					"ref", ref, "output", strings.TrimSpace(out), "error", delErr)
 			}
 			continue
 		}
+		if logger != nil {
+			logger.Info("execenv: dropped the local-directory snapshot of a branch that no longer exists",
+				"git_root", gitRoot, "branch", branch)
+		}
+	}
+}
+
+// checkUntrackedReplayable refuses a directory whose untracked content is too
+// large to reproduce faithfully, before anything is written anywhere.
+//
+// The bounds are the same ones the older file-copy replay enforced, and they
+// exist for the same reason: `--exclude-standard` already drops everything
+// gitignored, so a repo past them is one whose build output was never ignored.
+// Snapshotting it would write every byte into the user's own object database.
+// The untracked symlink case is refused for a narrower reason — it is content
+// the user can see, and this replay does not decide whether to reproduce the
+// link or its target, including targets outside the repo.
+func checkUntrackedReplayable(gitRoot string, logger *slog.Logger) error {
+	out, err := runGitStdout(gitRoot, "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return fmt.Errorf("execenv: could not list the untracked files in %q: %w", gitRoot, err)
+	}
+	var (
+		files   int
+		budget  int64 = maxUntrackedBytes
+		skipped int
+	)
+	for _, rel := range strings.Split(out, "\x00") {
+		if rel == "" || isMulticaSidecarPath(rel) {
+			continue
+		}
+		info, statErr := os.Lstat(filepath.Join(gitRoot, rel))
+		if statErr != nil {
+			// Listed a moment ago, unreadable now: the tree changed under us.
+			// git will simply not find it either, so this is not a refusal.
+			continue
+		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			// An untracked symlink is content the user can see. Reproducing it
-			// faithfully means deciding whether to copy the link or its target
-			// — including targets outside the repo — so this replay does not
-			// try. Count it so the task fails rather than handing the agent a
-			// tree with a file quietly missing.
 			skipped++
 			if logger != nil {
-				logger.Warn("execenv: untracked symlink not replayed into worktree", "file", rel)
+				logger.Warn("execenv: untracked symlink cannot be replayed into a worktree", "file", rel)
 			}
 			continue
 		}
 		if !info.Mode().IsRegular() {
-			// Sockets, FIFOs, devices: not content, and not something an agent
-			// can meaningfully read from a copy. Skipping them does not make the
-			// snapshot misleading, so this one stays uncounted.
+			// Sockets, FIFOs, devices: not content, and git will not add them.
 			continue
 		}
-		if info.Size() > budget {
-			skipped++
-			continue
-		}
-		if copyErr := copyUntrackedFile(src, filepath.Join(worktreePath, rel), info.Mode()); copyErr != nil {
-			skipped++
-			if logger != nil {
-				logger.Warn("execenv: copy untracked file into worktree failed", "file", rel, "error", copyErr)
-			}
-			continue
-		}
+		files++
 		budget -= info.Size()
-		copied++
+		if files > maxUntrackedFiles || budget < 0 {
+			skipped++
+		}
 	}
-	if carried > 0 && logger != nil {
-		logger.Info("execenv: untracked files left as the branch already has them",
-			"git_root", gitRoot, "count", carried)
+	if skipped == 0 {
+		return nil
 	}
-	return copied, skipped, nil
+	return fmt.Errorf("execenv: cannot replay every untracked file from %q into a task worktree "+
+		"(%d left over; the replay covers regular files up to %d files / %d MiB and does not follow symlinks) "+
+		"— gitignore or clean up the untracked files, or switch the resource back to in_place",
+		gitRoot, skipped, maxUntrackedFiles, maxUntrackedBytes>>20)
 }
 
-// copyUntrackedFile copies one untracked file into the worktree, creating
-// parent directories and preserving the executable bit — a script the user just
-// wrote and hasn't committed has to stay runnable for the agent.
 // multicaSidecarDirNames are the directories Prepare writes into a workdir. A
 // task running in_place on the same directory leaves these present as
 // untracked files for the length of its run, so a concurrent worktree snapshot
@@ -1114,24 +1372,23 @@ func isMulticaSidecarPath(rel string) bool {
 	return false
 }
 
-func copyUntrackedFile(src, dst string, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	if err := copyFile(src, dst); err != nil {
-		return err
-	}
-	return os.Chmod(dst, mode.Perm())
-}
-
 // runGit runs git in dir and returns combined output. Callers inspect the
 // output for git's own error text, so stdout and stderr stay merged.
 func runGit(dir string, args ...string) (string, error) {
+	return runGitEnv(dir, nil, args...)
+}
+
+// runGitEnv is runGit with extra environment entries, for the one caller that
+// has to redirect GIT_INDEX_FILE.
+func runGitEnv(dir string, extraEnv []string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 
 	full := append([]string{"-C", dir}, args...)
 	cmd := exec.CommandContext(ctx, "git", full...)
+	if len(extraEnv) > 0 {
+		cmd.Env = append(os.Environ(), extraEnv...)
+	}
 	cmd.WaitDelay = 5 * time.Second
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -1144,6 +1401,15 @@ func runGitTrimmed(dir string, args ...string) (string, error) {
 	out, err := runGitStdout(dir, args...)
 	if err != nil {
 		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// runGitTrimmedEnv is runGitTrimmed with extra environment entries.
+func runGitTrimmedEnv(dir string, extraEnv []string, args ...string) (string, error) {
+	out, err := runGitEnv(dir, extraEnv, args...)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", strings.TrimSpace(out), err)
 	}
 	return strings.TrimSpace(out), nil
 }

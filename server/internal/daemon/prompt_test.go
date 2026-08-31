@@ -1848,3 +1848,43 @@ func TestSharedLocalDirectoryBlock(t *testing.T) {
 		}
 	})
 }
+
+// TestWorktreeReplayConflictBlock covers the one thing a conflicted worktree
+// cannot tell the agent by itself: where the two sides came from. `git status`
+// shows the unmerged paths; only the prompt can say that "theirs" is the user's
+// newer edit to their own directory (MUL-6881).
+func TestWorktreeReplayConflictBlock(t *testing.T) {
+	t.Parallel()
+
+	task := Task{IssueID: "issue-1", IssueIdentifier: "MUL-6881"}
+
+	t.Run("absent when the replay was clean", func(t *testing.T) {
+		out := BuildPrompt(task, "claude")
+		if strings.Contains(out, "Unresolved merge") {
+			t.Fatalf("conflict notice leaked into a clean run:\n%s", out)
+		}
+		if out2 := BuildPrompt(task, "claude", WithWorktreeReplayConflicts(nil)); strings.Contains(out2, "Unresolved merge") {
+			t.Fatalf("conflict notice rendered for an empty file list:\n%s", out2)
+		}
+	})
+
+	t.Run("names every unmerged file and what the sides are", func(t *testing.T) {
+		out := BuildPrompt(task, "claude", WithWorktreeReplayConflicts([]string{"parser/lex.go", "parser/parse.go"}))
+		for _, want := range []string{"Unresolved merge", "`parser/lex.go`", "`parser/parse.go`"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("notice missing %q:\n%s", want, out)
+			}
+		}
+		// The provenance of each side is the non-inferable part.
+		if !strings.Contains(out, "the user edited the same lines in their own directory") {
+			t.Fatalf("notice does not say where the conflict came from:\n%s", out)
+		}
+		if !strings.Contains(out, `"theirs" is the user's newer edit`) {
+			t.Fatalf("notice does not identify the sides:\n%s", out)
+		}
+		// And the consequence of ignoring it, which is what makes it urgent.
+		if !strings.Contains(out, "cannot deliver its branch while any file is still unmerged") {
+			t.Fatalf("notice does not state that the run fails unresolved:\n%s", out)
+		}
+	})
+}

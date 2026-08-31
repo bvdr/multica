@@ -64,6 +64,7 @@ func perTurnContextBlocks(task Task, opts promptOpts) string {
 	var b strings.Builder
 	b.WriteString(buildActiveSiblingRunsBlock(task.IssueID, task.ActiveSiblingRuns))
 	b.WriteString(buildSharedLocalDirectoryBlock(opts.sharedLocalDirectory))
+	b.WriteString(buildWorktreeReplayConflictBlock(opts.worktreeReplayConflicts))
 	if task.PriorSessionResumeUnavailable {
 		b.WriteString(sessionContinuityNoticeFor(task))
 	}
@@ -76,7 +77,8 @@ func perTurnContextBlocks(task Task, opts promptOpts) string {
 // daemon's own execution context can answer. Kept behind PromptOption so the
 // common BuildPrompt(task, provider) call sites stay unchanged.
 type promptOpts struct {
-	sharedLocalDirectory bool
+	sharedLocalDirectory    bool
+	worktreeReplayConflicts []string
 }
 
 // PromptOption tunes per-turn prompt copy with run-scoped context.
@@ -90,6 +92,16 @@ type PromptOption func(*promptOpts)
 // has to be told (issue #7344).
 func WithSharedLocalDirectory() PromptOption {
 	return func(o *promptOpts) { o.sharedLocalDirectory = true }
+}
+
+// WithWorktreeReplayConflicts names the files whose merge this turn has to
+// finish. Worktree mode continues one branch per conversation, and when the
+// user edits the same lines in their own directory between two turns, git
+// cannot decide which version wins — so the turn starts on a conflicted tree
+// and the agent, which is the only party that knows what the change was FOR,
+// resolves it (MUL-6881).
+func WithWorktreeReplayConflicts(files []string) PromptOption {
+	return func(o *promptOpts) { o.worktreeReplayConflicts = files }
 }
 
 // buildSharedLocalDirectoryBlock warns an unlocked turn that its working
@@ -106,6 +118,30 @@ func buildSharedLocalDirectoryBlock(shared bool) string {
 	b.WriteString("## Shared working directory\n\n")
 	b.WriteString("Your working directory is the user's own checkout, and another task on this machine may be editing it while you run. This turn deliberately neither holds nor waits for the directory lock — that is what keeps a conversation from queueing behind a long build.\n\n")
 	b.WriteString("Read freely. Treat writing the way the user treats saving a file in their own editor: reasonable for a small change they just asked for, wrong for a broad refactor, a dependency install, or a build that rewrites many files. Work that size belongs in an issue task, which is serialised against the other writers. If you do write, say so in your reply — a sibling task may be looking at the same file.\n\n")
+	return b.String()
+}
+
+// buildWorktreeReplayConflictBlock tells the turn that its own working tree
+// starts out mid-merge, and that finishing that merge comes before the task.
+//
+// Nothing else can say it: `git status` shows the conflict but not where it
+// came from, and the two sides are "what you wrote last turn" and "what the
+// user changed since" — neither of which is visible from inside the worktree.
+// Silence here is what the earlier version of this feature got wrong: it
+// resolved the conflict by discarding the user's edit, which lost that edit
+// from every later turn as well.
+func buildWorktreeReplayConflictBlock(files []string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Unresolved merge in your working tree\n\n")
+	b.WriteString("This branch carries your previous turn's work. Since then the user edited the same lines in their own directory, and git could not merge the two:\n\n")
+	for _, file := range files {
+		fmt.Fprintf(&b, "- `%s`\n", file)
+	}
+	b.WriteString("\nResolve it before anything else, with ordinary git commands — `git status` lists the unmerged paths, `git diff` shows both sides, `git add <file>` marks each one done. The \"ours\" side is what you wrote last turn; \"theirs\" is the user's newer edit, and it is the side you have not seen before, so read it before choosing. Keep both intentions where they are compatible; where they are not, prefer the user's and say so in your reply.\n\n")
+	b.WriteString("This run cannot deliver its branch while any file is still unmerged — the task fails and the worktree is kept for a human instead. Do not commit conflict markers.\n\n")
 	return b.String()
 }
 

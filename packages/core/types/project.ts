@@ -83,7 +83,9 @@ export interface GithubRepoResourceRef {
  *   branch instead of touching the working copy. Every task of one conversation
  *   shares that branch — `agent/<agent>/<issue>` — so a follow-up continues the
  *   previous turn's work; a task with no conversation behind it gets
- *   `agent/<agent>/<task>`.
+ *   `agent/<agent>/<task>`. Continuation is decided by an ownership record in
+ *   the repo, not by the branch name, so a same-named branch the user made is
+ *   never adopted.
  *
  * Absent means `in_place`: resources created before the mode existed keep their
  * original behavior, so this is optional rather than defaulted on the server.
