@@ -126,11 +126,16 @@ func (q *Queries) GetProjectInWorkspace(ctx context.Context, arg GetProjectInWor
 const getProjectIssueStats = `-- name: GetProjectIssueStats :many
 SELECT project_id,
        count(*)::bigint AS total_count,
-       count(*) FILTER (WHERE issue_effective_status(workspace_id, status) IN ('done', 'cancelled'))::bigint AS done_count
+       count(*) FILTER (WHERE status = ANY($1::text[]))::bigint AS done_count
 FROM issue
-WHERE project_id = ANY($1::uuid[])
+WHERE project_id = ANY($2::uuid[])
 GROUP BY project_id
 `
+
+type GetProjectIssueStatsParams struct {
+	TerminalStatusKeys []string      `json:"terminal_status_keys"`
+	ProjectIds         []pgtype.UUID `json:"project_ids"`
+}
 
 type GetProjectIssueStatsRow struct {
 	ProjectID  pgtype.UUID `json:"project_id"`
@@ -138,8 +143,8 @@ type GetProjectIssueStatsRow struct {
 	DoneCount  int64       `json:"done_count"`
 }
 
-func (q *Queries) GetProjectIssueStats(ctx context.Context, projectIds []pgtype.UUID) ([]GetProjectIssueStatsRow, error) {
-	rows, err := q.db.Query(ctx, getProjectIssueStats, projectIds)
+func (q *Queries) GetProjectIssueStats(ctx context.Context, arg GetProjectIssueStatsParams) ([]GetProjectIssueStatsRow, error) {
+	rows, err := q.db.Query(ctx, getProjectIssueStats, arg.TerminalStatusKeys, arg.ProjectIds)
 	if err != nil {
 		return nil, err
 	}

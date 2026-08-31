@@ -63,8 +63,15 @@ func projectToResponse(p db.Project) ProjectResponse {
 	}
 }
 
-func (h *Handler) loadProjectIssueStats(ctx context.Context, projectID pgtype.UUID) (int64, int64) {
-	stats, err := h.Queries.GetProjectIssueStats(ctx, []pgtype.UUID{projectID})
+func (h *Handler) loadProjectIssueStats(ctx context.Context, workspaceID, projectID pgtype.UUID) (int64, int64) {
+	terminalStatusKeys, err := h.terminalIssueStatusKeys(ctx, workspaceID)
+	if err != nil {
+		return 0, 0
+	}
+	stats, err := h.Queries.GetProjectIssueStats(ctx, db.GetProjectIssueStatsParams{
+		ProjectIds:         []pgtype.UUID{projectID},
+		TerminalStatusKeys: terminalStatusKeys,
+	})
 	if err != nil || len(stats) == 0 {
 		return 0, 0
 	}
@@ -146,10 +153,16 @@ func (h *Handler) ListProjects(w http.ResponseWriter, r *http.Request) {
 		for i, p := range projects {
 			projectIDs[i] = p.ID
 		}
-		stats, err := h.Queries.GetProjectIssueStats(r.Context(), projectIDs)
-		if err == nil {
-			for _, s := range stats {
-				statsMap[uuidToString(s.ProjectID)] = s
+		terminalStatusKeys, statusKeysErr := h.terminalIssueStatusKeys(r.Context(), wsUUID)
+		if statusKeysErr == nil {
+			stats, statsErr := h.Queries.GetProjectIssueStats(r.Context(), db.GetProjectIssueStatsParams{
+				ProjectIds:         projectIDs,
+				TerminalStatusKeys: terminalStatusKeys,
+			})
+			if statsErr == nil {
+				for _, s := range stats {
+					statsMap[uuidToString(s.ProjectID)] = s
+				}
 			}
 		}
 		counts, err := h.Queries.GetProjectResourceCounts(r.Context(), projectIDs)
@@ -191,7 +204,7 @@ func (h *Handler) GetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := projectToResponse(project)
-	resp.IssueCount, resp.DoneCount = h.loadProjectIssueStats(r.Context(), project.ID)
+	resp.IssueCount, resp.DoneCount = h.loadProjectIssueStats(r.Context(), wsUUID, project.ID)
 	resp.ResourceCount = h.loadProjectResourceCount(r.Context(), project.ID)
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -567,7 +580,7 @@ func (h *Handler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := projectToResponse(project)
-	resp.IssueCount, resp.DoneCount = h.loadProjectIssueStats(r.Context(), project.ID)
+	resp.IssueCount, resp.DoneCount = h.loadProjectIssueStats(r.Context(), wsUUID, project.ID)
 	resp.ResourceCount = h.loadProjectResourceCount(r.Context(), project.ID)
 	h.publish(protocol.EventProjectUpdated, workspaceID, "member", userID, map[string]any{"project": resp})
 	writeJSON(w, http.StatusOK, resp)
@@ -896,10 +909,16 @@ func (h *Handler) SearchProjects(w http.ResponseWriter, r *http.Request) {
 		for i, r := range results {
 			projectIDs[i] = r.project.ID
 		}
-		stats, err := h.Queries.GetProjectIssueStats(ctx, projectIDs)
-		if err == nil {
-			for _, s := range stats {
-				statsMap[uuidToString(s.ProjectID)] = s
+		terminalStatusKeys, statusKeysErr := h.terminalIssueStatusKeys(ctx, wsUUID)
+		if statusKeysErr == nil {
+			stats, statsErr := h.Queries.GetProjectIssueStats(ctx, db.GetProjectIssueStatsParams{
+				ProjectIds:         projectIDs,
+				TerminalStatusKeys: terminalStatusKeys,
+			})
+			if statsErr == nil {
+				for _, s := range stats {
+					statsMap[uuidToString(s.ProjectID)] = s
+				}
 			}
 		}
 		counts, err := h.Queries.GetProjectResourceCounts(ctx, projectIDs)

@@ -36,8 +36,36 @@ func TestBuildSearchQuery_SingleTerm(t *testing.T) {
 	}
 
 	// Should exclude closed issues by default.
-	if !strings.Contains(query, "NOT IN ('done', 'cancelled')") {
-		t.Error("query should exclude done/cancelled when includeClosed=false")
+	if !strings.Contains(query, "NOT (i.status = ANY(") {
+		t.Error("query should exclude the expanded terminal status keys when includeClosed=false")
+	}
+	if strings.Contains(query, "issue_effective_status") {
+		t.Error("query should not resolve status categories once per issue row")
+	}
+}
+
+func TestBuildSearchQuery_CustomTerminalStatuses(t *testing.T) {
+	terminalStatusKeys := []string{"done", "cancelled", "verified"}
+	query, args := buildSearchQueryWithTerminalStatuses(
+		"Hello",
+		[]string{"Hello"},
+		0,
+		false,
+		false,
+		terminalStatusKeys,
+	)
+
+	if !strings.Contains(query, "NOT (i.status = ANY($5::text[]))") {
+		t.Fatalf("query does not filter through the expanded terminal keys:\n%s", query)
+	}
+	got, ok := args[4].([]string)
+	if !ok || len(got) != len(terminalStatusKeys) {
+		t.Fatalf("terminal status argument = %#v, want %#v", args[4], terminalStatusKeys)
+	}
+	for i := range terminalStatusKeys {
+		if got[i] != terminalStatusKeys[i] {
+			t.Fatalf("terminal status argument = %#v, want %#v", got, terminalStatusKeys)
+		}
 	}
 }
 
@@ -79,7 +107,7 @@ func TestBuildSearchQuery_WithNumber(t *testing.T) {
 func TestBuildSearchQuery_IncludeClosed(t *testing.T) {
 	query, _ := buildSearchQuery("test", []string{"test"}, 0, false, true)
 
-	if strings.Contains(query, "NOT IN ('done', 'cancelled')") {
+	if strings.Contains(query, "i.status = ANY(") {
 		t.Error("query should not exclude done/cancelled when includeClosed=true")
 	}
 }
