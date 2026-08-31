@@ -631,6 +631,22 @@ func canEditRuntime(member db.Member, rt db.AgentRuntime) bool {
 	return rt.OwnerID.Valid && uuidToString(rt.OwnerID) == uuidToString(member.UserID)
 }
 
+// getAgentRuntime reads one agent_runtime row by id and attributes the read to
+// source, which labels multica_agent_runtime_lookup_total (MUL-6884). Pick the
+// obsmetrics.RuntimeLookupSource* constant that names the product behaviour
+// driving the read, not the file the call happens to live in: a poll loop
+// counted as generic API traffic is exactly the confusion the metric exists to
+// remove.
+func (h *Handler) getAgentRuntime(ctx context.Context, source string, id pgtype.UUID) (db.AgentRuntime, error) {
+	return h.runtimeLookup(source).Get(ctx, id)
+}
+
+// runtimeLookup is the same reader, unexecuted, for handlers that hand it to a
+// shared readiness helper instead of reading the row themselves.
+func (h *Handler) runtimeLookup(source string) service.RuntimeLookup {
+	return service.RuntimeLookup{Queries: h.Queries, Metrics: h.Metrics, Source: source}
+}
+
 // requireRuntimeReadAccess protects runtime data and machine-triggering
 // capabilities. Governance access is deliberately separate: workspace owners
 // and admins may list, rename, or delete another member's private runtime,
