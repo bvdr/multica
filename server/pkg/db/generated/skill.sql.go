@@ -326,6 +326,57 @@ func (q *Queries) ListAgentSkills(ctx context.Context, agentID pgtype.UUID) ([]S
 	return items, nil
 }
 
+const listAgentSkillsByIDs = `-- name: ListAgentSkillsByIDs :many
+SELECT s.id, s.workspace_id, s.name, s.description, s.content, s.config, s.created_by, s.created_at, s.updated_at, s.plugin_installation_id FROM skill s
+JOIN agent_skill ask ON ask.skill_id = s.id
+WHERE ask.agent_id = $1
+  AND ask.enabled = TRUE
+  AND s.id = ANY($2::uuid[])
+ORDER BY s.name ASC
+`
+
+type ListAgentSkillsByIDsParams struct {
+	AgentID  pgtype.UUID   `json:"agent_id"`
+	SkillIds []pgtype.UUID `json:"skill_ids"`
+}
+
+// Scoped variant of ListAgentSkills: the same junction predicate, narrowed to
+// a set of requested skill IDs. The skill-bundle resolve path asks for one
+// skill per request, so loading the agent's whole set there costs a full read
+// and hash of every skill on every request. The junction predicate is also the
+// authorization: an ID the agent does not have enabled simply returns no row,
+// which the caller reports as not-found.
+func (q *Queries) ListAgentSkillsByIDs(ctx context.Context, arg ListAgentSkillsByIDsParams) ([]Skill, error) {
+	rows, err := q.db.Query(ctx, listAgentSkillsByIDs, arg.AgentID, arg.SkillIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Skill{}
+	for rows.Next() {
+		var i Skill
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Name,
+			&i.Description,
+			&i.Content,
+			&i.Config,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.PluginInstallationID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAgentSkillsByWorkspace = `-- name: ListAgentSkillsByWorkspace :many
 SELECT ask.agent_id, s.id, s.name, s.description, ask.enabled
 FROM agent_skill ask

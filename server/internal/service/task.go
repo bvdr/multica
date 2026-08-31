@@ -6342,14 +6342,21 @@ func (s *TaskService) LoadAgentSkills(ctx context.Context, agentID pgtype.UUID) 
 	if len(skills) == 0 {
 		return nil, nil
 	}
+	return s.skillsWithFiles(ctx, skills)
+}
 
-	// Load every skill's files in one round trip instead of one query per
-	// skill (N+1 on the task-claim hot path). Group by skill_id in a single
-	// linear pass — the query orders by skill_id, path.
+// skillsWithFiles loads the files of every given skill in ONE round trip
+// instead of one query per skill, and assembles the result in the order the
+// skills were given. Shared by the claim-time full load and the resolve-time
+// scoped load so the two cannot drift on skill order, per-skill file order, or
+// the nil (not empty) file list of a skill that has none.
+func (s *TaskService) skillsWithFiles(ctx context.Context, skills []db.Skill) ([]AgentSkillData, error) {
 	skillIDs := make([]pgtype.UUID, len(skills))
 	for i, sk := range skills {
 		skillIDs[i] = sk.ID
 	}
+	// Group by skill_id in a single linear pass — the query orders by
+	// skill_id, path.
 	files, err := s.Queries.ListSkillFilesBySkillIDs(ctx, skillIDs)
 	if err != nil {
 		return nil, fmt.Errorf("list skill files for %d skills: %w", len(skills), err)
@@ -6388,6 +6395,97 @@ func (s *TaskService) LoadAgentSkillBundles(ctx context.Context, agentID pgtype.
 	return bundles, refs, nil
 }
 
+// BuiltinSkillID is the ref id a builtin skill is addressed by. Builtins have
+// no database row, so their identity is their name — this is the one place
+// that turns a name into that identity, for both the bundle builder that hands
+// the id out and the resolver that looks one back up.
+func BuiltinSkillID(name string) string { return "builtin:" + name }
+
+// AgentSkillBundleKey is the (source, id) identity a daemon skill ref resolves
+// by. Source is part of the key because a builtin and a workspace skill are
+// different bundles even when they share a name.
+func AgentSkillBundleKey(source, id string) string { return source + "\x00" + id }
+
+// AgentSkillBundleRef is one skill a daemon is asking to resolve.
+type AgentSkillBundleRef struct {
+	ID     string
+	Source string
+}
+
+// LoadRequestedAgentSkillBundles returns bundles for EXACTLY the refs given,
+// keyed by AgentSkillBundleKey. A ref the agent cannot see is simply absent
+// from the map — the junction predicate in ListAgentSkillsByIDs is the
+// authorization, so "no row" and "not allowed" are the same answer and the
+// caller reports both as not-found.
+//
+// This exists because the daemon resolves one skill per request (GH #4505, so
+// each download gets its own size-scaled deadline and caches independently).
+// Serving those out of the agent's full bundle set made the server redo the
+// whole agent on every request: N requests, each reading and hashing all N
+// skills to return one. Loading only what was asked for makes that linear,
+// which is why the resolve path must not reuse LoadAgentSkillBundles.
+func (s *TaskService) LoadRequestedAgentSkillBundles(ctx context.Context, agentID pgtype.UUID, refs []AgentSkillBundleRef) (map[string]AgentSkillData, error) {
+	requestedIDs := make([]pgtype.UUID, 0, len(refs))
+	seenWorkspace := make(map[string]struct{}, len(refs))
+	wantBuiltin := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		switch ref.Source {
+		case skillbundle.SourceBuiltin:
+			wantBuiltin[ref.ID] = struct{}{}
+		case skillbundle.SourceWorkspace:
+			if _, ok := seenWorkspace[ref.ID]; ok {
+				continue
+			}
+			id, err := util.ParseUUID(ref.ID)
+			if err != nil {
+				// An unparseable id matches no row, which is the same outcome
+				// as an id the agent does not have. Skipping it keeps one
+				// malformed ref from failing the refs alongside it.
+				continue
+			}
+			seenWorkspace[ref.ID] = struct{}{}
+			requestedIDs = append(requestedIDs, id)
+		}
+		// Any other source has no server-side producer, so it resolves to
+		// nothing and the caller reports not-found.
+	}
+
+	var requested []AgentSkillData
+	if len(requestedIDs) > 0 {
+		skills, err := s.Queries.ListAgentSkillsByIDs(ctx, db.ListAgentSkillsByIDsParams{
+			AgentID:  agentID,
+			SkillIds: requestedIDs,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list agent skills by ids: %w", err)
+		}
+		if len(skills) > 0 {
+			// Same fail-closed rule as LoadAgentSkills: a failed file read
+			// would produce a bundle that hashes and validates like a complete
+			// one, so it must never be served.
+			loaded, err := s.skillsWithFiles(ctx, skills)
+			if err != nil {
+				return nil, err
+			}
+			requested = append(requested, loaded...)
+		}
+	}
+	if len(wantBuiltin) > 0 {
+		for _, builtin := range s.BuiltinSkills() {
+			if _, ok := wantBuiltin[BuiltinSkillID(builtin.Name)]; ok {
+				requested = append(requested, builtin)
+			}
+		}
+	}
+
+	bundles, _ := BuildAgentSkillBundles(requested)
+	resolved := make(map[string]AgentSkillData, len(bundles))
+	for _, bundle := range bundles {
+		resolved[AgentSkillBundleKey(bundle.Source, bundle.ID)] = bundle
+	}
+	return resolved, nil
+}
+
 func BuildAgentSkillBundles(skills []AgentSkillData) ([]AgentSkillData, []AgentSkillRefData) {
 	bundles := make([]AgentSkillData, 0, len(skills))
 	refs := make([]AgentSkillRefData, 0, len(skills))
@@ -6402,7 +6500,7 @@ func BuildAgentSkillBundles(skills []AgentSkillData) ([]AgentSkillData, []AgentS
 			}
 		}
 		if id == "" && source == skillbundle.SourceBuiltin {
-			id = "builtin:" + skill.Name
+			id = BuiltinSkillID(skill.Name)
 		}
 		skill.Source = source
 		skill.ID = id

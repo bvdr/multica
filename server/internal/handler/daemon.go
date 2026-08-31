@@ -3448,7 +3448,22 @@ func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	bundles, _, err := h.TaskService.LoadAgentSkillBundles(r.Context(), task.AgentID)
+	// Validate before reading: a malformed ref is rejected the same way it
+	// always was, now without paying for a load first.
+	wanted := make([]service.AgentSkillBundleRef, 0, len(req.Skills))
+	for _, ref := range req.Skills {
+		if ref.ID == "" || ref.Source == "" || ref.Hash == "" {
+			writeError(w, http.StatusBadRequest, "invalid skill ref")
+			return
+		}
+		wanted = append(wanted, service.AgentSkillBundleRef{ID: ref.ID, Source: ref.Source})
+	}
+
+	// Load ONLY what was asked for. The daemon resolves one skill per request,
+	// so serving these out of the agent's full bundle set meant reading and
+	// hashing every skill the agent has, once per request, to return one of
+	// them — quadratic in skill count across a cold dispatch.
+	allowed, err := h.TaskService.LoadRequestedAgentSkillBundles(r.Context(), task.AgentID, wanted)
 	if err != nil {
 		// 5xx, not a partial answer: the daemon's resolve retry can recover a
 		// transient read, and a bundle assembled from a failed read would pass
@@ -3458,18 +3473,10 @@ func (h *Handler) ResolveTaskSkillBundles(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to load skill bundles")
 		return
 	}
-	allowed := make(map[string]service.AgentSkillData, len(bundles))
-	for _, bundle := range bundles {
-		allowed[bundle.Source+"\x00"+bundle.ID] = bundle
-	}
 
 	resolved := make([]service.AgentSkillData, 0, len(req.Skills))
 	for _, ref := range req.Skills {
-		if ref.ID == "" || ref.Source == "" || ref.Hash == "" {
-			writeError(w, http.StatusBadRequest, "invalid skill ref")
-			return
-		}
-		bundle, ok := allowed[ref.Source+"\x00"+ref.ID]
+		bundle, ok := allowed[service.AgentSkillBundleKey(ref.Source, ref.ID)]
 		if !ok {
 			writeError(w, http.StatusNotFound, "skill bundle not found")
 			return
