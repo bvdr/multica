@@ -18,7 +18,8 @@ export const RECOVERY_ATTEMPT_BUDGET = 5;
 export const RECOVERY_ATTEMPT_WINDOW_MS = 30 * 60_000;
 // A force-killed daemon leaves daemon.pid behind and Windows may later reuse
 // that PID. Three 30s-spaced deferrals provide a conservative process check,
-// then allow the CLI's own port/PID deduplication to make bounded progress.
+// then allow the CLI's fresh health check and the OS port bind to decide: an
+// unresponsive old listener makes the replacement fail into normal backoff.
 export const RECOVERY_PID_DEFERRAL_LIMIT = 3;
 export const RECOVERY_PID_RECHECK_MS = 30_000;
 
@@ -229,52 +230,61 @@ const OPERATION_BUSY: OperationBusyResult = {
 };
 
 /**
- * Serializes lifecycle work. Background work never queues ahead of a member;
- * a member action waits for an already-running background operation and then
- * acquires the gate, instead of failing because invisible maintenance is busy.
+ * Serializes lifecycle work. One-shot member/login intents use runForeground:
+ * they wait for already-running background maintenance instead of disappearing.
+ * Only work driven by a recurring poll uses runBackground, whose busy result is
+ * intentionally dropped because the next poll safely retries it.
  */
 export class DaemonOperationGate {
   private busy = false;
-  private backgroundCompletion: Promise<void> | null = null;
+  private foregroundQueued = 0;
+  private completion: Promise<void> = Promise.resolve();
 
   get inProgress(): boolean {
-    return this.busy;
+    return this.busy || this.foregroundQueued > 0;
   }
 
-  async runForeground<T>(
-    fn: () => Promise<T>,
-  ): Promise<T | OperationBusyResult> {
-    const background = this.backgroundCompletion;
-    if (background) await background;
-    return this.run(fn);
-  }
-
-  runBackground<T>(
-    fn: () => Promise<T>,
-  ): Promise<T | OperationBusyResult> {
-    if (this.busy) return Promise.resolve(OPERATION_BUSY);
-    const operation = this.run(fn);
-    const completion = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    this.backgroundCompletion = completion;
-    void completion.finally(() => {
-      if (this.backgroundCompletion === completion) {
-        this.backgroundCompletion = null;
-      }
+  async runForeground<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.completion;
+    let release: () => void = () => {};
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
     });
-    return operation;
-  }
+    this.foregroundQueued += 1;
+    this.completion = previous.then(
+      () => current,
+      () => current,
+    );
 
-  private async run<T>(fn: () => Promise<T>): Promise<T | OperationBusyResult> {
-    if (this.busy) return OPERATION_BUSY;
+    await previous;
+    this.foregroundQueued -= 1;
     this.busy = true;
     try {
       return await fn();
     } finally {
       this.busy = false;
+      release();
     }
+  }
+
+  runBackground<T>(
+    fn: () => Promise<T>,
+  ): Promise<T | OperationBusyResult> {
+    if (this.inProgress) return Promise.resolve(OPERATION_BUSY);
+    this.busy = true;
+    const operation = (async () => {
+      try {
+        return await fn();
+      } finally {
+        this.busy = false;
+      }
+    })();
+    const completion = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.completion = completion;
+    return operation;
   }
 }
 

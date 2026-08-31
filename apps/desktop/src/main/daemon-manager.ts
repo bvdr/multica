@@ -745,11 +745,16 @@ async function syncToken(
         console.log(
           "[daemon] user switched — restarting daemon with new credentials",
         );
-        void lifecycleOperations
-          .runBackground(() => restartDaemon())
-          .catch((err) => {
-            console.warn("[daemon] restart-on-user-switch failed:", err);
-          });
+        // Credential rotation is a one-shot login intent, not poll-driven
+        // maintenance: wait for bootstrap/recovery instead of dropping it.
+        const restarted = await lifecycleOperations.runForeground(() =>
+          restartDaemon(),
+        );
+        if (!restarted.success) {
+          console.warn(
+            `[daemon] restart-on-user-switch failed: ${restarted.error ?? "unknown error"}`,
+          );
+        }
       }
     } catch (err) {
       console.warn("[daemon] restart-on-user-switch failed:", err);
@@ -1137,8 +1142,9 @@ async function attemptDaemonRecovery(active: ActiveProfile): Promise<void> {
     recordPidDeferral: () => recoveryPolicy.recordPidDeferral(Date.now()),
     recordPidAbsent: () => recoveryPolicy.recordPidAbsent(),
     // Force-kill leaves daemon.pid behind, and Windows can reuse the number
-    // for another process. After three spaced deferrals, let the lifecycle
-    // CLI's own port/PID checks make bounded progress.
+    // for another process. After three spaced deferrals, let the CLI recheck
+    // health and attempt the start; an occupied port then fails safely into
+    // the normal retry backoff and absolute budget.
     onPidFallback: () =>
       console.warn(
         "[daemon] daemon PID stayed unverifiable; proceeding through CLI safety checks",
@@ -1188,9 +1194,14 @@ async function pollOnce(): Promise<void> {
     if (decision === "confirm") {
       const active = await ensureActiveProfile();
       if (active) {
-        await lifecycleOperations.runBackground(() =>
-          attemptDaemonRecovery(active),
-        );
+        // Recovery can spend 10s confirming health plus 60s in the CLI start.
+        // Do not hold the poll lock across it: startDaemon publishes
+        // "starting" immediately, and subsequent polls keep that visible.
+        void lifecycleOperations
+          .runBackground(() => attemptDaemonRecovery(active))
+          .catch((err) => {
+            console.warn("[daemon] background recovery failed:", err);
+          });
       }
     }
     // Retry a deferred version-mismatch restart once the daemon drains. Route
@@ -1379,15 +1390,10 @@ export function setupDaemonManager(
   ipcMain.handle(
     "daemon:reauthenticate",
     async (_event, token: string, userId: string): Promise<ReauthResult> => {
-      externalDaemonObserved = false;
       setDesiredDaemonRunning(true, true);
-      const result = await lifecycleOperations.runForeground(() =>
+      return lifecycleOperations.runForeground(() =>
         reauthenticate(token, userId),
       );
-      if ("operationBusy" in result) {
-        return { ok: false, reason: "transient", message: result.error };
-      }
-      return result;
     },
   );
   ipcMain.handle("daemon:is-cli-installed", async () => {
@@ -1418,7 +1424,9 @@ export function setupDaemonManager(
     const prefs = await loadPrefs();
     setDesiredDaemonRunning(prefs.autoStart);
     if (!prefs.autoStart) return;
-    await lifecycleOperations.runBackground(async () => {
+    // Login auto-start is emitted once per session. Queue it behind bootstrap
+    // instead of dropping it like a retryable poll operation.
+    await lifecycleOperations.runForeground(async () => {
       const bin = await resolveCliBinary();
       if (!bin) return;
       const health = await fetchHealth();

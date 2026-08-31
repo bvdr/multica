@@ -298,7 +298,7 @@ describe("recovery orchestration guards", () => {
     ).toBe(false);
   });
 
-  it("queues a member operation behind background work", async () => {
+  it("queues a one-shot login intent behind bootstrap", async () => {
     const gate = new DaemonOperationGate();
     let releaseBackground: () => void = () => {};
     const background = gate.runBackground(
@@ -309,13 +309,38 @@ describe("recovery orchestration guards", () => {
     );
     const foregroundFn = vi.fn(async () => "stopped");
     const foreground = gate.runForeground(foregroundFn);
+    const retryablePollFn = vi.fn(async () => "polled");
 
     await Promise.resolve();
     expect(foregroundFn).not.toHaveBeenCalled();
+    await expect(
+      gate.runBackground(retryablePollFn),
+    ).resolves.toMatchObject({ operationBusy: true });
+    expect(retryablePollFn).not.toHaveBeenCalled();
     releaseBackground();
     await expect(background).resolves.toBe("recovered");
     await expect(foreground).resolves.toBe("stopped");
     expect(foregroundFn).toHaveBeenCalledOnce();
+  });
+
+  it("queues one-shot foreground intents in invocation order", async () => {
+    const gate = new DaemonOperationGate();
+    let releaseFirst: () => void = () => {};
+    const first = gate.runForeground(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseFirst = () => resolve("first");
+        }),
+    );
+    const secondFn = vi.fn(async () => "second");
+    const second = gate.runForeground(secondFn);
+
+    await Promise.resolve();
+    expect(secondFn).not.toHaveBeenCalled();
+    releaseFirst();
+    await expect(first).resolves.toBe("first");
+    await expect(second).resolves.toBe("second");
+    expect(secondFn).toHaveBeenCalledOnce();
   });
 
   it("lets a queued member stop revoke recovery intent immediately", async () => {
