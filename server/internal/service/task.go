@@ -2559,6 +2559,7 @@ func (s *TaskService) CancelTasksForIssue(ctx context.Context, issueID pgtype.UU
 	for _, agentID := range distinctAgentIDs(cancelled) {
 		s.ReconcileAgentStatus(ctx, agentID)
 	}
+	s.settleDeliveredRecoveriesBestEffort(ctx, cancelled)
 	s.notifyTasksFinished(cancelled)
 	return nil
 }
@@ -2600,6 +2601,7 @@ func (s *TaskService) CancelTasksForAgent(ctx context.Context, agentID pgtype.UU
 	// working→available based on remaining task counts, no need to call
 	// per row (the rows we just cancelled all belong to the same agent).
 	s.ReconcileAgentStatus(ctx, agentID)
+	s.settleDeliveredRecoveriesBestEffort(ctx, cancelled)
 	s.notifyTasksFinished(cancelled)
 	return cancelled, nil
 }
@@ -2623,6 +2625,7 @@ func (s *TaskService) CancelTasksByTriggerComment(ctx context.Context, commentID
 	for _, agentID := range distinctAgentIDs(cancelled) {
 		s.ReconcileAgentStatus(ctx, agentID)
 	}
+	s.settleDeliveredRecoveriesBestEffort(ctx, cancelled)
 	s.notifyTasksFinished(cancelled)
 	return cancelled, nil
 }
@@ -2649,6 +2652,7 @@ func (s *TaskService) BroadcastCancelledTasks(ctx context.Context, workspaceID s
 		s.ReconcileAgentStatus(ctx, t.AgentID)
 		s.publishTaskEvent(protocol.EventTaskCancelled, workspaceID, t)
 	}
+	s.settleDeliveredRecoveriesBestEffort(ctx, cancelled)
 	s.notifyTasksFinished(cancelled)
 }
 
@@ -2826,6 +2830,11 @@ func (s *TaskService) CancelTaskWithResult(ctx context.Context, taskID pgtype.UU
 				return err
 			}
 			task = cancelled
+			// CancelAgentTaskByUser appends the recovery receipt in the same
+			// statement, so the returned row already carries it.
+			if err := settleDeliveredDelegatedFailureRecoveries(ctx, qtx, cancelled); err != nil {
+				return err
+			}
 			if !cancelled.ChatSessionID.Valid {
 				return nil
 			}
@@ -2905,6 +2914,7 @@ func (s *TaskService) CancelQueuedChatTasks(ctx context.Context, sessionID, agen
 	for _, task := range tasks {
 		s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, task)
 	}
+	s.settleDeliveredRecoveriesBestEffort(ctx, tasks)
 	s.notifyTasksFinished(tasks)
 	return nil
 }
@@ -4209,6 +4219,12 @@ func (s *TaskService) CompleteTask(ctx context.Context, taskID pgtype.UUID, resu
 		}
 		task = t
 
+		// Atomic with the status flip: a crash between the two would leave a
+		// finished obligation looking pending forever.
+		if err := settleDeliveredDelegatedFailureRecoveries(ctx, qtx, t); err != nil {
+			return err
+		}
+
 		if t.ChatSessionID.Valid {
 			// Pin the chat_session's runtime_id alongside the session_id so the
 			// next claim can apply the runtime-guard. Both fields move together:
@@ -4687,6 +4703,14 @@ func (s *TaskService) FailTask(ctx context.Context, taskID pgtype.UUID, errMsg, 
 			return err
 		}
 		task = t
+
+		// Atomic with the status flip, same as the completion path. A failed
+		// coordinator that already received the recovery comment has consumed
+		// the obligation: the pre-existing delivered_comment_ids coverage check
+		// never looked at the covering task's status either.
+		if err := settleDeliveredDelegatedFailureRecoveries(ctx, qtx, t); err != nil {
+			return err
+		}
 
 		// Keep resume-unsafe sessions on the task row for observability, but
 		// do not promote them to the chat-level resume pointer.
@@ -5708,6 +5732,7 @@ func (s *TaskService) HandleFailedTasks(ctx context.Context, tasks []db.AgentTas
 	for _, agentID := range affectedAgents {
 		s.ReconcileAgentStatus(ctx, agentID)
 	}
+	s.settleDeliveredRecoveriesBestEffort(ctx, tasks)
 	s.notifyTasksFinished(tasks)
 	return retried
 }
@@ -5717,6 +5742,47 @@ const (
 	delegatedFailureRecoveryMaxTaskAttempts = 3
 	delegatedFailureRecoveryCommentType     = "progress_update"
 )
+
+// settleDeliveredDelegatedFailureRecoveries retires every delegated-failure
+// recovery comment the given now-terminal tasks actually received, so those
+// comments drop out of idx_comment_delegated_failure_unsettled instead of
+// being re-proven settled by ListPendingDelegatedFailureRecoveries on every
+// sweeper tick. Without it the outbox scan grows with total history even when
+// it returns nothing.
+//
+// Call this only once the task is terminal. A dispatched task's receipt is
+// still replaceable (SetTaskDeliveredCommentIDs), so settling earlier would
+// freeze a legitimate reclaim window into a permanently lost recovery.
+//
+// Pass the same qtx as the terminal write to make the marker atomic with it;
+// bulk cancellations that already finalize outside a transaction pass
+// s.Queries and log instead. An unmarked row is the safe direction — it is
+// scanned exactly as it was before this marker existed.
+//
+// A task with no delivery receipt — nearly every task — costs a slice length
+// check and no query.
+func settleDeliveredDelegatedFailureRecoveries(ctx context.Context, q *db.Queries, tasks ...db.AgentTaskQueue) error {
+	for _, t := range tasks {
+		if len(t.DeliveredCommentIds) == 0 {
+			continue
+		}
+		if _, err := q.SettleDelegatedFailureRecoveriesForTask(ctx, t.ID); err != nil {
+			return fmt.Errorf("settle delegated failure recoveries for task %s: %w", util.UUIDToString(t.ID), err)
+		}
+	}
+	return nil
+}
+
+// settleDeliveredRecoveriesBestEffort is the post-commit form used by the bulk
+// cancellation paths, whose analytics, broadcast and reconcile follow-ups are
+// already best-effort for the same reason: the rows are finalized by one
+// multi-row statement that has already committed. A failure here leaves the
+// comment pending, which the sweeper replays.
+func (s *TaskService) settleDeliveredRecoveriesBestEffort(ctx context.Context, tasks []db.AgentTaskQueue) {
+	if err := settleDeliveredDelegatedFailureRecoveries(ctx, s.Queries, tasks...); err != nil {
+		slog.Warn("settle delegated failure recoveries after bulk cancellation", "error", err)
+	}
+}
 
 type delegatedFailureRecoveryDispatchOutcome uint8
 
@@ -5934,6 +6000,15 @@ func (s *TaskService) exhaustDelegatedFailureRecovery(ctx context.Context, targe
 			MaxAttempts:  delegatedFailureRecoveryMaxTaskAttempts,
 		}); err != nil {
 			return fmt.Errorf("acknowledge exhausted delegated failure recovery: %w", err)
+		}
+
+		// The receipt above lands on the newest attempt row, which may still be
+		// running, so the task-scoped settle cannot see it. Exhaustion is
+		// terminal on its own terms — the attempt budget is spent and the
+		// visible explanation below tells the user why nothing else will run —
+		// so retire the comment directly, in this same transaction.
+		if _, err := qtx.SettleDelegatedFailureRecoveryComment(ctx, target.comment.ID); err != nil {
+			return fmt.Errorf("settle exhausted delegated failure recovery: %w", err)
 		}
 
 		comment, err := qtx.GetDelegatedFailureRecoveryExhaustionComment(ctx, db.GetDelegatedFailureRecoveryExhaustionCommentParams{
