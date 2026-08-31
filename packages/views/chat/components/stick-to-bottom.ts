@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createLiveEndFollow,
   FOLLOW_EDGE_THRESHOLD,
@@ -46,11 +46,49 @@ export function isAtLiveEnd(m: ScrollMetrics): boolean {
   return distanceFromBottom(m) <= FOLLOW_EDGE_THRESHOLD;
 }
 
+/**
+ * Marks the newest row so the list can tell "the reader is looking at the
+ * newest message" from "the viewport is where that message was predicted to
+ * be". See `useStickToBottom`'s `hasReachedLiveEnd`.
+ */
+export const LIVE_END_ROW_ATTR = "data-chat-live-end";
+
+/**
+ * Whether the newest row's own box has arrived at the bottom of the viewport.
+ *
+ * Measured, never predicted: scroll geometry is derived from `scrollHeight`,
+ * which is an estimate over the unrendered rows, and while that estimate is
+ * still wrong it reports the viewport as being at the live end. The row's
+ * rect comes from layout, so it only lines up once the rows underneath it
+ * have actually been measured.
+ */
+export function isShowingLiveEndRow(scrollEl: HTMLElement): boolean {
+  const row = scrollEl.querySelector(`[${LIVE_END_ROW_ATTR}]`);
+  if (!row) return false;
+  const viewport = scrollEl.getBoundingClientRect();
+  const rect = row.getBoundingClientRect();
+  // Its end is on screen — at or above the fold (the footer inset keeps it a
+  // little above the edge), and not scrolled off the top.
+  return rect.bottom <= viewport.bottom + 1 && rect.bottom > viewport.top;
+}
+
+// A list that never reports showing its newest row must not stay hidden.
+// Past this, reveal whatever Virtuoso has: the flicker beats a blank chat.
+const REVEAL_DEADLINE_MS = 1000;
+
 export interface StickToBottom {
   /** For `followOutput`: the reader is still following the live end. */
   isFollowing(): boolean;
   /** Wire to Virtuoso's `totalListHeightChanged`: the content resized. */
   onContentHeightChanged(): void;
+  /**
+   * False until the newest message has actually arrived at the bottom of the
+   * viewport. Keep the list hidden until then: Virtuoso opens it by scrolling
+   * to where it PREDICTS that message is, paints there, and only then
+   * measures and corrects — so the first painted frame shows the wrong part
+   * of the conversation and the next one jumps (MUL-6879).
+   */
+  hasReachedLiveEnd: boolean;
 }
 
 /**
@@ -91,6 +129,28 @@ export function useStickToBottom(
   const pin = useCallback(() => {
     pinRef.current();
   }, []);
+
+  // Polled rather than driven off Virtuoso's callbacks: `atBottomStateChange`
+  // still reads true from before the rows existed, `itemsRendered` reports
+  // rows that a measuring pass is about to unmount again, and neither fires
+  // on the frame the correcting scroll lands. A frame loop that stops the
+  // moment it succeeds costs a handful of rect reads at open.
+  const [hasReachedLiveEnd, setHasReachedLiveEnd] = useState(false);
+  useEffect(() => {
+    if (!scrollEl || hasReachedLiveEnd) return;
+    let frame = requestAnimationFrame(function poll() {
+      if (isShowingLiveEndRow(scrollEl)) {
+        setHasReachedLiveEnd(true);
+        return;
+      }
+      frame = requestAnimationFrame(poll);
+    });
+    const deadline = setTimeout(() => setHasReachedLiveEnd(true), REVEAL_DEADLINE_MS);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(deadline);
+    };
+  }, [scrollEl, hasReachedLiveEnd]);
 
   // Content grew or the viewport resized — displacement with no scroll event,
   // so it can never promote staged reader input.
@@ -216,7 +276,8 @@ export function useStickToBottom(
     () => ({
       isFollowing: () => follow.isFollowing(),
       onContentHeightChanged: onResize,
+      hasReachedLiveEnd,
     }),
-    [follow, onResize],
+    [follow, onResize, hasReachedLiveEnd],
   );
 }

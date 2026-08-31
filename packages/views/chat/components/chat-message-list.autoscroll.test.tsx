@@ -427,6 +427,36 @@ describe("ChatMessageList auto-scroll", () => {
     expect(scroll.directScrollTopWrites()).toBe(0);
   });
 
+  // MUL-6879: Virtuoso opens the list by scrolling to where it PREDICTS the
+  // newest message is, paints there, and only then measures the rows and
+  // corrects — so the first painted frame showed the wrong part of the
+  // conversation and the next one jumped. Readiness is judged from the
+  // newest row's own box, because during the estimate the scroll geometry
+  // reports the viewport as being at the live end.
+  it("stays hidden until the newest message has actually landed at the bottom", () => {
+    const { view, scroll } = renderStreamingChat();
+
+    const box = (el: Element, top: number, bottom: number) => {
+      el.getBoundingClientRect = () => ({ top, bottom }) as DOMRect;
+    };
+    box(scroll.el, 0, VIEWPORT);
+    const liveEndRow = view.container.querySelector("[data-chat-live-end]");
+    if (!liveEndRow) throw new Error("the newest row is not marked as the live end");
+
+    expect(scroll.el.className).toContain("invisible");
+
+    // Rows are on screen, but sitting where the estimate put them: below the
+    // fold, still to be corrected. This is the frame that used to flicker.
+    box(liveEndRow, 4600, 5200);
+    act(() => renderFrame());
+    expect(scroll.el.className).toContain("invisible");
+
+    // The correction lands and the newest row reaches the bottom.
+    box(liveEndRow, VIEWPORT - 200, VIEWPORT - 16);
+    act(() => renderFrame());
+    expect(scroll.el.className).not.toContain("invisible");
+  });
+
   it("keeps the newest content clear of a composer that grew", () => {
     const { scroll } = renderStreamingChat();
 
