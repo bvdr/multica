@@ -61,7 +61,8 @@
     "eyebrow": "顺便问一句",
     "lede": "就一个小问题——帮我们了解都是哪些人在用 Multica。回答一次，马上回到手上的事。",
     "submit": "提交",
-    "hint_ready": "看起来不错，准备好就点提交。"
+    "hint_ready": "看起来不错，准备好就点提交。",
+    "save_failed_toast": "保存失败"
   },
   "questions": {
     "about_you": {

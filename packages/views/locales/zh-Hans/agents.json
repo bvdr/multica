@@ -35,6 +35,9 @@
     "idle": "空闲"
   },
   "presence_status_aria": "状态：{{status}}",
+  "avatar_stack": {
+    "overflow_aria_other": "还有 {{count}} 个智能体"
+  },
   "archived": {
     "active_link": "活跃智能体",
     "title": "已归档智能体"

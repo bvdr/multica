@@ -745,7 +745,9 @@ function SubIssueRow({
             type="checkbox"
             checked={selected}
             onChange={() => toggleSelected(child.id)}
-            aria-label={`Select ${child.identifier}`}
+            aria-label={t(($) => $.detail.select_sub_issue_aria, {
+              identifier: child.identifier,
+            })}
             className={cn(
               "absolute inset-0 cursor-pointer accent-primary transition-opacity",
               selected

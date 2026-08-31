@@ -35,6 +35,9 @@
     "idle": "アイドル"
   },
   "presence_status_aria": "ステータス: {{status}}",
+  "avatar_stack": {
+    "overflow_aria_other": "他 {{count}} 件のエージェント"
+  },
   "archived": {
     "active_link": "アクティブなエージェント",
     "title": "アーカイブ済みエージェント"

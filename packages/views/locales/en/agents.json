@@ -35,6 +35,10 @@
     "idle": "Idle"
   },
   "presence_status_aria": "Status: {{status}}",
+  "avatar_stack": {
+    "overflow_aria_one": "{{count}} more agent",
+    "overflow_aria_other": "{{count}} more agents"
+  },
   "archived": {
     "active_link": "Active agents",
     "title": "Archived agents"

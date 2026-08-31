@@ -35,6 +35,9 @@
     "idle": "유휴"
   },
   "presence_status_aria": "상태: {{status}}",
+  "avatar_stack": {
+    "overflow_aria_other": "에이전트 {{count}}개 더"
+  },
   "archived": {
     "active_link": "활성 에이전트",
     "title": "보관된 에이전트"
