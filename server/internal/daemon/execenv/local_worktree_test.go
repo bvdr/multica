@@ -1135,15 +1135,11 @@ func TestDiscardKeepsTheContinuedBranch(t *testing.T) {
 // still has to run, and it should start from the conversation's latest work
 // rather than from HEAD.
 //
-// The user's tree is dirty here, which is what puts a record on the branch
-// before the first turn finishes: the baseline commit moves the branch off the
-// user's HEAD, and only then is there a checkpoint worth recording (see
-// recordState). A sibling racing the very first turn of a conversation on a
-// clean tree finds no record yet and starts its own line of work instead —
-// safe, and the price of never continuing a branch we cannot prove is ours.
+// It works from the first turn on because every branch this mode creates gets a
+// baseline commit of its own, so there is a checkpoint to record before the
+// first turn has finished — see commitBaseline.
 func TestPrepareLocalWorktreeForksWhenTheConversationBranchIsBusy(t *testing.T) {
 	repo := newTestRepo(t)
-	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
 
 	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
 	writeFile(t, filepath.Join(first.WorkDir, "turn-one.txt"), "work from turn one\n")
@@ -1189,8 +1185,13 @@ func TestPrepareLocalWorktreeRestartsAMergedConversationBranch(t *testing.T) {
 	if second.Continued {
 		t.Error("continued a branch the user had already merged")
 	}
-	if second.BaseCommit != head {
-		t.Errorf("second turn base = %s, want the user's HEAD %s", second.BaseCommit, head)
+	// Restarted at HEAD: the base is this turn's own baseline commit, sitting
+	// directly on the user's newest commit rather than behind it.
+	if _, err := gitTry(t, repo, "merge-base", "--is-ancestor", head, second.BaseCommit); err != nil {
+		t.Errorf("second turn base %s does not build on the user's HEAD %s", second.BaseCommit, head)
+	}
+	if parent := gitRun(t, repo, "rev-parse", second.BaseCommit+"^"); parent != head {
+		t.Errorf("second turn base is parented at %s, want the user's HEAD %s", parent, head)
 	}
 	if _, err := os.Stat(filepath.Join(second.WorkDir, "user-commit.txt")); err != nil {
 		t.Errorf("the user's commits after the merge are missing: %v", err)
@@ -1636,5 +1637,135 @@ func TestBranchRecordPinsTheDeliveredCommitNotTheLiveRef(t *testing.T) {
 	}
 	if rewritten.checkpoint != delivered {
 		t.Errorf("checkpoint = %s, want the commit passed in (%s), not the live ref", rewritten.checkpoint, delivered)
+	}
+}
+
+// The run itself can destroy the proof: an agent that resets its worktree back
+// to the user's own HEAD leaves the branch sitting on a plain user commit.
+// Recording that as the checkpoint would make a branch the user later recreates
+// there look like this conversation's, so the turn refuses to record it and
+// keeps the worktree instead.
+func TestFinalizeRefusesToRecordADeliveryThatResetPastItsBaseline(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
+	head := gitRun(t, repo, "rev-parse", "HEAD")
+
+	wt := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	if wt.BaseCommit == head {
+		t.Fatal("prepare left the branch on the user's own HEAD, with no commit of its own")
+	}
+	writeFile(t, filepath.Join(wt.WorkDir, "agent.txt"), "turn one\n")
+	// The agent throws its own history away and lands back on the user's HEAD.
+	gitRun(t, wt.Path, "reset", "--hard", head)
+
+	outcome, err := wt.Finalize(worktreeTestLogger())
+	if err == nil {
+		t.Fatal("Finalize recorded a delivery that no longer contains the branch's own commit")
+	}
+	if !strings.Contains(err.Error(), "no longer contains") {
+		t.Errorf("error does not explain what is missing: %v", err)
+	}
+	if outcome.Branch != "" {
+		t.Errorf("outcome named branch %q for a delivery it refused to record", outcome.Branch)
+	}
+	if outcome.PreservedPath != wt.Path {
+		t.Errorf("PreservedPath = %q, want the worktree at %q", outcome.PreservedPath, wt.Path)
+	}
+	if _, statErr := os.Stat(wt.Path); statErr != nil {
+		t.Errorf("worktree removed despite refusing the delivery: %v", statErr)
+	}
+
+	// And the hole this closes: the user deletes the branch, recreates one of
+	// their own at that same HEAD, and the next turn must not adopt it.
+	_ = removeLocalWorktreeDir(repo, wt.Path, worktreeTestLogger())
+	gitRun(t, repo, "branch", "-D", "agent/j/mul-6881")
+	gitRun(t, repo, "branch", "agent/j/mul-6881")
+	theirs := filepath.Join(t.TempDir(), "theirs")
+	gitRun(t, repo, "worktree", "add", "--quiet", theirs, "agent/j/mul-6881")
+	writeFile(t, filepath.Join(theirs, "unrelated.txt"), "the user's own work\n")
+	gitRun(t, theirs, "add", "-A")
+	gitRun(t, theirs, "commit", "-m", "the user's own commit")
+	gitRun(t, repo, "worktree", "remove", "--force", theirs)
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if second.Continued || second.Branch == "agent/j/mul-6881" {
+		t.Errorf("second turn adopted the user's branch: branch = %q, continued = %v", second.Branch, second.Continued)
+	}
+	if _, err := os.Stat(filepath.Join(second.WorkDir, "unrelated.txt")); err == nil {
+		t.Error("the user's unrelated work leaked into this task's tree")
+	}
+	finalizeOK(t, second)
+}
+
+// The same guard from the other side: whatever the worktree delivered has to BE
+// the task's branch. A run that ended somewhere else — a detached checkout, a
+// different branch — delivered a commit this record has no business describing,
+// and the branch it names would not carry it.
+func TestFinalizeRefusesToRecordADeliveryFromOffTheBranch(t *testing.T) {
+	repo := newTestRepo(t)
+	head := gitRun(t, repo, "rev-parse", "HEAD")
+
+	wt := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(wt.WorkDir, "agent.txt"), "turn one\n")
+	gitRun(t, wt.Path, "add", "-A")
+	gitRun(t, wt.Path, "commit", "-m", "turn one")
+	delivered := gitRun(t, repo, "rev-parse", "agent/j/mul-6881")
+	// The run wanders off its own branch before it ends.
+	gitRun(t, wt.Path, "checkout", "--quiet", "--detach", head)
+
+	outcome, err := wt.Finalize(worktreeTestLogger())
+	if err == nil {
+		t.Fatal("Finalize recorded a delivery that is not the branch's tip")
+	}
+	if !strings.Contains(err.Error(), "did not deliver onto its own branch") {
+		t.Errorf("error does not explain the mismatch: %v", err)
+	}
+	if outcome.PreservedPath != wt.Path {
+		t.Errorf("PreservedPath = %q, want the worktree at %q", outcome.PreservedPath, wt.Path)
+	}
+	// The branch keeps what it had; nothing was recorded against the stray tip.
+	if got := gitRun(t, repo, "rev-parse", "agent/j/mul-6881"); got != delivered {
+		t.Errorf("branch moved to %s, want %s", got, delivered)
+	}
+	ref, err := readUserStateRef(repo, "agent/j/mul-6881")
+	if err != nil {
+		t.Fatalf("readUserStateRef: %v", err)
+	}
+	record, err := readBranchRecord(repo, ref)
+	if err != nil {
+		t.Fatalf("readBranchRecord: %v", err)
+	}
+	if record.checkpoint == head {
+		t.Error("the stray HEAD was recorded as this branch's checkpoint")
+	}
+	_ = removeLocalWorktreeDir(repo, wt.Path, worktreeTestLogger())
+}
+
+// A branch created by this prepare always gets a commit of its own, even when
+// the user's directory was clean and there was nothing to replay. Without it
+// the branch would sit exactly where the user's HEAD does, and nothing would
+// tell it apart from a branch they create there themselves.
+func TestPrepareLocalWorktreeAlwaysGivesANewBranchACommitOfItsOwn(t *testing.T) {
+	repo := newTestRepo(t)
+	head := gitRun(t, repo, "rev-parse", "HEAD")
+
+	wt := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	if wt.BaseCommit == head {
+		t.Fatal("a clean tree left the branch on the user's HEAD")
+	}
+	if parent := gitRun(t, repo, "rev-parse", wt.BaseCommit+"^"); parent != head {
+		t.Errorf("baseline is parented at %s, want the user's HEAD %s", parent, head)
+	}
+	// It changes nothing: the point is its existence, not its content.
+	if diff := gitRun(t, repo, "diff", "--stat", head, wt.BaseCommit); diff != "" {
+		t.Errorf("the baseline of a clean tree is not empty:\n%s", diff)
+	}
+	// And a turn that produces nothing still leaves no branch behind.
+	outcome := finalizeOK(t, wt)
+	if outcome.Branch != "" {
+		t.Errorf("read-only turn reported branch %q", outcome.Branch)
+	}
+	if _, err := gitTry(t, repo, "rev-parse", "--verify", "agent/j/mul-6881"); err == nil {
+		t.Error("a turn that changed nothing left its branch behind")
 	}
 }

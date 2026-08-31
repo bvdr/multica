@@ -183,6 +183,13 @@ type LocalWorktree struct {
 	// task-scoped branch, or the one a busy sibling forked. Recording a
 	// snapshot for those would leave a ref nothing ever reads.
 	tracksState bool
+	// anchor is a commit this conversation is known to have put on the branch:
+	// the baseline this prepare committed, or the checkpoint a previous turn
+	// recorded and this one verified. Finalize refuses to record a delivery
+	// that no longer contains it — a tip without the anchor is a commit the
+	// user could equally be sitting at, and recording one is what would let a
+	// branch they recreate under the same name pass the ownership check.
+	anchor string
 	// aborted, when set, makes Finalize refuse to commit or remove anything.
 	// Set by the daemon when a pre-commit step failed in a way that would make
 	// the committed branch wrong (see AbortWithReason).
@@ -318,6 +325,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		createdBranch: createdBranch,
 		userState:     userState,
 		owner:         plan.owner,
+		anchor:        plan.priorCheckpoint,
 		// A branch a sibling task forked because the conversation's own branch
 		// was busy is delivered once and never continued, so it records nothing.
 		tracksState: plan.tracksState && actualBranch == plan.name,
@@ -371,8 +379,15 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 			rollback()
 			return nil, fmt.Errorf("execenv: could not inspect the prepared worktree for %q: %w", gitRoot, dirtyErr)
 		}
-		if dirty {
-			baseline, baseErr := commitBaseline(worktreePath, plan.continues)
+		// A branch this prepare created gets its baseline even when there was
+		// nothing to replay. Two things need it. The empty case is the one that
+		// used to be skipped, and it is the one where the branch sits exactly on
+		// the user's own HEAD — so the branch had no commit of its own, and
+		// nothing distinguished it from a branch the user creates there
+		// themselves. And `git diff <baseline>..<branch>` is then the agent's
+		// work on every branch, not only on the ones that started dirty.
+		if dirty || !plan.continues {
+			baseline, baseErr := commitBaseline(worktreePath, plan.continues, dirty)
 			if baseErr != nil {
 				// Without a baseline the task cannot tell the user's work from the
 				// agent's, so it would later commit the user's files as if the agent
@@ -381,23 +396,19 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 				return nil, fmt.Errorf("execenv: could not record a baseline commit for the replayed state of %q: %w", gitRoot, baseErr)
 			}
 			wt.BaseCommit = baseline
+			if !plan.continues {
+				// This commit exists only because this task made it, which is what
+				// makes it usable as proof later.
+				wt.anchor = baseline
+			}
 		}
 		// The branch now carries this snapshot, so record it — together with the
 		// owner, which is what lets the next task prove this branch is its own
 		// before continuing it. Recorded here as well as at Finalize so a turn
 		// that never reaches Finalize still leaves the branch identifiable.
-		//
-		// Only when the branch has moved off the user's HEAD, which is the case
-		// whenever they had uncommitted work (it is now the baseline commit) or
-		// this branch was continued. A record pointing at their bare HEAD would
-		// prove nothing about the branch: see recordState. A fresh branch on a
-		// clean tree therefore stays unrecorded until Finalize, and a turn that
-		// dies before then leaves it to be superseded rather than continued.
-		if wt.BaseCommit != headSHA {
-			if err := wt.recordState(wt.BaseCommit, logger); err != nil && logger != nil {
-				logger.Warn("execenv: could not record the task branch before the run (non-fatal; Finalize records the delivered tip)",
-					"branch", wt.Branch, "error", err)
-			}
+		if err := wt.recordState(wt.BaseCommit, logger); err != nil && logger != nil {
+			logger.Warn("execenv: could not record the task branch before the run (non-fatal; Finalize records the delivered tip)",
+				"branch", wt.Branch, "error", err)
 		}
 	}
 
@@ -546,6 +557,18 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 	// makes that recoverable — the worktree is still there to preserve, exactly
 	// as for a commit that could not be made.
 	if !dropped {
+		if verifyErr := w.verifyDeliveryPoint(tip); verifyErr != nil {
+			outcome.Branch = ""
+			outcome.PreservedPath = w.Path
+			if logger != nil {
+				logger.Error("execenv: the run's delivery point cannot be recorded as this conversation's; nothing recorded, worktree kept",
+					"path", w.Path, "branch", w.Branch, "git_root", w.GitRoot, "tip", tip, "anchor", w.anchor, "error", verifyErr)
+			}
+			return outcome, fmt.Errorf(
+				"refusing to record branch %s: %w; the task worktree is preserved at %s (listed by `git worktree list` in %s) — "+
+					"recover the work from there, and let the run keep the commit the worktree started from instead of resetting past it",
+				w.Branch, verifyErr, w.Path, w.GitRoot)
+		}
 		if recErr := w.recordState(tip, logger); recErr != nil {
 			outcome.PreservedPath = w.Path
 			if logger != nil {
@@ -636,12 +659,20 @@ func (w *LocalWorktree) AbortWithReason(err error) {
 // commit on the task branch, returning the new tip. On a continued branch that
 // state is the increment since the previous turn, so the message says so rather
 // than claiming to be the branch's baseline.
-func commitBaseline(worktreePath string, continued bool) (string, error) {
+//
+// A new branch gets one even with nothing to record. The commit is then empty,
+// and that is the point: it is the branch's first commit of its own, the thing
+// that makes it distinguishable later from a branch the user creates at the
+// same place — see LocalWorktree.anchor.
+func commitBaseline(worktreePath string, continued, dirty bool) (string, error) {
 	message := "chore(agent): baseline — uncommitted work from the local directory"
-	if continued {
+	switch {
+	case continued:
 		message = "chore(agent): uncommitted work from the local directory since the previous turn"
+	case !dirty:
+		message = "chore(agent): baseline — the task worktree started here"
 	}
-	if _, err := commitEverything(worktreePath, message); err != nil {
+	if _, err := commitEverything(worktreePath, message, !dirty); err != nil {
 		return "", err
 	}
 	tip, err := runGitTrimmed(worktreePath, "rev-parse", "--verify", "HEAD")
@@ -655,13 +686,15 @@ func commitBaseline(worktreePath string, continued bool) (string, error) {
 // whether a commit was actually created; an error means the changes are still
 // only on disk and the caller must not delete the worktree.
 func (w *LocalWorktree) commitAll(logger *slog.Logger) (bool, error) {
-	return commitEverything(w.Path, "chore(agent): uncommitted changes from task")
+	// Never --allow-empty here: an empty commit would make a read-only turn look
+	// like it produced work and leave its branch behind.
+	return commitEverything(w.Path, "chore(agent): uncommitted changes from task", false)
 }
 
 // commitEverything returns (false, nil) for the benign "there was nothing to
 // commit" case and (false, err) for a real failure — the distinction callers
 // need to decide whether the tree is safe to discard.
-func commitEverything(worktreePath, message string) (bool, error) {
+func commitEverything(worktreePath, message string, allowEmpty bool) (bool, error) {
 	if out, err := runGit(worktreePath, "add", "-A"); err != nil {
 		return false, fmt.Errorf("git add: %s: %w", strings.TrimSpace(out), err)
 	}
@@ -670,7 +703,11 @@ func commitEverything(worktreePath, message string) (bool, error) {
 	// failure here would mean losing the agent's work to save a lint run. Note
 	// it does NOT disable commit.gpgSign, which is why the caller has to treat
 	// a commit failure as "keep the worktree" rather than a warning.
-	args := append(commitIdentityArgs(worktreePath), "commit", "--no-verify", "-m", message)
+	args := append(commitIdentityArgs(worktreePath), "commit", "--no-verify")
+	if allowEmpty {
+		args = append(args, "--allow-empty")
+	}
+	args = append(args, "-m", message)
 	if out, err := runGit(worktreePath, args...); err != nil {
 		if strings.Contains(out, "nothing to commit") {
 			return false, nil
@@ -1000,6 +1037,10 @@ type taskBranchPlan struct {
 	// carrying. Set only when continues is true; it is the merge base for this
 	// turn's replay.
 	priorState string
+	// priorCheckpoint is the commit that branch was recorded at and still
+	// contains — this turn's proof that the branch is the conversation's, and
+	// the anchor it has to keep carrying.
+	priorCheckpoint string
 	// reset is true when the conversation's branch exists but is fully merged
 	// into HEAD, and this task restarts it there.
 	reset bool
@@ -1080,7 +1121,7 @@ func planForConversationBranch(gitRoot, name, headSHA string, owner branchOwner,
 		// Free to create.
 		return plan, true
 	}
-	state, owned := branchOwnedBy(gitRoot, name, owner, logger)
+	record, owned := branchOwnedBy(gitRoot, name, owner, logger)
 	if !owned {
 		return taskBranchPlan{}, false
 	}
@@ -1092,7 +1133,8 @@ func planForConversationBranch(gitRoot, name, headSHA string, owner branchOwner,
 	}
 	plan.base = tip
 	plan.continues = true
-	plan.priorState = state
+	plan.priorState = record.state
+	plan.priorCheckpoint = record.checkpoint
 	if logger != nil {
 		logger.Info("execenv: continuing the conversation's existing branch",
 			"git_root", gitRoot, "branch", name, "tip", tip)
@@ -1112,23 +1154,23 @@ func planForConversationBranch(gitRoot, name, headSHA string, owner branchOwner,
 //
 // A branch with no record is not ours by definition: every branch this code
 // creates writes one before its task is allowed to run.
-func branchOwnedBy(gitRoot, branch string, owner branchOwner, logger *slog.Logger) (string, bool) {
+func branchOwnedBy(gitRoot, branch string, owner branchOwner, logger *slog.Logger) (branchRecord, bool) {
 	ref, err := readUserStateRef(gitRoot, branch)
 	if err != nil || ref == "" {
-		return "", false
+		return branchRecord{}, false
 	}
 	record, err := readBranchRecord(gitRoot, ref)
 	if err != nil || record.owner != owner || record.checkpoint == "" {
-		return "", false
+		return branchRecord{}, false
 	}
 	if _, err := runGit(gitRoot, "merge-base", "--is-ancestor", record.checkpoint, "refs/heads/"+branch); err != nil {
 		if logger != nil {
 			logger.Info("execenv: branch no longer contains the commit it was recorded at; not continuing it",
 				"git_root", gitRoot, "branch", branch, "checkpoint", record.checkpoint)
 		}
-		return "", false
+		return branchRecord{}, false
 	}
-	return record.state, true
+	return record, true
 }
 
 // addLocalWorktree materialises the planned branch as a worktree and reports
@@ -1274,6 +1316,44 @@ func quotedPaths(paths []string) string {
 		quoted = append(quoted, strconv.Quote(path))
 	}
 	return strings.Join(quoted, ", ")
+}
+
+// verifyDeliveryPoint checks that tip is a commit this conversation can put its
+// name on before it becomes the branch's recorded checkpoint.
+//
+// Two things are asserted, and they are the two ways a delivery can be
+// something other than what this task built. The tip has to BE the task's
+// branch — a run that checked out something else, or a branch someone moved
+// underneath it, delivers a commit this record has no business describing. And
+// it has to still contain the anchor: the baseline this prepare committed, or
+// the checkpoint the previous turn recorded. A run that resets its worktree back
+// to the user's own HEAD passes neither test but the second is the one that
+// matters — recording a plain user commit as the checkpoint is exactly what
+// makes a branch they later recreate there look like ours (MUL-6881 review).
+func (w *LocalWorktree) verifyDeliveryPoint(tip string) error {
+	if !w.tracksState {
+		// Nothing will be recorded for this branch, so there is nothing to prove.
+		return nil
+	}
+	if tip == "" {
+		return errors.New("the task worktree has no resolvable HEAD")
+	}
+	branchTip, err := runGitTrimmed(w.GitRoot, "rev-parse", "--verify", "refs/heads/"+w.Branch)
+	if err != nil {
+		return fmt.Errorf("resolve branch %s: %w", w.Branch, err)
+	}
+	if branchTip != tip {
+		return fmt.Errorf("the worktree delivered %s while branch %s points at %s, so the run did not deliver onto its own branch",
+			shortID(tip), w.Branch, shortID(branchTip))
+	}
+	if w.anchor == "" {
+		return fmt.Errorf("branch %s has no commit of this task's own to prove it by", w.Branch)
+	}
+	if _, err := runGit(w.GitRoot, "merge-base", "--is-ancestor", w.anchor, tip); err != nil {
+		return fmt.Errorf("the delivered commit %s no longer contains %s, the commit this branch started from",
+			shortID(tip), shortID(w.anchor))
+	}
+	return nil
 }
 
 // unmergedPaths lists the files git considers unresolved in a worktree.
