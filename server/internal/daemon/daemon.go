@@ -6328,7 +6328,12 @@ func (d *Daemon) startTaskPrepareLeaseExtender(ctx context.Context, task Task, t
 // The re-check under the lock closes the gap between proving eligibility and
 // acting on it. Declining is always safe: the caller falls back to a fresh
 // Prepare, which costs session continuity, not correctness.
-func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localAssignment *localDirectoryAssignment, heldRoot string) (*execenv.EnvRootClaim, string, os.FileInfo, bool) {
+//
+// The error return is the one outcome that is NOT "decline and carry on": it is
+// non-nil only when the run was cancelled while waiting for the prior env root,
+// and it carries the context's cause so the caller can end the task instead of
+// preparing an environment for work that no longer exists.
+func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localAssignment *localDirectoryAssignment, heldRoot string) (*execenv.EnvRootClaim, string, os.FileInfo, bool, error) {
 	// Pin the workspaces root BEFORE validating anything. Opening it after,
 	// from a name validation just approved, would re-resolve that name: rename
 	// the root aside, leave a symlink to a look-alike tree, and os.Root
@@ -6337,13 +6342,13 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 	// first makes that ordering impossible.
 	wsRoot, err := os.OpenRoot(d.cfg.WorkspacesRoot)
 	if err != nil {
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 	defer wsRoot.Close()
 
 	workDir, ok := shouldReusePriorWorkdir(task, localAssignment, d.cfg.WorkspacesRoot)
 	if !ok {
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 	priorRoot := filepath.Dir(workDir)
 	// workDir came back through EvalSymlinks, so the root it is measured
@@ -6352,17 +6357,17 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 	// makes the two look unrelated and every reuse is refused.
 	canonicalWorkspacesRoot, err := filepath.EvalSymlinks(d.cfg.WorkspacesRoot)
 	if err != nil {
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 	rel, err := filepath.Rel(canonicalWorkspacesRoot, priorRoot)
 	if err != nil || !filepath.IsLocal(rel) {
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 	// Already covered by this run's own claim (a task re-dispatched onto its
 	// own directory); taking a second lock on it would only deadlock against
 	// ourselves.
 	if priorRoot == heldRoot {
-		return nil, workDir, nil, true
+		return nil, workDir, nil, true, nil
 	}
 
 	// Pin the identity of the directory that just passed validation. Every
@@ -6371,7 +6376,7 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 	// apart from "a different directory now answering to that name".
 	validatedInfo, err := os.Stat(priorRoot)
 	if err != nil {
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 
 	// Deterministic seam for the TOCTOU regressions: tests swap the validated
@@ -6383,24 +6388,28 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 	lockStartedAt := time.Now()
 	claim, lockedInfo, err := d.lockEnvRootForReuseWaitingOutTheBusyWindow(ctx, wsRoot, rel, priorRoot, task)
 	switch {
+	case errors.Is(err, errPriorEnvRootWaitAborted):
+		// The run is over. Declining reuse would hand the caller on to a fresh
+		// Prepare, which is the one thing that must not happen here.
+		return nil, "", nil, false, context.Cause(ctx)
 	case errors.Is(err, execenv.ErrEnvRootBusy):
 		d.logger.Info("prior workdir is still in use after waiting for it; starting a fresh environment",
 			"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
 			"waited", time.Since(lockStartedAt).Round(time.Millisecond), "budget", d.envRootBusyWait)
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	case err != nil:
 		d.logger.Warn("could not lock prior workdir; starting a fresh environment",
 			"task", shortID(task.ID), "error", err)
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	case claim == nil:
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 	// The lock has to have landed on the directory validation approved.
 	if !os.SameFile(validatedInfo, lockedInfo) {
 		d.logger.Info("prior workdir changed identity before it could be claimed; starting a fresh environment",
 			"task", shortID(task.ID))
 		claim.Release()
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 
 	// Re-validate while holding the lock, and require the answer to be the SAME
@@ -6412,7 +6421,7 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 	recheckedWorkDir, stillOK := shouldReusePriorWorkdir(task, localAssignment, d.cfg.WorkspacesRoot)
 	if !stillOK || recheckedWorkDir != workDir {
 		claim.Release()
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
 	// ...and the directory we are about to hand to Reuse has to be that same
 	// one, so the object locked and the object used cannot diverge.
@@ -6421,15 +6430,20 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 		d.logger.Info("prior workdir changed identity while being claimed; starting a fresh environment",
 			"task", shortID(task.ID))
 		claim.Release()
-		return nil, "", nil, false
+		return nil, "", nil, false, nil
 	}
-	return claim, workDir, lockedInfo, true
+	return claim, workDir, lockedInfo, true, nil
 }
 
 // envRootBusyRetryInterval is how often the wait below re-tries the lock. The
 // window it is covering is seconds long, so this only has to be small relative
 // to that, not tight.
 const envRootBusyRetryInterval = 250 * time.Millisecond
+
+// errPriorEnvRootWaitAborted marks the wait as ended by the run itself rather
+// than by the lock. It wraps the context's cause so the task can be failed with
+// the real reason.
+var errPriorEnvRootWaitAborted = errors.New("waiting for the prior env root was aborted")
 
 // lockEnvRootForReuseWaitingOutTheBusyWindow takes the reuse lock, waiting out
 // a lock the PREVIOUS run of this (issue, agent) has not let go of yet.
@@ -6486,7 +6500,12 @@ func (d *Daemon) lockEnvRootForReuseWaitingOutTheBusyWindow(
 			d.logger.Info("stopped waiting for the prior workdir: the run was cancelled",
 				"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
 				"waited", time.Since(start).Round(time.Millisecond))
-			return nil, nil, err
+			// NOT the busy error the loop was carrying. A cancelled run is a
+			// third outcome, and collapsing it into "still busy" would send the
+			// caller on to a fresh Prepare for work nobody is waiting for, and
+			// would file one cancellation under both "cancelled" and "budget
+			// exhausted" in the very logs the budget is meant to be judged by.
+			return nil, nil, fmt.Errorf("%w: %w", errPriorEnvRootWaitAborted, context.Cause(ctx))
 		case <-time.After(envRootBusyRetryInterval):
 		}
 	}
@@ -7134,7 +7153,15 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 	}
 	envReused := false
-	if priorClaim, priorWorkDir, lockedPriorInfo, ok := d.lockReusablePriorEnvRoot(ctx, task, localAssignment, envClaim.RootDir()); ok {
+	priorClaim, priorWorkDir, lockedPriorInfo, reusable, reuseErr := d.lockReusablePriorEnvRoot(ctx, task, localAssignment, envClaim.RootDir())
+	if reuseErr != nil {
+		// Cancelled while waiting for the previous run to let go of its
+		// directory. Ending here IS the behaviour: falling through would
+		// prepare a whole environment — repo checkout included — for a task
+		// nobody is waiting for any more.
+		return TaskResult{}, reuseErr
+	}
+	if reusable {
 		defer priorClaim.Release()
 		// Deterministic seam for the last-window regression: tests swap the
 		// directory here, after the claim is settled and before Reuse resolves
