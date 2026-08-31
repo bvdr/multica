@@ -340,37 +340,31 @@ func TestCancelTask_PointerAdvanceIsAtomicWithStatusFlip(t *testing.T) {
 	}
 }
 
-// TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits pins the
-// ordering the stop lease depends on (MUL-6880 review).
-//
-// The cancel-ack does two things: it settles the deferred chat finalization
-// (writing this turn's outcome and, in the SAME transaction, re-anchoring the
-// next turn's user message behind it) and it releases the execution slot the
-// cancelled run still held. The re-anchor in ReanchorNextQueuedDirectChatInput
-// only reaches a follow-up that is still 'queued' — so releasing the slot first
-// would let the daemon claim the follow-up in between, the re-anchor would match
-// nothing, and the transcript would read user B before assistant A. That is the
-// exact inversion the query's own contract rules out.
-//
-// The settle is pinned mid-flight on the chat_session row lock, which is what
-// makes the window observable at all.
-func TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits(t *testing.T) {
-	if testHandler == nil || testPool == nil {
-		t.Skip("database not available")
-	}
+// cancelledTurnFixture is one chat session holding a cancelled turn whose
+// empty/non-empty settle was deferred, plus the follow-up the user sent while
+// that turn was still stopping. Both MUL-6880 ordering tests below start here
+// and differ only in how the settle eventually happens.
+type cancelledTurnFixture struct {
+	runtimeID     string
+	daemonID      string
+	chatSessionID string
+	taskA         string
+	taskB         string
+}
 
-	ctx := context.Background()
+func seedCancelledTurnWithQueuedFollowUp(t *testing.T, ctx context.Context, title string) cancelledTurnFixture {
+	t.Helper()
+
 	agentID, runtimeID, daemonID := createRuntimeGuardAgent(t, ctx)
-
 	chatSessionID := dbfx.ChatSession(t, agentID, testutil.Cols{
-		"title":      "cancel ack settle ordering",
+		"title":      title,
 		"session_id": "turn1-session",
 		"work_dir":   "/tmp/turn1-workdir",
 		"runtime_id": runtimeID,
 	})
 
 	// Turn A: running when the user stops it. Its transcript is still empty at
-	// cancel time, so the cancel defers the empty/non-empty judgment to the ack.
+	// cancel time, so the cancel defers the empty/non-empty judgment.
 	taskA := dbfx.Task(t, agentID, testutil.Cols{
 		"runtime_id":      runtimeID,
 		"chat_session_id": chatSessionID,
@@ -409,9 +403,108 @@ func TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits(t *testin
 		VALUES ($1, 1, 'text', 'late flush')
 	`, taskA)
 
+	return cancelledTurnFixture{
+		runtimeID:     runtimeID,
+		daemonID:      daemonID,
+		chatSessionID: chatSessionID,
+		taskA:         taskA,
+		taskB:         taskB,
+	}
+}
+
+// assertChatOrdering fails when the cancelled turn's outcome did not end up
+// ahead of the follow-up's input — the inversion both tests exist to rule out.
+func assertChatOrdering(t *testing.T, taskA, taskB string) {
+	t.Helper()
+	var stoppedAt, userBAt time.Time
+	dbfx.QueryRow(t, `
+		SELECT created_at FROM chat_message WHERE task_id = $1 AND role = 'assistant'
+	`, taskA).Scan(&stoppedAt)
+	dbfx.QueryRow(t, `
+		SELECT created_at FROM chat_message WHERE task_id = $1 AND role = 'user'
+	`, taskB).Scan(&userBAt)
+	if !stoppedAt.Before(userBAt) {
+		t.Fatalf("assistant A at %s is not before user B at %s: the settle could not re-anchor the follow-up's input", stoppedAt, userBAt)
+	}
+}
+
+// TestSweeperSettle_HoldsTheFollowUpWhenTheCancelAckNeverArrives closes the
+// second half of the same ordering rule (MUL-6880 review round 2).
+//
+// The stop lease expires 30s after the cancel, but when the ack is lost
+// entirely the settle only becomes eligible after the sweeper's 60s grace and
+// then waits for its 30s tick — so it can land 60-90s after the cancel. The
+// lease alone therefore leaves a gap in which the follow-up starts and the
+// settle can no longer re-anchor it, which is the same inversion by a slower
+// route.
+//
+// An unsettled deferred marker is its own claim barrier for exactly that
+// reason, so it does not matter which of the two clears last.
+func TestSweeperSettle_HoldsTheFollowUpWhenTheCancelAckNeverArrives(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	f := seedCancelledTurnWithQueuedFollowUp(t, ctx, "lost cancel ack ordering")
+
+	// The ack never arrives: nothing releases the stop lease, so it runs out.
+	dbfx.Exec(t, `
+		UPDATE agent_task_queue SET stop_lease_expires_at = now() - interval '1 second' WHERE id = $1
+	`, f.taskA)
+
+	claim := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+f.runtimeID+"/claim", nil, testWorkspaceID, f.daemonID)
+	claim = withURLParam(claim, "runtimeId", f.runtimeID)
+	var afterLeaseExpiry struct {
+		Task *claimRuntimeGuardTask `json:"task"`
+	}
+	testutil.Call(t, testHandler.ClaimTaskByRuntime, claim).Want(http.StatusOK).JSON(&afterLeaseExpiry)
+	if afterLeaseExpiry.Task != nil {
+		t.Fatal("the follow-up claimed on the expired lease while the cancelled turn was still unsettled: the sweeper's outcome can no longer be ordered ahead of it")
+	}
+
+	// The sweeper's fallback settle, which is all a lost ack leaves.
+	changed, err := testHandler.TaskService.FinalizeDeferredCancelledChat(ctx, parseUUID(f.taskA))
+	if err != nil {
+		t.Fatalf("sweeper settle: %v", err)
+	}
+	if !changed {
+		t.Fatal("sweeper settle claimed no marker; the fixture never deferred one")
+	}
+
+	claimTaskForRuntimeGuard(t, f.runtimeID, f.daemonID)
+	if got := taskStatus(t, f.taskB); got != "dispatched" {
+		t.Fatalf("follow-up status = %q once the sweeper settled, want dispatched", got)
+	}
+	assertChatOrdering(t, f.taskA, f.taskB)
+}
+
+// TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits pins the
+// ordering the stop lease depends on (MUL-6880 review).
+//
+// The cancel-ack does two things: it settles the deferred chat finalization
+// (writing this turn's outcome and, in the SAME transaction, re-anchoring the
+// next turn's user message behind it) and it releases the execution slot the
+// cancelled run still held. The re-anchor in ReanchorNextQueuedDirectChatInput
+// only reaches a follow-up that is still 'queued' — so releasing the slot first
+// would let the daemon claim the follow-up in between, the re-anchor would match
+// nothing, and the transcript would read user B before assistant A. That is the
+// exact inversion the query's own contract rules out.
+//
+// The settle is pinned mid-flight on the chat_session row lock, which is what
+// makes the window observable at all.
+func TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	f := seedCancelledTurnWithQueuedFollowUp(t, ctx, "cancel ack settle ordering")
+	runtimeID, daemonID, taskA, taskB := f.runtimeID, f.daemonID, f.taskA, f.taskB
+
 	// Pin the settle: it takes this row lock before it writes anything.
 	blockTx := beginWarmedTx(t, ctx)
-	if _, err := blockTx.Exec(ctx, `SELECT id FROM chat_session WHERE id = $1 FOR UPDATE`, chatSessionID); err != nil {
+	if _, err := blockTx.Exec(ctx, `SELECT id FROM chat_session WHERE id = $1 FOR UPDATE`, f.chatSessionID); err != nil {
 		t.Fatalf("lock chat session: %v", err)
 	}
 
@@ -456,16 +549,7 @@ func TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits(t *testin
 	if got := taskStatus(t, taskB); got != "dispatched" {
 		t.Fatalf("follow-up status = %q once the ack settled, want dispatched", got)
 	}
-	var stoppedAt, userBAt time.Time
-	dbfx.QueryRow(t, `
-		SELECT created_at FROM chat_message WHERE task_id = $1 AND role = 'assistant'
-	`, taskA).Scan(&stoppedAt)
-	dbfx.QueryRow(t, `
-		SELECT created_at FROM chat_message WHERE task_id = $1 AND role = 'user'
-	`, taskB).Scan(&userBAt)
-	if !stoppedAt.Before(userBAt) {
-		t.Fatalf("assistant A at %s is not before user B at %s: the settle could not re-anchor the follow-up's input", stoppedAt, userBAt)
-	}
+	assertChatOrdering(t, taskA, taskB)
 }
 
 // TestPinTaskSession_LateCancelledPinAdvancesChatPointer covers the other

@@ -3329,6 +3329,14 @@ func (s *TaskService) FinalizeDeferredCancelledChat(ctx context.Context, taskID 
 		)
 		return false, err
 	}
+	if changed {
+		// Settling cleared this turn's claim barrier for the session (the
+		// marker arm in ClaimAgentTask). On the ack path the caller releases
+		// the stop lease and wakes the runtime right after; on the sweeper's
+		// lost-ack path nothing else would, and the follow-up would sit until
+		// the daemon's next poll (MUL-6880).
+		s.notifyRuntimeMayHaveWork(task.RuntimeID, "")
+	}
 	if !settled || payload.Outcome == "" {
 		return changed, nil
 	}

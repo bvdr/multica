@@ -798,9 +798,10 @@ WHERE atq.id = $1 AND a.workspace_id = $2;
 -- per-(issue, agent) serialization:
 -- a task is only claimable when no other task for the same issue AND same agent is
 -- already dispatched or running, or was cancelled so recently that its daemon may
--- still be shutting it down (stop_lease_expires_at). This allows different agents
--- to work on the same issue in parallel while preventing a single agent from
--- running duplicate tasks.
+-- still be shutting it down (stop_lease_expires_at) or its chat outcome is still
+-- unsettled (chat_finalize_deferred_at). This allows different agents to work on
+-- the same issue in parallel while preventing a single agent from running
+-- duplicate tasks.
 -- Chat tasks (issue_id IS NULL) use chat_session_id for serialization instead.
 -- Quick-create tasks have no issue / chat / autopilot link, so they serialize on
 -- "any other quick-create-shaped task" (all four FKs NULL) for the same agent —
@@ -860,6 +861,23 @@ WHERE id = (
               -- status, so the subquery stays inside idx_agent_task_queue_agent
               -- (agent_id, status) instead of scanning an agent's whole history.
               OR (active.status = 'cancelled' AND active.stop_lease_expires_at > now())
+              -- A cancelled CHAT turn owes its session one more thing: the
+              -- deferred empty/non-empty settle that writes its outcome and
+              -- re-anchors the next turn's user message behind it. That
+              -- re-anchor only reaches a follow-up still in 'queued', so the
+              -- follow-up has to wait for the settle as well as for the
+              -- process. The ack path clears this marker before it releases
+              -- the stop lease, so this arm costs nothing there; it exists for
+              -- the lost-ack path, where the lease expires after 30s but the
+              -- sweeper's fallback settle lands 60-90s after the cancel
+              -- (chatFinalizeGraceSeconds + sweepInterval). Without it that
+              -- gap reopens the user-B-before-assistant-A inversion.
+              --
+              -- Bounded like the lease for the same reason: a marker that can
+              -- never be settled must not wedge the session forever. Five
+              -- minutes is several times the sweeper's worst case.
+              OR (active.status = 'cancelled'
+                  AND active.chat_finalize_deferred_at > now() - interval '5 minutes')
             )
             AND (
               (atq.issue_id IS NOT NULL AND active.issue_id = atq.issue_id)
