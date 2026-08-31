@@ -139,7 +139,7 @@
   "empty_state": {
     "first_time_title": "에이전트와 채팅하기",
     "first_time_intro": "✨ 에이전트는 내 워크스페이스를 알고 있습니다 —",
-    "first_time_pillars": "태스크, 프로젝트, 스킬",
+    "first_time_pillars": "issue, 프로젝트, 스킬",
     "first_time_pillars_suffix": ".",
     "first_time_actions": "요약을 요청하거나, 오늘 할 일을 계획하거나, 간단한 작업을 맡겨보세요.",
     "returning_title_named": "안녕하세요, 저는 {{name}}입니다",
@@ -167,13 +167,13 @@
     "aria_label": "시작 방법",
     "cta": "시작",
     "board": {
-      "title": "몇 분 만에 태스크 보드 완성",
-      "desc": "목표를 한 줄로 알려주세요. 프로젝트를 만들고 태스크로 나눠 우선순위까지 정리합니다.",
+      "title": "몇 분 만에 issue 보드 완성",
+      "desc": "목표를 한 줄로 알려주세요. 프로젝트를 만들고 issue로 나눠 우선순위까지 정리합니다.",
       "prompt": "지금 목표를 프로젝트 보드로 정리해 줘"
     },
     "delegate": {
       "title": "먼저 하나 맡겨 보기",
-      "desc": "예를 들어 간단한 리서치 — 결과는 태스크와 리포트로 돌아옵니다.",
+      "desc": "예를 들어 간단한 리서치 — 결과는 issue와 리포트로 돌아옵니다.",
       "prompt": "하나 맡길게: 간단한 리서치를 하고 결과를 리포트로 정리해 줘"
     },
     "digest": {

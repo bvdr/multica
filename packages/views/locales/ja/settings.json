@@ -1,12 +1,12 @@
 {
   "issue_statuses": {
-    "title": "タスクステータス",
-    "description": "タスクが辿るワークフローを定義します。各ステータスの挙動は所属するカテゴリが決めます。",
+    "title": "Issue ステータス",
+    "description": "Issue が辿るワークフローを定義します。各ステータスの挙動は所属するカテゴリが決めます。",
     "loading": "ステータスを読み込み中…",
     "add": "ステータスを追加",
     "show_archived": "アーカイブ済みを表示（{{count}}）",
     "archived_badge": "アーカイブ済み",
-    "archived_hint": "新規の割り当てには使えません。すでにこのステータスのタスクはそのままです。",
+    "archived_hint": "新規の割り当てには使えません。すでにこのステータスの issue はそのままです。",
     "reorder_failed": "並び順を保存できませんでした。",
     "actions": {
       "open": "{{name}} の操作",
@@ -23,7 +23,7 @@
       "key_hint": "API と CLI では {{key}} として参照されます。",
       "created": "ステータスを作成しました。API と CLI では {{key}} として参照されます。",
       "category": "カテゴリ",
-      "category_locked": "カテゴリは変更できません。すでにこのステータスのタスクが依存しています。",
+      "category_locked": "カテゴリは変更できません。すでにこのステータスの issue が依存しています。",
       "description": "説明",
       "description_placeholder": "チームにとってこのステータスが意味すること",
       "color": "色",
@@ -34,7 +34,7 @@
     },
     "archive_dialog": {
       "title": "このステータスをアーカイブしますか？",
-      "description": "「{{name}}」は新しいタスクに割り当てられなくなります。すでにこのステータスのタスクはそのまま残り、挙動も変わりません。",
+      "description": "「{{name}}」は新しい issue に割り当てられなくなります。すでにこのステータスの issue はそのまま残り、挙動も変わりません。",
       "cancel": "キャンセル",
       "confirm": "アーカイブ",
       "failed": "アーカイブできませんでした。"
@@ -51,7 +51,7 @@
   },
   "quick_actions": {
     "title": "クイックアクション",
-    "description": "実行するエージェントとプロンプトを事前に設定し、任意のタスクのサイドバーからワンクリックで実行します。",
+    "description": "実行するエージェントとプロンプトを事前に設定し、任意の issue のサイドバーからワンクリックで実行します。",
     "add": "クイックアクションを作成",
     "search_placeholder": "クイックアクションを検索",
     "loading": "クイックアクションを読み込んでいます…",
@@ -85,16 +85,16 @@
     "used_count": "{{count}} 回使用",
     "create_title": "クイックアクションを作成",
     "edit_title": "クイックアクションを編集",
-    "dialog_description": "@メンションと同じく、タスクのコメントとして実行されます。",
+    "dialog_description": "@メンションと同じく、issue のコメントとして実行されます。",
     "field_name": "名前",
     "field_name_placeholder": "コードレビュー",
     "field_target": "実行者",
     "field_prompt": "プロンプト",
-    "field_prompt_placeholder": "このタスクに関連するコードをレビューし、正確性とエッジケースを重点的に確認してください。",
-    "prompt_hint": "そのまま送られます。タスクの内容は既に読めます。",
-    "template_not_supported": "変数はまだサポートされていません。{{token}} を削除してください。エージェントはこのタスクを既に読めます。",
+    "field_prompt_placeholder": "この issue に関連するコードをレビューし、正確性とエッジケースを重点的に確認してください。",
+    "prompt_hint": "そのまま送られます。Issue の内容は既に読めます。",
+    "template_not_supported": "変数はまだサポートされていません。{{token}} を削除してください。エージェントはこの issue を既に読めます。",
     "delete_title": "このクイックアクションを削除しますか？",
-    "delete_description": "すべてのタスクのサイドバーから消えます。過去の実行は実行ログに残ります。後で使う可能性があればアーカイブを選んでください。"
+    "delete_description": "すべての issue のサイドバーから消えます。過去の実行は実行ログに残ります。後で使う可能性があればアーカイブを選んでください。"
   },
   "auto_save": {
     "saving": "保存中…",
@@ -126,7 +126,7 @@
     },
     "sticky_comment_bar": {
       "title": "コメントバーを固定",
-      "hint": "タスクのページをスクロールしても、コメントバーを常に下部に固定します。"
+      "hint": "Issue のページをスクロールしても、コメントバーを常に下部に固定します。"
     }
   },
   "shortcuts": {
@@ -164,8 +164,8 @@
         "description": "どこからでも検索やコマンドを実行します。"
       },
       "createIssue": {
-        "label": "タスクを作成",
-        "description": "優先するタスク作成フローを開きます。"
+        "label": "Issue を作成",
+        "description": "優先する issue 作成フローを開きます。"
       },
       "toggleSidebar": {
         "label": "左サイドバーを切り替え",
@@ -180,12 +180,12 @@
         "description": "フローティングチャットを開閉します。開いたときは入力欄にフォーカスします。"
       },
       "findInIssue": {
-        "label": "タスク内を検索",
-        "description": "開いているタスクの詳細を検索します。"
+        "label": "Issue 内を検索",
+        "description": "開いている issue の詳細を検索します。"
       },
       "openThreadNav": {
         "label": "スレッドナビゲーターを開く",
-        "description": "開いているタスクのコメントスレッドを一覧・検索して移動します。"
+        "description": "開いている issue のコメントスレッドを一覧・検索して移動します。"
       },
       "archiveInboxItem": {
         "label": "通知をアーカイブ",
@@ -193,7 +193,7 @@
       },
       "send": {
         "label": "送信",
-        "description": "チャット、コメント、返信、フィードバック、プロンプトを送信し、作成ダイアログでタスクを作成します。"
+        "description": "チャット、コメント、返信、フィードバック、プロンプトを送信し、作成ダイアログで issue を作成します。"
       },
       "goBack": {
         "label": "戻る",
@@ -212,12 +212,12 @@
         "description": "ワークスペースのチャットを開きます。"
       },
       "goMyIssues": {
-        "label": "自分のタスクへ移動",
-        "description": "自分に割り当てられたタスクを開きます。"
+        "label": "自分の issue へ移動",
+        "description": "自分に割り当てられた issue を開きます。"
       },
       "goIssues": {
-        "label": "タスクへ移動",
-        "description": "タスク一覧を開きます。"
+        "label": "Issue へ移動",
+        "description": "Issue 一覧を開きます。"
       },
       "goProjects": {
         "label": "プロジェクトへ移動",
@@ -314,7 +314,7 @@
       "profile": "プロフィール",
       "preferences": "環境設定",
       "shortcuts": "ショートカット",
-      "issue": "タスク",
+      "issue": "Issue",
       "chat": "チャット",
       "notifications": "通知",
       "tokens": "API トークン",
@@ -388,8 +388,8 @@
       "secret_set": "保存済み — 新しい値を入力すると置き換わります"
     },
     "scopes": {
-      "issues_read": "issue を読み取る",
-      "issues_write": "issue を作成・編集する",
+      "issues_read": "Issue を読み取る",
+      "issues_write": "Issue を作成・編集する",
       "comments_read": "コメントを読み取る",
       "comments_write": "コメントを投稿する",
       "tasks_read": "agent task を読み取る",
@@ -429,7 +429,7 @@
   },
   "properties": {
     "title": "プロパティ",
-    "description": "このワークスペースのタスクに型付きカスタムプロパティを定義します。値は各タスクに設定され、エージェントが読み書きできます。",
+    "description": "このワークスペースの issue に型付きカスタムプロパティを定義します。値は各 issue に設定され、エージェントが読み書きできます。",
     "search_placeholder": "名前で絞り込み...",
     "new_property": "新規プロパティ",
     "show_archived": "アーカイブ済みを表示",
@@ -440,7 +440,7 @@
       "usage": "使用数",
       "updated": "更新日時"
     },
-    "usage_count_other": "{{count}} 件のタスク",
+    "usage_count_other": "{{count}} 件の issue",
     "loading": "プロパティを読み込み中...",
     "empty": "プロパティはまだありません",
     "empty_hint": "Severity や Environment のような型付きフィールドを作成できます。エージェントはバリデーション付きで読み書きします。",
@@ -488,7 +488,7 @@
     },
     "archive_dialog": {
       "title": "プロパティをアーカイブしますか？",
-      "description": "「{{name}}」はピッカーとフィルターから非表示になります。タスク上の既存の値は保持され、後で復元できます。",
+      "description": "「{{name}}」はピッカーとフィルターから非表示になります。Issue 上の既存の値は保持され、後で復元できます。",
       "cancel": "キャンセル",
       "confirm": "プロパティをアーカイブ",
       "failed": "プロパティをアーカイブできませんでした"
@@ -496,9 +496,9 @@
   },
   "labels": {
     "title": "ラベル",
-    "description": "このワークスペースのタスク、Skill 用ラベルを個別に管理します。",
+    "description": "このワークスペースの issue、Skill 用ラベルを個別に管理します。",
     "scopes": {
-      "issue": "タスク",
+      "issue": "Issues",
       "skill": "Skill"
     },
     "search_placeholder": "名前または説明で絞り込み...",
@@ -558,20 +558,20 @@
   },
   "notifications": {
     "title": "インボックス通知",
-    "description": "どのイベントがインボックス通知を生成するかを制御します。ミュートしたイベントタイプは静かにフィルタされますが、タスクを直接開けば引き続き確認できます。",
+    "description": "どのイベントがインボックス通知を生成するかを制御します。ミュートしたイベントタイプは静かにフィルタされますが、issue を直接開けば引き続き確認できます。",
     "toast_failed": "通知設定を更新できませんでした",
     "groups": {
       "assignments": {
         "label": "担当の割り当て",
-        "description": "タスクの担当者に割り当てられたとき、または解除されたとき"
+        "description": "Issue の担当者に割り当てられたとき、または解除されたとき"
       },
       "status_changes": {
         "label": "ステータス変更",
-        "description": "フォロー中のタスクのステータスが変わったとき（例: todo、in progress、done）"
+        "description": "フォロー中の issue のステータスが変わったとき（例: todo、in progress、done）"
       },
       "comments": {
         "label": "コメント",
-        "description": "フォロー中のタスクに新しいコメントが付いたとき"
+        "description": "フォロー中の issue に新しいコメントが付いたとき"
       },
       "mentions": {
         "label": "メンション",
@@ -579,7 +579,7 @@
       },
       "updates": {
         "label": "優先度と期限",
-        "description": "フォロー中のタスクの優先度や期限が変わったとき"
+        "description": "フォロー中の issue の優先度や期限が変わったとき"
       },
       "agent_activity": {
         "label": "エージェントのアクティビティ",
@@ -653,10 +653,10 @@
     "context_label": "コンテキスト",
     "context_placeholder": "このワークスペースで作業する AI エージェント向けの背景情報とコンテキスト",
     "slug_label": "スラッグ",
-    "issue_prefix_label": "タスク接頭辞",
-    "issue_prefix_hint": "{{example}} のようなタスク番号に使用されます。",
-    "prefix_confirm_title": "タスク接頭辞を変更しますか？",
-    "prefix_confirm_description": "すべてのタスク番号が {{oldPrefix}}-N から {{newPrefix}}-N に振り直されます。Pull request のタイトル、ブランチ名、ドキュメントやチャットのリンクなど、{{oldPrefix}}-N を使用している外部参照は解決されなくなります。",
+    "issue_prefix_label": "Issue 接頭辞",
+    "issue_prefix_hint": "{{example}} のような issue 番号に使用されます。",
+    "prefix_confirm_title": "Issue 接頭辞を変更しますか？",
+    "prefix_confirm_description": "すべての issue 番号が {{oldPrefix}}-N から {{newPrefix}}-N に振り直されます。Pull request のタイトル、ブランチ名、ドキュメントやチャットのリンクなど、{{oldPrefix}}-N を使用している外部参照は解決されなくなります。",
     "save": "保存",
     "saving": "保存中...",
     "manage_hint": "ワークスペース設定を更新できるのは admin と owner のみです。",
@@ -686,7 +686,7 @@
   },
   "delete_workspace_dialog": {
     "title": "ワークスペースを削除",
-    "description": "この操作は元に戻せません。すべてのタスク、エージェント、チャット、実行履歴が完全に削除されます。",
+    "description": "この操作は元に戻せません。すべての issue、エージェント、チャット、実行履歴が完全に削除されます。",
     "type_to_confirm_prefix": "確認するには、下に",
     "type_to_confirm_suffix": " と入力してください。",
     "cancel": "キャンセル",
@@ -705,8 +705,8 @@
     "master_description_off": "GitHub 機能はオフです。PR サイドバー、Co-authored-by トレーラー、自動リンクが一時停止されています。バックエンドのデータは削除されません。",
     "section_connection": "接続",
     "connection_title": "GitHub App",
-    "connection_description_prefix": "タスクを Pull request に自動でリンクします。ブランチ、タイトル、または本文に",
-    "connection_description_suffix": "を含む PR がマージされると、対応するタスクが次のステータスに移動します:",
+    "connection_description_prefix": "Issue を Pull request に自動でリンクします。ブランチ、タイトル、または本文に",
+    "connection_description_suffix": "を含む PR がマージされると、対応する issue が次のステータスに移動します:",
     "connection_description_done": "完了",
     "connection_identifier_example": "MUL-123",
     "connected_to": "{{login}} に接続済み",
@@ -730,12 +730,12 @@
     "toast_disconnected": "GitHub App の接続を解除しました",
     "section_features": "機能",
     "feature_pr_sidebar_label": "Pull request サイドバー",
-    "feature_pr_sidebar_description": "リンクされた Pull request をタスク詳細サイドバーに表示します。",
+    "feature_pr_sidebar_description": "リンクされた Pull request を issue 詳細サイドバーに表示します。",
     "feature_co_author_label": "Co-authored-by トレーラー",
     "feature_co_author_description_prefix": "エージェントが作成したコミットに",
     "feature_co_author_description_suffix": "を追加します。",
-    "feature_auto_link_label": "タスクと PR を自動リンク",
-    "feature_auto_link_description": "PR のタイトル、本文、ブランチ名をタスク識別子と照合し、自動でリンクを作成します。",
+    "feature_auto_link_label": "Issue と PR を自動リンク",
+    "feature_auto_link_description": "PR のタイトル、本文、ブランチ名を issue 識別子と照合し、自動でリンクを作成します。",
     "section_repositories": "リポジトリ",
     "repositories_shortcut_label": "リポジトリ URL はリポジトリタブにあります",
     "repositories_shortcut_link": "リポジトリを管理 →",
@@ -743,7 +743,7 @@
   },
   "vcs": {
     "section_title": "Git providers (self-hosted)",
-    "page_description": "セルフホストの Forgejo、Gitea、GitLab インスタンスを接続し、Pull request をタスクにミラーリングします。接続ごとにアクセストークンを使用し、エージェントはランタイム自身の Git 認証情報でブランチを push して PR を作成します。",
+    "page_description": "セルフホストの Forgejo、Gitea、GitLab インスタンスを接続し、Pull request を issue にミラーリングします。接続ごとにアクセストークンを使用し、エージェントはランタイム自身の Git 認証情報でブランチを push して PR を作成します。",
     "connect_title": "Connect a provider instance",
     "connected_as": "Connected as {{login}}",
     "form_provider_label": "Provider",
@@ -766,7 +766,7 @@
     "copied": "Copied to clipboard",
     "copy_failed": "Could not copy",
     "disconnect_confirm_title": "Disconnect this provider?",
-    "disconnect_confirm_description": "この接続でミラーリングされた Pull request と、そのタスクへのリンクが削除されます。この操作は元に戻せません。",
+    "disconnect_confirm_description": "この接続でミラーリングされた Pull request と、その issue へのリンクが削除されます。この操作は元に戻せません。",
     "disconnect_confirm_cancel": "Cancel",
     "disconnect_confirm_action": "Disconnect",
     "toast_connected": "Provider connected",
@@ -784,7 +784,7 @@
   },
   "lark": {
     "section_title": "Lark",
-    "page_description": "各 Multica エージェントを Lark (飞书) PersonalAgent ボットに接続します。メンバーはボットに DM したり、グループで @ メンションしたり、/issue と入力して新しい Multica タスクを起こすことができます。",
+    "page_description": "各 Multica エージェントを Lark (飞书) PersonalAgent ボットに接続します。メンバーはボットに DM したり、グループで @ メンションしたり、/issue と入力して新しい Multica issue を起こすことができます。",
     "not_enabled_title": "Lark 連携が有効化されていません",
     "not_enabled_description_prefix": "Lark ボットの設置を有効化するにはサーバーに",
     "not_enabled_description_suffix": "を設定してください。",
@@ -889,7 +889,7 @@
   },
   "slack": {
     "section_title": "Slack",
-    "page_description": "各 Multica エージェントを専用の Slack ボットに接続します。メンバーはボットに DM したり、チャンネルで @メンションしたり、/issue と入力して新しい Multica タスクを起こすことができます。",
+    "page_description": "各 Multica エージェントを専用の Slack ボットに接続します。メンバーはボットに DM したり、チャンネルで @メンションしたり、/issue と入力して新しい Multica issue を起こすことができます。",
     "not_enabled_title": "Slack 連携が有効になっていません",
     "not_enabled_description_prefix": "サーバーで",
     "not_enabled_description_suffix": "を設定すると Slack ボットのインストールが有効になります。",
@@ -932,8 +932,8 @@
   },
   "dingtalk": {
     "section_title": "DingTalk",
-    "page_description": "各 Multica エージェントを専用の DingTalk ロボットに接続します。メンバーはボットに DM したり、グループで @メンションしたり、/issue と入力して新しい Multica タスクを作成できます。",
-    "agent_page_description": "専用の DingTalk ロボットを使って、このエージェントに DM を送ったり、グループで @メンションしたり、/issue から Multica タスクを作成したりできます。",
+    "page_description": "各 Multica エージェントを専用の DingTalk ロボットに接続します。メンバーはボットに DM したり、グループで @メンションしたり、/issue と入力して新しい Multica issue を作成できます。",
+    "agent_page_description": "専用の DingTalk ロボットを使って、このエージェントに DM を送ったり、グループで @メンションしたり、/issue から Multica issue を作成したりできます。",
     "groups_title": "最近のグループ",
     "groups_description": "ワークスペースのメンバーが DingTalk アカウントを連携し、グループでこのボットを @メンションすると表示されます。通常は直近 90 日間に利用されたグループだけを表示します。",
     "groups_overview_description": "各接続に、エージェント、DingTalk ロボット、最近やり取りしたグループを表示します。",
@@ -996,7 +996,7 @@
   },
   "wecom": {
     "section_title": "WeCom",
-    "page_description": "各 Multica エージェントを専用の WeCom (企业微信) スマートボットに接続します。メンバーはボットに DM を送り、グループで @ メンションし、/issue と入力して Multica タスクを作成できます。WebSocket ロングコネクションで応答するため、公開コールバック URL は不要です。",
+    "page_description": "各 Multica エージェントを専用の WeCom (企业微信) スマートボットに接続します。メンバーはボットに DM を送り、グループで @ メンションし、/issue と入力して Multica issue を作成できます。WebSocket ロングコネクションで応答するため、公開コールバック URL は不要です。",
     "not_enabled_title": "WeCom 連携が有効化されていません",
     "not_enabled_description_prefix": "サーバー側で",
     "not_enabled_description_suffix": "を設定すると WeCom スマートボットのインストールが有効になります。",
@@ -1046,7 +1046,7 @@
   },
   "telegram": {
     "section_title": "Telegram",
-    "page_description": "各 Multica エージェントを専用の Telegram ボットに接続します。メンバーはボットに DM を送ったり、グループで @メンションしたり、/issue と入力して Multica タスクを作成したり、エージェントの返信をリアルタイムで確認できます。",
+    "page_description": "各 Multica エージェントを専用の Telegram ボットに接続します。メンバーはボットに DM を送ったり、グループで @メンションしたり、/issue と入力して Multica issue を作成したり、エージェントの返信をリアルタイムで確認できます。",
     "not_enabled_title": "Telegram 連携が有効になっていません",
     "not_enabled_description_prefix": "サーバーで",
     "not_enabled_description_suffix": "を設定すると Telegram ボットのインストールが有効になります。",
@@ -1195,7 +1195,7 @@
       },
       "member": {
         "label": "メンバー",
-        "description": "タスクの作成と作業"
+        "description": "Issue の作成と作業"
       }
     },
     "share_links_title": "共有リンク",

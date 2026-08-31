@@ -28,9 +28,9 @@
       "task_list": "チェックリスト"
     },
     "sub_issue": {
-      "tooltip": "選択範囲からサブタスクを作成",
+      "tooltip": "選択範囲からサブ issue を作成",
       "created": "{{identifier}} を作成しました",
-      "create_failed": "サブタスクを作成できませんでした"
+      "create_failed": "サブ issue を作成できませんでした"
     }
   },
   "image": {
@@ -71,7 +71,7 @@
   },
   "mention": {
     "group_users": "ユーザー",
-    "group_issues": "タスク",
+    "group_issues": "Issues",
     "all_members": "すべてのメンバー",
     "agent_badge": "エージェント",
     "squad_badge": "スクワッド",

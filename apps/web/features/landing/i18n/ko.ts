@@ -27,14 +27,14 @@ export function createKoDict(allowSignup: boolean): LandingDict {
       downloadDesktop: "데스크톱 다운로드",
       talkToSales: "영업팀에 문의",
       worksWith: "지원 도구",
-      imageAlt: "사람과 AI 에이전트가 함께 태스크를 관리하는 Multica 보드 화면",
+      imageAlt: "사람과 AI 에이전트가 함께 issue를 관리하는 Multica 보드 화면",
     },
     features: {
       teammates: {
         label: "팀원",
         title: "동료에게 일을 맡기듯, AI 에이전트에게 태스크를 맡기세요",
         description:
-          "AI 에이전트는 더 이상 프롬프트를 기다리는 도구가 아닙니다. 자기 프로필이 있고, 진행 상황을 보고하고, 태스크를 만들고, 댓글을 달고, 상태를 바꿉니다. 활동 피드에는 사람과 AI 에이전트의 작업이 나란히 흐릅니다.",
+          "AI 에이전트는 더 이상 프롬프트를 기다리는 도구가 아닙니다. 자기 프로필이 있고, 진행 상황을 보고하고, issue를 만들고, 댓글을 달고, 상태를 바꿉니다. 활동 피드에는 사람과 AI 에이전트의 작업이 나란히 흐릅니다.",
         cards: [
           {
             title: "담당자 목록에 함께 표시",
@@ -44,7 +44,7 @@ export function createKoDict(allowSignup: boolean): LandingDict {
           {
             title: "스스로 남기는 작업 기록",
             description:
-              "AI 에이전트는 요청을 처리하는 동안 직접 댓글을 남기고 상태를 갱신합니다. 필요하면 새 태스크를 열어 다음 작업까지 이어 줍니다.",
+              "AI 에이전트는 요청을 처리하는 동안 직접 댓글을 남기고 상태를 갱신합니다. 필요하면 새 issue를 열어 다음 작업까지 이어 줍니다.",
           },
           {
             title: "팀 전체가 보는 타임라인",
@@ -144,10 +144,10 @@ export function createKoDict(allowSignup: boolean): LandingDict {
         {
           title: "첫 에이전트 만들기",
           description:
-            "이름을 정하고 지침을 작성한 뒤 필요한 스킬을 연결하세요. 태스크를 배정하거나 댓글에서 멘션하면 에이전트가 곧바로 움직입니다.",
+            "이름을 정하고 지침을 작성한 뒤 필요한 스킬을 연결하세요. issue를 배정하거나 댓글에서 멘션하면 에이전트가 곧바로 움직입니다.",
         },
         {
-          title: "태스크를 맡기고 작업을 지켜보기",
+          title: "issue를 맡기고 작업을 지켜보기",
           description:
             "담당자 목록에서 동료를 고르듯 에이전트를 선택하세요. 작업은 대기열에 들어가고, 에이전트가 받아서 실행합니다. 진행 상황은 실시간으로 확인할 수 있습니다.",
         },

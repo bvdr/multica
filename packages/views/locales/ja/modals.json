@@ -8,17 +8,17 @@
   },
   "create_workspace": {
     "title": "新しいワークスペースを作成",
-    "description": "ワークスペースは、チームがプロジェクトやタスクに取り組む共有環境です。"
+    "description": "ワークスペースは、チームがプロジェクトや issue に取り組む共有環境です。"
   },
   "delete_issue": {
-    "title": "タスクを削除",
-    "description": "このタスクとすべてのコメントが完全に削除されます。この操作は元に戻せません。",
-    "hint": "ワークスペースのメンバーであれば誰でもタスクを削除できます。",
+    "title": "Issue を削除",
+    "description": "この issue とすべてのコメントが完全に削除されます。この操作は元に戻せません。",
+    "hint": "ワークスペースのメンバーであれば誰でも issue を削除できます。",
     "cancel": "キャンセル",
     "confirm": "削除",
     "deleting": "削除中...",
-    "toast_deleted": "タスクを削除しました",
-    "toast_delete_failed": "タスクを削除できませんでした"
+    "toast_deleted": "Issue を削除しました",
+    "toast_delete_failed": "Issue を削除できませんでした"
   },
   "feedback": {
     "title": "フィードバック",
@@ -33,29 +33,29 @@
     "github_hint_link": "GitHub"
   },
   "issue_picker": {
-    "search_placeholder": "タスクを検索...",
+    "search_placeholder": "Issue を検索...",
     "searching": "検索中...",
-    "no_results": "タスクが見つかりません。",
-    "prompt_to_search": "タスクを検索するには入力してください"
+    "no_results": "Issue が見つかりません。",
+    "prompt_to_search": "Issue を検索するには入力してください"
   },
   "set_parent": {
-    "title": "親タスクを設定",
-    "description": "このタスクの親に設定するタスクを検索してください",
-    "toast_failed": "タスクを更新できませんでした",
-    "toast_success": "{{identifier}} を親タスクに設定しました"
+    "title": "親 issue を設定",
+    "description": "この issue の親に設定する issue を検索してください",
+    "toast_failed": "Issue を更新できませんでした",
+    "toast_success": "{{identifier}} を親 issue に設定しました"
   },
   "add_child": {
-    "title": "サブタスクを追加",
-    "description": "サブタスクとして追加するタスクを検索してください",
-    "toast_failed": "サブタスクを追加できませんでした",
-    "toast_success": "{{identifier}} をサブタスクとして追加しました"
+    "title": "サブ issue を追加",
+    "description": "サブ issue として追加する issue を検索してください",
+    "toast_failed": "サブ issue を追加できませんでした",
+    "toast_success": "{{identifier}} をサブ issue として追加しました"
   },
   "run_confirm": {
     "title_assign": "割り当てを確認しますか？",
-    "assign_single": "このタスクを {{name}} に割り当てます。実行条件を満たす場合はすぐに作業を開始します。",
-    "assign_batch": "{{count}} 件のタスクを {{name}} に割り当てます。実行条件を満たす場合はすぐに作業を開始します。",
+    "assign_single": "この issue を {{name}} に割り当てます。実行条件を満たす場合はすぐに作業を開始します。",
+    "assign_batch": "{{count}} 件の issue を {{name}} に割り当てます。実行条件を満たす場合はすぐに作業を開始します。",
     "title_promote": "今すぐ作業を開始しますか？",
-    "promote_single": "このタスクを {{status}} に移します。実行条件を満たす場合は {{name}} がすぐに作業を開始します。",
+    "promote_single": "この issue を {{status}} に移します。実行条件を満たす場合は {{name}} がすぐに作業を開始します。",
     "note_label": "引き継ぎメモ（任意）",
     "note_placeholder": "範囲・重点・触れてほしくない点などを一言で…",
     "note_unsupported": "相手の実行環境が古いため、この引き継ぎメモは読み取れない可能性があります。",
@@ -142,52 +142,52 @@
     "local_hint": "他のマシンのエージェントはこのパスを参照できず、起動に失敗します。共有作業にはリポジトリを使用してください。"
   },
   "create_issue": {
-    "sr_manual": "新規タスク",
-    "sr_agent": "タスクをクイック作成",
+    "sr_manual": "新規 issue",
+    "sr_agent": "Issue をクイック作成",
     "manual_breadcrumb": "手動で作成",
     "agent_breadcrumb": "エージェントで作成",
-    "title_placeholder": "タスクのタイトル",
+    "title_placeholder": "Issue のタイトル",
     "description_placeholder": "説明を追加...",
     "more_options_aria": "その他のオプション",
     "title_required": "作成するにはタイトルを入力してください",
-    "submit": "タスクを作成",
+    "submit": "Issue を作成",
     "submitting": "作成中...",
-    "toast_created": "タスクを作成しました",
-    "view_issue": "タスクを表示",
-    "toast_failed": "タスクを作成できませんでした",
-    "toast_duplicate_title": "重複タスク",
-    "toast_duplicate_view": "既存のタスクを表示",
+    "toast_created": "Issue を作成しました",
+    "view_issue": "Issue を表示",
+    "toast_failed": "Issue を作成できませんでした",
+    "toast_duplicate_title": "重複 issue",
+    "toast_duplicate_view": "既存の issue を表示",
     "issue_limit": {
-      "title": "このワークスペースはタスク数の上限に達しました",
+      "title": "このワークスペースは issue 数の上限に達しました",
       "checking_description": "このワークスペースで利用可能な請求操作を確認しています…",
-      "upgrade_description": "Pro にアップグレードすると、引き続きタスクを作成できます。",
-      "portal_description": "請求ポータルを開いてワークスペースのサブスクリプションを管理し、タスク作成を再開してください。",
+      "upgrade_description": "Pro にアップグレードすると、引き続き issue を作成できます。",
+      "portal_description": "請求ポータルを開いてワークスペースのサブスクリプションを管理し、issue 作成を再開してください。",
       "contact_description": "ワークスペースの所有者または管理者に Pro へのアップグレードを依頼してください。",
       "billing_description": "請求設定を開いて、このワークスペースで利用可能なアップグレードオプションを確認してください。",
       "billing_unavailable_description": "請求操作を読み込めませんでした。請求設定を開いて再試行してください。",
-      "billing_disabled_description": "既存のタスクを削除して空きを作るか、ワークスペースの管理者に連絡してください。",
+      "billing_disabled_description": "既存の issue を削除して空きを作るか、ワークスペースの管理者に連絡してください。",
       "upgrade_action": "Pro にアップグレード",
       "portal_action": "請求ポータルを開く",
       "billing_action": "請求設定を表示"
     },
-    "toast_link_subissues_all_failed": "サブタスクをリンクできませんでした",
-    "toast_link_subissues_partial": "サブタスク {{total}} 件中 {{failed}} 件をリンクできませんでした",
+    "toast_link_subissues_all_failed": "サブ issue をリンクできませんでした",
+    "toast_link_subissues_partial": "サブ issue {{total}} 件中 {{failed}} 件をリンクできませんでした",
     "toast_link_labels_failed": "ラベルを付けられませんでした",
     "toast_set_properties_failed": "{{count}} 件のカスタムプロパティを設定できませんでした",
     "switch_to_agent": "エージェントに切り替え",
-    "switch_to_agent_tooltip": "エージェントで作成に切り替えます。一行で説明すれば、エージェントがタスクを作成します",
+    "switch_to_agent_tooltip": "エージェントで作成に切り替えます。一行で説明すれば、エージェントが issue を作成します",
     "switch_to_manual": "手動に切り替え",
     "switch_to_manual_tooltip": "手動作成に切り替えます。フィールドを自分で入力します",
     "create_another": "もう 1 つ作成",
     "remove_parent_aria": "親を削除",
-    "remove_subissue_aria": "サブタスク {{identifier}} を削除",
-    "subissue_of": "{{identifier}} のサブタスク",
-    "subissue_chip": "サブタスク: {{identifier}}",
+    "remove_subissue_aria": "サブ issue {{identifier}} を削除",
+    "subissue_of": "{{identifier}} のサブ issue",
+    "subissue_chip": "サブ issue: {{identifier}}",
     "parent_with_id": "親: {{identifier}}",
     "set_due_date": "期限を設定...",
     "set_start_date": "開始日を設定...",
-    "set_parent": "親タスクを設定...",
-    "add_subissue": "サブタスクを追加...",
+    "set_parent": "親 issue を設定...",
+    "add_subissue": "サブ issue を追加...",
     "set_status": "ステータスを設定...",
     "set_priority": "優先度を設定...",
     "set_assignee": "担当者を設定...",
@@ -197,12 +197,12 @@
     "custom_properties": "カスタムプロパティ",
     "remove_parent": "親を削除",
     "set_parent_picker": {
-      "title": "親タスクを設定",
-      "description": "新しいタスクの親に設定するタスクを検索してください"
+      "title": "親 issue を設定",
+      "description": "新しい issue の親に設定する issue を検索してください"
     },
     "add_subissue_picker": {
-      "title": "サブタスクを追加",
-      "description": "新しいタスクのサブタスクとして追加するタスクを検索してください"
+      "title": "サブ issue を追加",
+      "description": "新しい issue のサブ issue として追加する issue を検索してください"
     },
     "agent": {
       "created_by": "作成者",
@@ -231,7 +231,7 @@
       "error_agent_unavailable_fallback": "エージェントを利用できません。別のエージェントを選択してください。",
       "error_daemon_version": "このエージェントのデーモン CLI（{{current}}）が必要なバージョン {{min}} を下回っています。エージェントで作成を使用するには、デーモンをアップグレードしてください。",
       "error_unknown": "送信できませんでした。再試行してください。",
-      "sub_issue_of": "{{identifier}} のサブタスク"
+      "sub_issue_of": "{{identifier}} のサブ issue"
     }
   }
 }

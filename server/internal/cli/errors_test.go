@@ -453,9 +453,9 @@ func TestFormatErrorRejectedTaskTokenDoesNotSuggestAnotherCredential(t *testing.
 		}
 	}
 
-	// Glossary: an agent execution is `task` in Chinese; 任务 is the product
-	// entity a user files (an issue). Writing this message with 任务 would say
-	// the user's issue was rejected. See conventions.zh.mdx.
+	// Glossary: an agent execution is `task` in Chinese, and the thing a user
+	// files keeps its English name `issue`. 任务 belongs to neither — using it
+	// here would blur the run into the issue. See conventions.zh.mdx.
 	withLang(t, "zh_CN.UTF-8")
 	zh := FormatError(httpErr, false)
 	if strings.Contains(zh, "任务") {

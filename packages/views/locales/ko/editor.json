@@ -28,9 +28,9 @@
       "task_list": "체크리스트"
     },
     "sub_issue": {
-      "tooltip": "선택 영역으로 하위 태스크 만들기",
+      "tooltip": "선택 영역으로 하위 issue 만들기",
       "created": "{{identifier}} 생성됨",
-      "create_failed": "하위 태스크를 만들지 못했습니다"
+      "create_failed": "하위 issue를 만들지 못했습니다"
     }
   },
   "image": {
@@ -71,7 +71,7 @@
   },
   "mention": {
     "group_users": "사용자",
-    "group_issues": "태스크",
+    "group_issues": "Issues",
     "all_members": "모든 멤버",
     "agent_badge": "에이전트",
     "squad_badge": "스쿼드",

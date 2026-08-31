@@ -1,7 +1,7 @@
 {
   "page": {
     "title": "智能体",
-    "tagline": "能领取任务、留下评论、推进状态的 AI 队友。",
+    "tagline": "能领取 issue、留下评论、推进状态的 AI 队友。",
     "learn_more": "了解更多 →",
     "new_agent": "新建智能体",
     "search_placeholder": "搜索智能体...",
@@ -44,7 +44,7 @@
   },
   "empty": {
     "title": "还没有智能体",
-    "description": "创建一个智能体，像分配给同事那样把任务交给它。本地智能体在你的机器上运行，云智能体在 Multica 运行时上运行。"
+    "description": "创建一个智能体，像分配给同事那样把 issue 交给它。本地智能体在你的机器上运行，云智能体在 Multica 运行时上运行。"
   },
   "no_matches": {
     "title": "无匹配项",
@@ -182,7 +182,7 @@
     "prop_updated": "更新时间",
     "no_description_placeholder": "暂无描述",
     "avatar_label": "头像",
-    "avatar_hint": "显示在任务分配、动态和聊天中。",
+    "avatar_hint": "显示在 issue 分配、动态和聊天中。",
     "name_label": "名称",
     "description_label": "描述",
     "change_avatar_aria": "更换头像",
@@ -466,7 +466,7 @@
       "system_layer_hide": "收起",
       "workspace_notes_label": "工作区补充",
       "workspace_notes_intro": "在下面补充你们团队的上下文和偏好，它们会叠加在 Multica 为这个智能体维护的指令之上。支持 Markdown。",
-      "workspace_notes_placeholder": "写下这个智能体应该始终知道的上下文。\n\n# 示例\n我们的主仓库是 github.com/acme/platform。\n即使聊天用中文，任务也一律用英文写。\n周五不部署。"
+      "workspace_notes_placeholder": "写下这个智能体应该始终知道的上下文。\n\n# 示例\n我们的主仓库是 github.com/acme/platform。\n即使聊天用中文，issue 也一律用英文写。\n周五不部署。"
     },
     "env": {
       "intro_readonly": "在智能体进程启动时注入。只有工作区所有者 / 管理员可以查看或编辑值；每次解锁和编辑都会写入工作区审计日志。",
@@ -714,18 +714,18 @@
       "avg_duration_label": "平均耗时",
       "failed_count": "{{count}} 次失败",
       "failed_label": "失败",
-      "source_issue": "任务",
+      "source_issue": "Issue",
       "source_chat": "聊天",
       "source_autopilot": "自动化",
       "source_untracked": "未追踪",
       "source_quick_create": "快速创建",
-      "source_creating_issue": "正在创建任务",
+      "source_creating_issue": "正在创建 issue",
       "source_chat_session": "聊天会话",
       "source_autopilot_run": "自动化运行",
-      "issue_short_fallback": "任务 {{prefix}}...",
+      "issue_short_fallback": "Issue {{prefix}}...",
       "triggered_by": "触发来源",
-      "open_issue_aria": "打开任务",
-      "open_issue_tooltip": "打开任务",
+      "open_issue_aria": "打开 issue",
+      "open_issue_tooltip": "打开 issue",
       "transcript_tooltip": "查看记录",
       "cancel_task_aria": "取消 task",
       "cancel_task_tooltip": "取消 task",

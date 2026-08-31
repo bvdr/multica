@@ -139,7 +139,7 @@
   "empty_state": {
     "first_time_title": "和你的智能体对话",
     "first_time_intro": "✨ 它们了解你的工作区——",
-    "first_time_pillars": "任务、项目、skill",
+    "first_time_pillars": "issue、项目、skill",
     "first_time_pillars_suffix": "。",
     "first_time_actions": "让它做一份总结、规划你的一天，或交给它一个小任务。",
     "returning_title_named": "你好，我是 {{name}}",
@@ -167,13 +167,13 @@
     "aria_label": "开始方式",
     "cta": "开始",
     "board": {
-      "title": "几分钟搭好任务看板",
-      "desc": "告诉我目标，我来建项目、拆任务、排好优先级。",
+      "title": "几分钟搭好 issue 看板",
+      "desc": "告诉我目标，我来建项目、拆 issue、排好优先级。",
       "prompt": "把我们的目标整理成一个项目看板"
     },
     "delegate": {
       "title": "先交给我一件事",
-      "desc": "比如一次调研——结果会变成任务和报告交回来。",
+      "desc": "比如一次调研——结果会变成 issue 和报告交回来。",
       "prompt": "先交给你一件事：帮我做一次调研，把结果整理成报告交回来"
     },
     "digest": {

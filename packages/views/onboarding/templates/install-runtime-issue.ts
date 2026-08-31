@@ -79,11 +79,11 @@ const zh = `欢迎来到 Multica。
 运行时安装前,你可以先做这些事:
 
 1. 为当前工作创建一个项目。
-2. 新建几个任务,并在 backlog、todo、in_progress、done 之间流转。
-3. 给任务加优先级、标签、评论和订阅。
+2. 新建几个 issue,并在 backlog、todo、in_progress、done 之间流转。
+3. 给 issue 加优先级、标签、评论和订阅。
 4. 用收件箱追踪分配给你的事项和 @mention。
 
-这样你先熟悉项目管理层。连上运行时后,智能体会直接在这些任务上开始工作。
+这样你先熟悉项目管理层。连上运行时后,智能体会直接在这些 issue 上开始工作。
 
 ## 安装第一个 Agent 运行时
 
@@ -109,7 +109,7 @@ const zh = `欢迎来到 Multica。
 
 Kimi CLI 官方文档:https://moonshotai.github.io/kimi-cli/zh/guides/getting-started.html
 
-Mika 会把一个真实目标转化为任务，交给合适的智能体启动执行，并在工作流需要时建议添加可复用的 specialist。`;
+Mika 会把一个真实目标转化为 issue，交给合适的智能体启动执行，并在工作流需要时建议添加可复用的 specialist。`;
 
 const ko = `Multica에 오신 것을 환영합니다.
 
@@ -120,11 +120,11 @@ agent가 작업을 실행하려면 먼저 runtime이 필요합니다. runtime을
 runtime이 준비되기 전에는 다음을 해볼 수 있습니다:
 
 1. 현재 작업을 위한 project를 만듭니다.
-2. 태스크 몇 개를 만들고 backlog, todo, in_progress, done 사이에서 이동해 봅니다.
+2. issue 몇 개를 만들고 backlog, todo, in_progress, done 사이에서 이동해 봅니다.
 3. priority, label, comment, subscription을 추가합니다.
 4. Inbox에서 나에게 배정된 작업과 mention을 확인합니다.
 
-이렇게 프로젝트 관리 계층을 먼저 익힐 수 있습니다. runtime이 연결되면 agent가 같은 태스크에서 바로 작업을 시작합니다.
+이렇게 프로젝트 관리 계층을 먼저 익힐 수 있습니다. runtime이 연결되면 agent가 같은 issue에서 바로 작업을 시작합니다.
 
 ## 첫 agent runtime 설치하기
 
@@ -151,7 +151,7 @@ runtime이 준비되기 전에는 다음을 해볼 수 있습니다:
 
 Codex 참고 문서: https://developers.openai.com/codex/cli
 
-Mika가 실제 목표 하나를 태스크로 만들고 적합한 에이전트와 실행을 시작하며, 워크플로에 필요할 때 재사용 가능한 specialist를 제안합니다.`;
+Mika가 실제 목표 하나를 issue로 만들고 적합한 에이전트와 실행을 시작하며, 워크플로에 필요할 때 재사용 가능한 specialist를 제안합니다.`;
 
 const ja = `Multica へようこそ。
 
@@ -162,11 +162,11 @@ agent が作業を実行するには、まず runtime が必要です。runtime 
 runtime が準備できる前に、次のことを試せます:
 
 1. いまの仕事のための project を作る。
-2. タスクをいくつか作り、backlog、todo、in_progress、done の間で動かしてみる。
+2. issue をいくつか作り、backlog、todo、in_progress、done の間で動かしてみる。
 3. priority、label、comment、subscription を追加する。
 4. Inbox で自分への割り当てや mention を確認する。
 
-これでまずプロジェクト管理のレイヤーに慣れることができます。runtime を接続すると、agent が同じタスクから作業を始められます。
+これでまずプロジェクト管理のレイヤーに慣れることができます。runtime を接続すると、agent が同じ issue から作業を始められます。
 
 ## 最初の agent runtime をインストールする
 
@@ -193,6 +193,6 @@ runtime が準備できる前に、次のことを試せます:
 
 Codex のリファレンス: https://developers.openai.com/codex/cli
 
-Mika は実際の目標を 1 つのタスクにし、適切なエージェントで実行を開始し、ワークフローに必要なときは再利用可能な specialist を提案します。`;
+Mika は実際の目標を 1 つの issue にし、適切なエージェントで実行を開始し、ワークフローに必要なときは再利用可能な specialist を提案します。`;
 
 export const INSTALL_RUNTIME_ISSUE_BODY = { en, zh, ko, ja } as const;

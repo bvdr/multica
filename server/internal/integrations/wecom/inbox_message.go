@@ -21,13 +21,13 @@ const inboxMarkdownMaxLen = 4000
 // preamble. Kept locally so wecom does not reach into cmd/server for it;
 // the two lists agree by convention.
 var inboxTypeLabels = map[string]string{
-	"issue_assigned":     "任务指派",
+	"issue_assigned":     "Issue 指派",
 	"mentioned":          "提及你",
 	"status_changed":     "状态变更",
 	"comment_added":      "新评论",
 	"new_comment":        "新评论",
 	"reaction_added":     "表情反应",
-	"task_failed":        "任务失败",
+	"task_failed":        "task 失败",
 	"unassigned":         "取消指派",
 	"assignee_changed":   "指派人变更",
 	"priority_changed":   "优先级变更",

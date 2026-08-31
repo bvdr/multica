@@ -8,17 +8,17 @@
   },
   "create_workspace": {
     "title": "创建新工作区",
-    "description": "工作区是团队协作处理项目和任务的共享空间。"
+    "description": "工作区是团队协作处理项目和 issue 的共享空间。"
   },
   "delete_issue": {
-    "title": "删除任务",
-    "description": "将永久删除该任务及其所有评论。此操作不可撤销。",
-    "hint": "工作区任何成员都可以删除任务。",
+    "title": "删除 issue",
+    "description": "将永久删除该 issue 及其所有评论。此操作不可撤销。",
+    "hint": "工作区任何成员都可以删除 issue。",
     "cancel": "取消",
     "confirm": "删除",
     "deleting": "删除中...",
-    "toast_deleted": "已删除任务",
-    "toast_delete_failed": "删除任务失败"
+    "toast_deleted": "已删除 issue",
+    "toast_delete_failed": "删除 issue 失败"
   },
   "feedback": {
     "title": "反馈",
@@ -33,29 +33,29 @@
     "github_hint_link": "GitHub"
   },
   "issue_picker": {
-    "search_placeholder": "搜索任务...",
+    "search_placeholder": "搜索 issue...",
     "searching": "搜索中...",
-    "no_results": "未找到任务。",
-    "prompt_to_search": "输入关键词搜索任务"
+    "no_results": "未找到 issue。",
+    "prompt_to_search": "输入关键词搜索 issue"
   },
   "set_parent": {
-    "title": "设置父任务",
-    "description": "搜索一个任务，将其设为当前任务的父级",
-    "toast_failed": "更新任务失败",
-    "toast_success": "已将 {{identifier}} 设为父任务"
+    "title": "设置父 issue",
+    "description": "搜索一个 issue，将其设为当前 issue 的父级",
+    "toast_failed": "更新 issue 失败",
+    "toast_success": "已将 {{identifier}} 设为父 issue"
   },
   "add_child": {
-    "title": "添加子任务",
-    "description": "搜索一个任务添加为子任务",
-    "toast_failed": "添加子任务失败",
-    "toast_success": "已添加 {{identifier}} 为子任务"
+    "title": "添加子 issue",
+    "description": "搜索一个 issue 添加为子 issue",
+    "toast_failed": "添加子 issue 失败",
+    "toast_success": "已添加 {{identifier}} 为子 issue"
   },
   "run_confirm": {
     "title_assign": "确认指派？",
-    "assign_single": "将这个任务指派给 {{name}}；符合运行条件时会立即开始处理。",
-    "assign_batch": "将 {{count}} 个任务指派给 {{name}}；符合运行条件时会立即开始处理。",
+    "assign_single": "将这个 issue 指派给 {{name}}；符合运行条件时会立即开始处理。",
+    "assign_batch": "将 {{count}} 个 issue 指派给 {{name}}；符合运行条件时会立即开始处理。",
     "title_promote": "现在开始处理？",
-    "promote_single": "把这个任务移到 {{status}}；符合运行条件时 {{name}} 会立即开始处理。",
+    "promote_single": "把这个 issue 移到 {{status}}；符合运行条件时 {{name}} 会立即开始处理。",
     "note_label": "交接说明（可选）",
     "note_placeholder": "交代一句——范围、重点、或别碰什么……",
     "note_unsupported": "对方的运行环境版本较旧，这条交接说明可能读不到。",
@@ -142,36 +142,36 @@
     "local_hint": "其他机器上的智能体看不到这个路径，会启动失败。需要协作请用仓库模式。"
   },
   "create_issue": {
-    "sr_manual": "新建任务",
-    "sr_agent": "快速创建任务",
+    "sr_manual": "新建 issue",
+    "sr_agent": "快速创建 issue",
     "manual_breadcrumb": "手动创建",
     "agent_breadcrumb": "通过智能体创建",
-    "title_placeholder": "任务标题",
+    "title_placeholder": "Issue 标题",
     "description_placeholder": "添加描述...",
     "more_options_aria": "更多选项",
     "title_required": "请输入标题后再创建",
-    "submit": "创建任务",
+    "submit": "创建 issue",
     "submitting": "创建中...",
-    "toast_created": "已创建任务",
-    "view_issue": "查看任务",
-    "toast_failed": "创建任务失败",
-    "toast_duplicate_title": "已存在同名任务",
-    "toast_duplicate_view": "查看已有任务",
+    "toast_created": "已创建 issue",
+    "view_issue": "查看 issue",
+    "toast_failed": "创建 issue 失败",
+    "toast_duplicate_title": "已存在同名 issue",
+    "toast_duplicate_view": "查看已有 issue",
     "issue_limit": {
-      "title": "该工作区的任务总数已达到上限",
+      "title": "该工作区的 issue 总数已达到上限",
       "checking_description": "正在查询该工作区可用的账单操作…",
-      "upgrade_description": "升级到 Pro 后可继续创建任务。",
-      "portal_description": "打开账单门户管理该工作区的订阅，以恢复任务创建。",
+      "upgrade_description": "升级到 Pro 后可继续创建 issue。",
+      "portal_description": "打开账单门户管理该工作区的订阅，以恢复 issue 创建。",
       "contact_description": "请联系工作区所有者或管理员升级到 Pro。",
       "billing_description": "请前往账单设置查看该工作区可用的升级选项。",
       "billing_unavailable_description": "暂时无法加载账单操作，请前往账单设置重试。",
-      "billing_disabled_description": "请删除已有任务以释放名额，或联系工作区管理员。",
+      "billing_disabled_description": "请删除已有 issue 以释放名额，或联系工作区管理员。",
       "upgrade_action": "升级到 Pro",
       "portal_action": "打开账单门户",
       "billing_action": "查看账单"
     },
-    "toast_link_subissues_all_failed": "关联子任务失败",
-    "toast_link_subissues_partial": "{{total}} 个子任务中有 {{failed}} 个关联失败",
+    "toast_link_subissues_all_failed": "关联子 issue 失败",
+    "toast_link_subissues_partial": "{{total}} 个子 issue 中有 {{failed}} 个关联失败",
     "toast_link_labels_failed": "关联标签失败",
     "toast_set_properties_failed": "有 {{count}} 个自定义属性设置失败",
     "switch_to_agent": "切换到智能体",
@@ -180,14 +180,14 @@
     "switch_to_manual_tooltip": "切换到手动创建——自己填字段",
     "create_another": "继续创建",
     "remove_parent_aria": "移除父级",
-    "remove_subissue_aria": "移除子任务 {{identifier}}",
-    "subissue_of": "{{identifier}} 的子任务",
-    "subissue_chip": "子任务：{{identifier}}",
+    "remove_subissue_aria": "移除子 issue {{identifier}}",
+    "subissue_of": "{{identifier}} 的子 issue",
+    "subissue_chip": "子 issue：{{identifier}}",
     "parent_with_id": "父：{{identifier}}",
     "set_due_date": "设置截止日期...",
     "set_start_date": "设置开始日期...",
-    "set_parent": "设置父任务...",
-    "add_subissue": "添加子任务...",
+    "set_parent": "设置父 issue...",
+    "add_subissue": "添加子 issue...",
     "set_status": "设置状态...",
     "set_priority": "设置优先级...",
     "set_assignee": "设置负责人...",
@@ -197,12 +197,12 @@
     "custom_properties": "自定义属性",
     "remove_parent": "移除父级",
     "set_parent_picker": {
-      "title": "设置父任务",
-      "description": "搜索一个任务设为父级"
+      "title": "设置父 issue",
+      "description": "搜索一个 issue 设为父级"
     },
     "add_subissue_picker": {
-      "title": "添加子任务",
-      "description": "搜索一个任务设为子级"
+      "title": "添加子 issue",
+      "description": "搜索一个 issue 设为子级"
     },
     "agent": {
       "created_by": "创建者",
@@ -231,7 +231,7 @@
       "error_agent_unavailable_fallback": "智能体不可用，请换一个。",
       "error_daemon_version": "该智能体的守护进程 CLI（{{current}}）低于要求的 {{min}}。请升级守护进程后再使用通过智能体创建。",
       "error_unknown": "提交失败，请重试。",
-      "sub_issue_of": "作为 {{identifier}} 的子任务"
+      "sub_issue_of": "作为 {{identifier}} 的子 issue"
     }
   }
 }

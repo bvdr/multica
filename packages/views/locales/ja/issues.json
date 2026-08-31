@@ -1,17 +1,17 @@
 {
   "status_catalog_error": {
     "title": "ステータス一覧を読み込めませんでした",
-    "hint": "これがないとステータスの絞り込みを適用できないため、イシューは表示されません。",
+    "hint": "これがないとステータスの絞り込みを適用できないため、issue は表示されません。",
     "retry": "再試行"
   },
   "source_context": {
-    "create_action": "このコメントからサブタスクを作成",
+    "create_action": "このコメントからサブ issue を作成",
     "preview_loading": "参照コンテキストのプレビューを読み込み中…",
     "preview_failed": "参照元のプレビューを利用できません。更新してから作成してください。",
-    "preview_anchor_deleted": "元のコメントは削除されました。このコメントからサブタスクを作成することはできません。",
-    "preview_issue_deleted": "参照元のタスクは削除されました。そのコメントからサブタスクを作成することはできません。",
+    "preview_anchor_deleted": "元のコメントは削除されました。このコメントからサブ issue を作成することはできません。",
+    "preview_issue_deleted": "参照元の issue は削除されました。そのコメントからサブ issue を作成することはできません。",
     "refresh": "更新",
-    "preview_summary_other": "{{identifier}} のコンテキスト · タスク説明 + {{count}} 件のコメント",
+    "preview_summary_other": "{{identifier}} のコンテキスト · issue 説明 + {{count}} 件のコメント",
     "thread_history": "保存されたコメントスレッド履歴",
     "source_comment": "元のコメント",
     "comment_change_added": "保存後に追加",
@@ -30,22 +30,22 @@
     "source_changed": "保存後に参照元が変更されました",
     "source_check_failed": "現在の参照元を確認できません",
     "captured_context_available": "保存済みのコンテキストは引き続き表示できます。",
-    "issue_deleted": "元のタスクは削除されました",
-    "issue_deleted_after_capture": "保存後に元のタスクが削除されました",
+    "issue_deleted": "元の issue は削除されました",
+    "issue_deleted_after_capture": "保存後に元の issue が削除されました",
     "change_sentence": "{{content}}。",
     "changed": "変更箇所：",
     "confirmed_changes": "確認済みの変更箇所：",
     "label_spacing": "",
-    "change_subject_issue_title": "タスクのタイトル",
-    "change_subject_issue_description": "タスクの説明",
-    "change_subject_issue_attachments": "タスクの添付ファイル",
+    "change_subject_issue_title": "Issue のタイトル",
+    "change_subject_issue_description": "Issue の説明",
+    "change_subject_issue_attachments": "Issue の添付ファイル",
     "change_subject_comment_thread": "コメントスレッド",
-    "issue_attachments": "タスクの添付ファイルの変更：",
+    "issue_attachments": "Issue の添付ファイルの変更：",
     "issue_attachment_added_count": "{{count}} 件追加",
     "issue_attachment_replaced_count": "{{count}} 件置換",
     "issue_attachment_removed_count": "{{count}} 件削除",
-    "show_issue_attachment_details": "タスクの添付ファイルの詳細を表示",
-    "hide_issue_attachment_details": "タスクの添付ファイルの詳細を非表示",
+    "show_issue_attachment_details": "Issue の添付ファイルの詳細を表示",
+    "hide_issue_attachment_details": "Issue の添付ファイルの詳細を非表示",
     "issue_attachment_added_label": "追加：",
     "issue_attachment_replaced_label": "置換：",
     "issue_attachment_removed_label": "削除：",
@@ -58,7 +58,7 @@
     "author_left_workspace": "ワークスペースに所属していません",
     "error_source_changed": "参照元が変更されました。更新されたプレビューを確認して、もう一度送信してください。",
     "error_agent_unsupported": "保存済みコンテキストを使うには、このエージェントのランタイムを更新してください。Manual に切り替えることもできます。",
-    "error_server_unsupported": "保存済みコンテキスト付きのサブタスクを作成するには、サーバーの更新が必要です。",
+    "error_server_unsupported": "保存済みコンテキスト付きのサブ issue を作成するには、サーバーの更新が必要です。",
     "error_too_large": "保存する参照コンテキストがサーバーの上限を超えています。",
     "error_comment_limit": "参照コメントスレッド履歴には少なくとも {{count}} 件のコメントがあります。上限は 256 件です。",
     "error_text_limit": "参照テキストは {{size}} バイトです。上限は 1 MiB です。",
@@ -66,7 +66,7 @@
     "error_attachment_size_limit": "参照元の添付ファイルは合計 {{size}} バイトです。上限は 500 MiB です。"
   },
   "revision": {
-    "conflict": "タスクまたはコメントが変更されました。最新版に更新したので、比較してからもう一度保存してください。",
+    "conflict": "Issue またはコメントが変更されました。最新版に更新したので、比較してからもう一度保存してください。",
     "compare_title": "タイトルが同時に変更されました。両方の内容を比較してください。",
     "compare_description": "説明が同時に変更されました。両方の内容を比較してください。",
     "compare_comment": "コメントが同時に変更されました。両方の内容を比較してください。",
@@ -76,11 +76,11 @@
     "use_server": "最新版を使用"
   },
   "page": {
-    "breadcrumb_title": "タスク",
+    "breadcrumb_title": "Issues",
     "breadcrumb_workspace_fallback": "ワークスペース",
-    "empty_title": "まだタスクがありません",
-    "empty_hint": "タスクを作成して始めましょう。",
-    "move_failed": "タスクを移動できませんでした"
+    "empty_title": "まだ issue がありません",
+    "empty_hint": "Issue を作成して始めましょう。",
+    "move_failed": "Issue を移動できませんでした"
   },
   "status": {
     "backlog": "バックログ",
@@ -104,11 +104,11 @@
   },
   "scope": {
     "all_label": "すべて",
-    "all_description": "このワークスペースのすべてのタスク",
+    "all_description": "このワークスペースのすべての issue",
     "members_label": "メンバー",
-    "members_description": "チームメンバーに割り当てられたタスク",
+    "members_description": "チームメンバーに割り当てられた issue",
     "agents_label": "エージェント",
-    "agents_description": "AI エージェントに割り当てられたタスク"
+    "agents_description": "AI エージェントに割り当てられた issue"
   },
   "filters": {
     "tooltip": "フィルター",
@@ -137,7 +137,7 @@
     "members_group": "メンバー",
     "agents_group": "エージェント",
     "squads_group": "スクワッド",
-    "issue_count_other": "タスク {{count}} 件",
+    "issue_count_other": "issue {{count}} 件",
     "reset": "すべてのフィルターをリセット",
     "chip_remove": "{{name}}フィルターを削除",
     "chip_status_count_other": "ステータス{{count}}件",
@@ -159,7 +159,7 @@
     "descending_title": "降順",
     "group_status": "ステータス",
     "group_assignee": "担当者",
-    "group_parent": "親タスク",
+    "group_parent": "親 issue",
     "group_project": "プロジェクト",
     "sort_manual": "手動",
     "sort_status": "ステータス",
@@ -176,8 +176,8 @@
     "card_due_date": "期限",
     "card_project": "プロジェクト",
     "card_labels": "ラベル",
-    "card_child_progress": "サブタスクの進捗",
-    "show_sub_issues": "サブタスクを表示"
+    "card_child_progress": "サブ issue の進捗",
+    "show_sub_issues": "サブ issue を表示"
   },
   "view": {
     "tooltip_board": "ボード表示",
@@ -193,22 +193,22 @@
     "swimlane": "スイムレーン"
   },
   "table": {
-    "select_all": "表示中のタスクをすべて選択",
+    "select_all": "表示中の issue をすべて選択",
     "select_issue": "{{identifier}} を選択",
     "sort_ascending": "昇順",
     "sort_descending": "降順",
-    "toggle_sub_issues": "サブタスクを展開または折りたたむ",
-    "rename_title": "タスク名を変更",
+    "toggle_sub_issues": "サブ issue を展開または折りたたむ",
+    "rename_title": "Issue 名を変更",
     "empty_value": "空",
-    "quick_create_placeholder": "タスクを追加…",
+    "quick_create_placeholder": "Issue を追加…",
     "quick_create_submit": "追加",
-    "quick_create_failed": "タスクを作成できませんでした",
+    "quick_create_failed": "Issue を作成できませんでした",
     "no_value": "値なし",
     "unassigned": "未割り当て",
-    "empty": "この表示に一致するタスクはありません。",
-    "search_placeholder": "タイトルまたはタスク ID を検索…",
+    "empty": "この表示に一致する issue はありません。",
+    "search_placeholder": "タイトルまたは issue ID を検索…",
     "search_clear": "検索をクリア",
-    "load_failed": "タスクを読み込めませんでした。",
+    "load_failed": "Issue を読み込めませんでした。",
     "load_failed_retry": "再試行",
     "load_more_failed_retry": "続きの読み込みに失敗しました — 再試行",
     "load_more": "さらに読み込む",
@@ -217,25 +217,25 @@
     "value_unavailable": "利用できない値",
     "group_property_unavailable": "グループ化に使っていたプロパティは利用できないため、グループ化を解除しました。",
     "hierarchy": "階層",
-    "hierarchy_description": "サブタスクを親タスクの下に入れ子で表示",
+    "hierarchy_description": "サブ issue を親 issue の下に入れ子で表示",
     "group_label": "グループ",
     "group_active": "グループ：{{group}}",
     "group_none": "グループ化なし",
     "export": "エクスポート",
     "export_all": "すべてエクスポート",
     "export_selected": "選択項目をエクスポート（{{count}}）",
-    "export_success": "{{count}} 件のタスクをエクスポートしました",
-    "export_failed": "タスクをエクスポートできませんでした",
+    "export_success": "{{count}} 件の issue をエクスポートしました",
+    "export_failed": "Issue をエクスポートできませんでした",
     "columns": {
       "section": "列",
-      "system_section": "タスクのプロパティ",
+      "system_section": "Issue のプロパティ",
       "property_section": "カスタムプロパティ",
       "search_placeholder": "列を検索…",
       "no_results": "一致する列がありません",
       "add": "列を追加",
       "hide": "列を非表示",
       "reorder": "{{column}} 列を並べ替え",
-      "title": "タスク",
+      "title": "Issue",
       "identifier": "ID",
       "status": "ステータス",
       "priority": "優先度",
@@ -246,7 +246,7 @@
       "due_date": "期限",
       "created_at": "作成日",
       "updated_at": "更新日",
-      "child_progress": "サブタスクの進捗",
+      "child_progress": "サブ issue の進捗",
       "creator": "作成者"
     },
     "calculation": {
@@ -259,76 +259,76 @@
     }
   },
   "gantt": {
-    "header_issue": "タスク",
+    "header_issue": "Issue",
     "zoom_day": "日",
     "zoom_week": "週",
     "zoom_month": "月",
     "show_completed": "完了済みを表示",
-    "empty": "スケジュールされたタスクがまだありません。いずれかのタスクに開始日または期限を設定すると、タイムラインに表示されます。",
+    "empty": "スケジュールされた issue がまだありません。いずれかの issue に開始日または期限を設定すると、タイムラインに表示されます。",
     "inverted_dates_warning": "開始日が期限より後になっています。バーは早い日付から遅い日付まで表示されます。"
   },
   "actor_issues": {
     "scope": {
       "assigned": {
         "label": "割り当て済み",
-        "description": "このメンバーまたはエージェントに割り当てられたタスク"
+        "description": "このメンバーまたはエージェントに割り当てられた issue"
       },
       "created": {
         "label": "作成済み",
-        "description": "このメンバーまたはエージェントが作成したタスク"
+        "description": "このメンバーまたはエージェントが作成した issue"
       }
     },
     "empty": {
       "assigned": {
-        "title": "割り当てられたタスクはありません",
-        "description": "ここに割り当てられたタスクがこの表示に表示されます。"
+        "title": "割り当てられた issue はありません",
+        "description": "ここに割り当てられた issue がこの表示に表示されます。"
       },
       "created": {
-        "title": "作成したタスクはありません",
-        "description": "ここで作成したタスクがこの表示に表示されます。"
+        "title": "作成した issue はありません",
+        "description": "ここで作成した issue がこの表示に表示されます。"
       }
     },
-    "search_placeholder": "タスクを検索...",
-    "search_empty": "検索条件に一致するタスクがありません。"
+    "search_placeholder": "Issue を検索...",
+    "search_empty": "検索条件に一致する issue がありません。"
   },
   "list": {
-    "empty_status": "タスクなし",
-    "add_issue_tooltip": "タスクを追加"
+    "empty_status": "Issue なし",
+    "add_issue_tooltip": "Issue を追加"
   },
   "swimlane": {
-    "no_parent": "親タスクなし",
-    "other_parents": "その他の親タスク",
+    "no_parent": "親 issue なし",
+    "other_parents": "その他の親 issue",
     "no_project": "プロジェクトなし",
     "no_assignee": "未割り当て",
-    "open_parent": "親タスクを開く",
+    "open_parent": "親 issue を開く",
     "toggle_collapse": "レーンの開閉"
   },
   "board": {
     "hidden_columns_label": "非表示の列",
     "hide_column": "列を非表示",
     "show_column": "列を表示",
-    "add_issue_tooltip": "タスクを追加",
-    "empty_column": "タスクなし",
-    "empty_grouping": "一致するタスクがありません",
+    "add_issue_tooltip": "Issue を追加",
+    "empty_column": "Issue なし",
+    "empty_grouping": "一致する issue がありません",
     "no_value": "値なし",
     "ordered_by": "{{field}} 順に並べたボード"
   },
   "detail": {
-    "not_found": "このタスクはこのワークスペースに存在しないか、削除されています。",
+    "not_found": "この issue はこのワークスペースに存在しないか、削除されています。",
     "breadcrumb_project_unknown": "不明なプロジェクト",
     "back": "戻る",
-    "title_placeholder": "タスクのタイトル",
+    "title_placeholder": "Issue のタイトル",
     "desc_placeholder": "説明を追加...",
-    "current_issue": "現在のタスク",
-    "sub_issues_label": "サブタスク",
-    "sub_issue_of": "親タスク",
-    "add_sub_issues": "サブタスクを追加",
-    "add_sub_issue_tooltip": "サブタスクを追加",
-    "add_sub_issue_aria": "サブタスクを追加",
-    "select_all_sub_issues_aria": "すべてのサブタスクを選択",
+    "current_issue": "現在の issue",
+    "sub_issues_label": "サブ issue",
+    "sub_issue_of": "親 issue",
+    "add_sub_issues": "サブ issue を追加",
+    "add_sub_issue_tooltip": "サブ issue を追加",
+    "add_sub_issue_aria": "サブ issue を追加",
+    "select_all_sub_issues_aria": "すべてのサブ issue を選択",
     "select_sub_issue_aria": "{{identifier}} を選択",
     "section_properties": "プロパティ",
-    "section_parent_issue": "親タスク",
+    "section_parent_issue": "親 issue",
     "section_pull_requests": "Pull requests",
     "section_metadata": "メタデータ",
     "section_details": "詳細",
@@ -345,7 +345,7 @@
     "quick_action_blocked_body": "「{{name}}」は、あなたが実行を許可されていないエージェントで動作します。ワークスペース管理者にそのエージェントをチームへ公開してもらうか、共有エージェントへの変更を依頼してください。",
     "quick_action_blocked_ok": "了解",
     "pull_requests_loading": "読み込み中...",
-    "pull_requests_empty": "まだリンクされた Pull request がありません。PR のブランチ名、タイトル、または本文にこのタスクの識別子を入れると、自動的にリンクされます。",
+    "pull_requests_empty": "まだリンクされた Pull request がありません。PR のブランチ名、タイトル、または本文にこの issue の識別子を入れると、自動的にリンクされます。",
     "pull_request_state_open": "オープン",
     "pull_request_state_draft": "ドラフト",
     "pull_request_state_merged": "マージ済み",
@@ -383,12 +383,12 @@
     "subscribe": "購読",
     "unsubscribe": "購読解除",
     "delegated_subscription_badge": "エージェント経由で購読中",
-    "delegated_subscription_hint": "エージェントがあなたに代わってこのタスクを作成したため、購読しています。レビュー待ち・完了・ブロック時に通知されます。",
-    "unsubscribe_this": "このタスクの購読を解除",
-    "unsubscribe_subtree": "このタスクとサブタスクの購読を解除",
-    "unsubscribe_subtree_failed": "サブタスクの購読解除に失敗しました。もう一度お試しください。",
-    "unsubscribe_subtree_succeeded": "このタスクとサブタスクの購読を解除しました。",
-    "unsubscribe_subtree_unsupported": "現在のサーバーはサブタスクの購読解除にまだ対応していません。次回の更新後にお試しください。",
+    "delegated_subscription_hint": "エージェントがあなたに代わってこの issue を作成したため、購読しています。レビュー待ち・完了・ブロック時に通知されます。",
+    "unsubscribe_this": "この issue の購読を解除",
+    "unsubscribe_subtree": "この issue とサブ issue の購読を解除",
+    "unsubscribe_subtree_failed": "サブ issue の購読解除に失敗しました。もう一度お試しください。",
+    "unsubscribe_subtree_succeeded": "この issue とサブ issue の購読を解除しました。",
+    "unsubscribe_subtree_unsupported": "現在のサーバーはサブ issue の購読解除にまだ対応していません。次回の更新後にお試しください。",
     "subscription_update_failed": "購読状態を更新できませんでした。もう一度お試しください。",
     "no_subscribers_results": "結果が見つかりません",
     "change_subscribers_placeholder": "購読者を変更...",
@@ -420,28 +420,28 @@
     },
     "sidebar_tooltip": "右サイドバーの開閉",
     "find": {
-      "placeholder": "タスク内を検索...",
+      "placeholder": "Issue 内を検索...",
       "count": "{{current}}/{{total}}",
       "no_matches": "一致なし",
       "previous": "前の一致",
       "next": "次の一致",
       "close": "検索を閉じる"
     },
-    "update_failed": "タスクを更新できませんでした",
+    "update_failed": "Issue を更新できませんでした",
     "link_copied": "リンクをコピーしました",
     "link_copy_failed": "リンクをコピーできませんでした",
     "workdir_path_copied": "作業ディレクトリのパスをコピーしました",
     "project_directory_path_copied": "プロジェクトディレクトリのパスをコピーしました",
     "project_directory_path_copied_with_branch": "プロジェクトディレクトリのパスをコピーしました — 作業は {{branch}} ブランチにあります",
     "workdir_path_copy_failed": "作業ディレクトリのパスをコピーできませんでした",
-    "workdir_path_unavailable": "まだローカルの作業ディレクトリがありません。ローカルエージェントがこのタスクを実行していません"
+    "workdir_path_unavailable": "まだローカルの作業ディレクトリがありません。ローカルエージェントがこの issue を実行していません"
   },
   "timeline": {
     "loading": "読み込み中..."
   },
   "activity": {
-    "created": "このタスクを作成しました",
-    "self_assigned": "このタスクを自分に割り当てました",
+    "created": "この issue を作成しました",
+    "self_assigned": "この issue を自分に割り当てました",
     "assigned_to": "{{name}} に割り当てました",
     "removed_assignee": "担当者を削除しました",
     "changed_assignee": "担当者を変更しました",
@@ -451,7 +451,7 @@
     "start_date_removed": "開始日を削除しました",
     "due_date_set": "期限を {{date}} に設定しました",
     "due_date_removed": "期限を削除しました",
-    "title_renamed": "このタスクのタイトルを \"{{from}}\" から \"{{to}}\" に変更しました",
+    "title_renamed": "この issue のタイトルを \"{{from}}\" から \"{{to}}\" に変更しました",
     "description_updated": "説明を更新しました",
     "task_completed_other": "作業を完了しました（{{count}} 回）",
     "task_failed_other": "作業が失敗しました（{{count}} 回）",
@@ -545,15 +545,15 @@
     "status_queued": "待機中",
     "empty_hover": "現在作業中のエージェントはありません",
     "unknown_hover": "作業中のエージェント: まだ読み込まれていません",
-    "filter_active_label": "エージェントが作業中のタスクを表示中",
+    "filter_active_label": "エージェントが作業中の issue を表示中",
     "tasks_count_other": "task {{count}} 件",
     "chip_agents_working_other": "作業中のエージェント {{count}} 件",
-    "issues_count_other": "タスク {{count}} 件",
+    "issues_count_other": "issue {{count}} 件",
     "chip_agents_working_unknown": "作業中のエージェント: —"
   },
   "filtered_empty": {
-    "title": "フィルター条件に一致するタスクがありません",
-    "hint": "フィルターを変更または解除すると、このビューのタスクが表示されます。",
+    "title": "フィルター条件に一致する issue がありません",
+    "hint": "フィルターを変更または解除すると、このビューの issue が表示されます。",
     "clear_button": "フィルターを解除"
   },
   "agent_live": {
@@ -649,17 +649,17 @@
     "priority": "優先度",
     "assignee": "担当者",
     "delete": "削除",
-    "update_success_other": "タスク {{count}} 件を更新しました",
-    "update_failed": "タスクを更新できませんでした",
-    "delete_success_other": "タスク {{count}} 件を削除しました",
-    "delete_failed": "タスクを削除できませんでした",
-    "delete_dialog_title_other": "タスク {{count}} 件を削除しますか？",
-    "delete_dialog_desc_other": "この操作は元に戻せません。選択したタスクと関連データがすべて完全に削除されます。",
-    "delete_dialog_warning": "ワークスペースのメンバーであれば誰でもタスクを削除できます。",
+    "update_success_other": "Issue {{count}} 件を更新しました",
+    "update_failed": "Issue を更新できませんでした",
+    "delete_success_other": "Issue {{count}} 件を削除しました",
+    "delete_failed": "Issue を削除できませんでした",
+    "delete_dialog_title_other": "Issue {{count}} 件を削除しますか？",
+    "delete_dialog_desc_other": "この操作は元に戻せません。選択した issue と関連データがすべて完全に削除されます。",
+    "delete_dialog_warning": "ワークスペースのメンバーであれば誰でも issue を削除できます。",
     "cancel": "キャンセル"
   },
   "card": {
-    "update_failed": "タスクを更新できませんでした",
+    "update_failed": "Issue を更新できませんでした",
     "updated_ago": "{{time}} に更新"
   },
   "actions": {
@@ -684,12 +684,12 @@
     "copy_workdir_path": "ローカルの作業ディレクトリのパスをコピー",
     "copy_project_directory_path": "プロジェクトディレクトリのパスをコピー",
     "relations": "関係",
-    "create_sub_issue": "サブタスクを作成",
-    "set_parent_issue": "親タスクを設定...",
-    "remove_parent_issue": "親タスクを解除",
-    "remove_parent_issue_success": "親タスクを解除しました",
-    "add_sub_issue": "サブタスクを追加...",
-    "delete_issue": "タスクを削除"
+    "create_sub_issue": "サブ issue を作成",
+    "set_parent_issue": "親 issue を設定...",
+    "remove_parent_issue": "親 issue を解除",
+    "remove_parent_issue_success": "親 issue を解除しました",
+    "add_sub_issue": "サブ issue を追加...",
+    "delete_issue": "Issue を削除"
   },
   "pickers": {
     "custom_property": {
@@ -735,7 +735,7 @@
     }
   },
   "labels_panel": {
-    "intro": "ワークスペース全体でタスクを分類するラベルを作成・管理します。",
+    "intro": "ワークスペース全体で issue を分類するラベルを作成・管理します。",
     "new_placeholder": "新しいラベル名...",
     "new_aria": "新しいラベル名",
     "add_action": "追加",
@@ -750,7 +750,7 @@
     "cancel_aria": "キャンセル",
     "delete_dialog_title": "ラベルを削除しますか？",
     "delete_dialog_desc_prefix": "ラベル ",
-    "delete_dialog_desc_suffix": " がすべてのタスクから削除されます。この操作は元に戻せません。",
+    "delete_dialog_desc_suffix": " がすべての issue から削除されます。この操作は元に戻せません。",
     "delete_dialog_cancel": "キャンセル",
     "delete_dialog_confirm": "削除",
     "create_failed": "ラベルを作成できませんでした",
@@ -759,7 +759,7 @@
   },
   "backlog_hint": {
     "title": "バックログではエージェントが一時停止します",
-    "description": "このタスクは保留中のため、割り当てられたエージェントは待機します。エージェントを開始したいときは未着手に移動してください。",
+    "description": "この issue は保留中のため、割り当てられたエージェントは待機します。エージェントを開始したいときは未着手に移動してください。",
     "row_backlog_label": "バックログ",
     "row_backlog_hint": "エージェントを一時停止のままにします",
     "row_todo_label": "未着手",

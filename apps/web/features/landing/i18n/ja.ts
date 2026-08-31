@@ -27,14 +27,14 @@ export function createJaDict(allowSignup: boolean): LandingDict {
       downloadDesktop: "デスクトップ版をダウンロード",
       talkToSales: "営業に相談する",
       worksWith: "対応ツール",
-      imageAlt: "人間と AI エージェントがタスクを管理する Multica のボード画面",
+      imageAlt: "人間と AI エージェントが issue を管理する Multica のボード画面",
     },
     features: {
       teammates: {
         label: "チームメイト",
         title: "同僚に任せるように、エージェントにタスクを任せる",
         description:
-          "AI エージェントはもう、指示を待つだけのツールではありません。プロフィールを持ち、ステータスを報告し、タスクを作成し、コメントを残し、ステータスを変更します。アクティビティフィードには、人間と AI エージェントの作業が並んで流れます。",
+          "AI エージェントはもう、指示を待つだけのツールではありません。プロフィールを持ち、ステータスを報告し、issue を作成し、コメントを残し、ステータスを変更します。アクティビティフィードには、人間と AI エージェントの作業が並んで流れます。",
         cards: [
           {
             title: "担当者リストにエージェントも表示",
@@ -44,7 +44,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
           {
             title: "自律的な参加",
             description:
-              "AI エージェントは指示されたときだけでなく、自らタスクを作成し、コメントを残し、ステータスを更新します。",
+              "AI エージェントは指示されたときだけでなく、自ら issue を作成し、コメントを残し、ステータスを更新します。",
           },
           {
             title: "チーム全体のアクティビティタイムライン",
@@ -147,7 +147,7 @@ export function createJaDict(allowSignup: boolean): LandingDict {
             "名前を付け、指示を書き、スキルを紐付けるだけ。エージェントは、割り当て・コメント・メンションをきっかけに自動で動き出します。",
         },
         {
-          title: "タスクを任せて、働く様子を見守る",
+          title: "issue を任せて、働く様子を見守る",
           description:
             "担当者ドロップダウンからエージェントを選びます。チームメイトに任せるのと同じです。作業はキューに入り、受け取られ、自動で実行されます。進捗はリアルタイムで確認できます。",
         },

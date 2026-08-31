@@ -139,7 +139,7 @@
   "empty_state": {
     "first_time_title": "エージェントとチャット",
     "first_time_intro": "✨ エージェントはあなたのワークスペースを把握しています —",
-    "first_time_pillars": "タスク、プロジェクト、スキル",
+    "first_time_pillars": "issue、プロジェクト、スキル",
     "first_time_pillars_suffix": "。",
     "first_time_actions": "要約を頼んだり、今日の予定を立てたり、簡単なタスクを任せたりしてみましょう。",
     "returning_title_named": "こんにちは、{{name}} です",
@@ -167,13 +167,13 @@
     "aria_label": "はじめ方",
     "cta": "開始",
     "board": {
-      "title": "数分でタスクボードを整える",
-      "desc": "目標をひとこと。プロジェクトを作り、タスクに分けて優先度まで並べます。",
+      "title": "数分で issue ボードを整える",
+      "desc": "目標をひとこと。プロジェクトを作り、issue に分けて優先度まで並べます。",
       "prompt": "今の目標をプロジェクトボードに整理して"
     },
     "delegate": {
       "title": "まず一件任せてみる",
-      "desc": "たとえば小さなリサーチ。結果はタスクとレポートで戻ります。",
+      "desc": "たとえば小さなリサーチ。結果は issue とレポートで戻ります。",
       "prompt": "まず一件お願い：小さなリサーチをして、結果をレポートにまとめて返して"
     },
     "digest": {

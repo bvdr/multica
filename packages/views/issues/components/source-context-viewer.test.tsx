@@ -332,9 +332,9 @@ describe("SourceContextBadge", () => {
     const alert = await screen.findByText("来源在捕获后发生变化。");
     const status = alert.closest("[data-slot='source-context-change-summary']");
     expect(alert.closest("p")).toHaveTextContent(
-      "来源在捕获后发生变化。变化项：任务标题 · 任务描述 · 讨论",
+      "来源在捕获后发生变化。变化项：Issue 标题 · Issue 描述 · 讨论",
     );
-    expect(status).toHaveTextContent("任务附件变化：移除 1");
+    expect(status).toHaveTextContent("Issue 附件变化：移除 1");
   });
 
   it("keeps a single changed object in the same structured layout", async () => {

@@ -248,7 +248,7 @@ func TestLarkOutcomeReplierCommandOutcomesSendGuidance(t *testing.T) {
 		want     string
 	}{
 		{"fresh pending", OutcomeFreshPending, false, "下一条聊天消息"},
-		{"plain issue usage", OutcomeIssueUsage, false, "请填写任务标题"},
+		{"plain issue usage", OutcomeIssueUsage, false, "请填写 issue 标题"},
 		{"issue usage with media", OutcomeIssueUsage, true, "请添加标题，并与图片或视频一起重新发送"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

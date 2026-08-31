@@ -22,12 +22,12 @@
     "headline_emphasis": "ワークスペースに。",
     "lede": "同僚に仕事を任せるようにタスクを割り当てるだけ。エージェントが引き受け、ステータスを更新し、完了したらコメントします。",
     "lede_web": "デスクトップ版にはランタイムが同梱されており、何もインストールする必要はありません。ご自身の CLI を接続するには、ウェブで続けてください。",
-    "lede_desktop": "完了するころには、実際のエージェントがあなたの最初のタスクに返信しています。",
+    "lede_desktop": "完了するころには、実際のエージェントがあなたの最初の issue に返信しています。",
     "download_desktop": "デスクトップ版をダウンロード",
     "continue_on_web": "ウェブで続ける",
     "start_exploring": "探索を始める",
     "skip_existing": "以前にやったことがあります",
-    "illustration_caption": "すべてのタスク、すべてのスレッド、すべての判断を、チームとエージェントで共有。",
+    "illustration_caption": "すべての issue、すべてのスレッド、すべての判断を、チームとエージェントで共有。",
     "illustration": {
       "card1_actor_name": "あなた",
       "card1_actor_initial": "N",
@@ -143,11 +143,11 @@
     "skip": {
       "loading": "ワークスペースを準備中…",
       "title": "Multica へようこそ!",
-      "subtitle": "ランタイム接続を案内するタスクを 1 つ追加しました。準備できたら Runtimes から Mika と始められます。",
+      "subtitle": "ランタイム接続を案内する issue を 1 つ追加しました。準備できたら Runtimes から Mika と始められます。",
       "got_it": "了解",
       "status_in_progress": "進行中",
       "error_title": "準備できませんでした",
-      "error_body": "ランタイム案内のタスクを作成できませんでした。再試行するか、準備ができたら Runtimes からランタイムを接続してください。",
+      "error_body": "ランタイム案内の issue を作成できませんでした。再試行するか、準備ができたら Runtimes からランタイムを接続してください。",
       "retry": "再試行",
       "dismiss": "後で",
       "cards": {
@@ -163,17 +163,17 @@
     "eyebrow_resume": "続きから、または新規作成",
     "headline_first": "ワークスペースに名前を付けましょう。",
     "headline_resume": "{{name}} で続けるか、別のワークスペースを始めましょう。",
-    "lede_first": "ワークスペースは、タスク、エージェント、プロジェクトが集まる場所です。あとでチームメイトを招待したり、ワークスペースを増やしたりできます。",
+    "lede_first": "ワークスペースは、issue、エージェント、プロジェクトが集まる場所です。あとでチームメイトを招待したり、ワークスペースを増やしたりできます。",
     "lede_resume": "すでにあるワークスペースでセットアップを続けるか、別に新しいワークスペースを作成してください。いくつでもワークスペースに所属できます。",
     "name_label": "ワークスペース名",
     "name_placeholder": "Acme Inc、My Lab、Side Projects…",
     "random_name": "ランダム",
     "url_label": "URL",
     "slug_placeholder": "acme",
-    "issue_prefix_label": "タスクプレフィックス",
-    "issue_prefix_prefix": "タスクは ",
+    "issue_prefix_label": "Issue プレフィックス",
+    "issue_prefix_prefix": "Issue は ",
     "issue_prefix_suffix": " のように表示されます。あとで設定から変更できます。",
-    "issue_prefix_pending": "上の URL を入力すると、タスク番号はそれに合わせて決まります。ここに直接入力することもできます。",
+    "issue_prefix_pending": "上の URL を入力すると、issue 番号はそれに合わせて決まります。ここに直接入力することもできます。",
     "create_new_title": "新しいワークスペースを作成",
     "create_new_subtitle": "新しく始めましょう — 別の業務領域のための独立した場所です。",
     "hint_opening": "{{name}} を開いています。",
@@ -267,6 +267,6 @@
     "headline": "最初のエージェント仲間、Mika を紹介します。",
     "name": "Mika",
     "role": "参謀長",
-    "blurb": "やりたいことを Mika に伝えると、タスクになり、適したエージェントが担当します。"
+    "blurb": "やりたいことを Mika に伝えると、issue になり、適したエージェントが担当します。"
   }
 }

@@ -5,7 +5,7 @@ description: 把智能体接入钉钉，在私聊或群聊中直接交代工作�
 
 import { Callout } from "fumadocs-ui/components/callout";
 
-把[智能体](/agents)接入钉钉后，智能体所在工作区的成员可以私聊 Bot、在群里 @ Bot，或用 `/issue` 指令直接创建 Multica [任务](/issues)。对话和执行记录会保存到 Multica 工作区。
+把[智能体](/agents)接入钉钉后，智能体所在工作区的成员可以私聊 Bot、在群里 @ Bot，或用 `/issue` 指令直接创建 Multica [issue](/issues)。对话和执行记录会保存到 Multica 工作区。
 
 <Callout type="info">
 钉钉集成[由社区维护](/community-maintained)，不提供官方支持 SLA。遇到问题请提交到 [GitHub issues](https://github.com/multica-ai/multica/issues)。
@@ -44,7 +44,7 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 ### 私聊
 
-直接给 Bot 发消息即可。智能体处理完任务后，会将结果回复至私聊对话框中。
+直接给 Bot 发消息即可。智能体处理完 issue 后，会将结果回复至私聊对话框中。
 
 ### 群聊
 
@@ -54,9 +54,9 @@ import { Callout } from "fumadocs-ui/components/callout";
 
 私聊和群聊都支持图文混排消息，图片支持 PNG、JPEG、GIF、WebP 和 BMP；每条消息最多 4 张，每张不超过 10 MB。暂不支持文件和语音消息。
 
-### 使用 `/issue` 创建任务
+### 使用 `/issue` 创建 issue
 
-发送 `/issue <标题>` 或者 `/issue <标题>{换行}<详细描述>`，就可以创建一个新 Multica 任务，并自动指派给 Bot 连接着的智能体。同一条消息内的图片也会以附件的形式添加到该任务中。跟普通对话消息不一样的是，`/issue` 指令不会在 Multica 的“[对话](/chat)”中留下记录。
+发送 `/issue <标题>` 或者 `/issue <标题>{换行}<详细描述>`，就可以创建一个新 Multica issue，并自动指派给 Bot 连接着的智能体。同一条消息内的图片也会以附件的形式添加到该 issue 中。跟普通对话消息不一样的是，`/issue` 指令不会在 Multica 的“[对话](/chat)”中留下记录。
 
 ### 使用 `/new` 新建 Chat
 
@@ -94,5 +94,5 @@ openssl rand -base64 32
 ## 接下来
 
 - [聊天集成](/channels) —— Channel 引擎、会话与授权是怎么运作的
-- [智能体](/agents) · [Chat](/chat) · [任务](/issues)
+- [智能体](/agents) · [Chat](/chat) · [Issues](/issues)
 - [环境变量](/environment-variables) —— 完整的自部署配置参考
