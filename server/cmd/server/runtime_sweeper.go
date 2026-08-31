@@ -99,12 +99,18 @@ const (
 	// recovery outbox, which is a crash backstop rather than a liveness signal
 	// (see runDelegatedFailureRecoverySweeper).
 	delegatedFailureRecoverySweepInterval = 5 * time.Minute
-	// delegatedFailureRecoveryLeaseTTL admits one replica per round. It is
-	// shorter than the interval so a replica that dies holding it delays at
-	// most one round, and long enough to cover a round that is slow rather than
-	// hung — a bounded batch of at most delegatedFailureRecoveryBatchSize
-	// dispatches.
-	delegatedFailureRecoveryLeaseTTL = 4 * time.Minute
+	// delegatedFailureRecoveryLeaseTTL is how long the admission survives
+	// WITHOUT a renewal, not how long a round may take. Because the lease is
+	// renewed for as long as the round runs, this no longer has to be guessed
+	// large enough to cover the slowest plausible round — the batch size bounds
+	// how many recoveries a round dispatches, never how long the database takes
+	// to answer. Keeping it short is what lets a replica that dies holding the
+	// lease hand the next round over in seconds instead of minutes.
+	delegatedFailureRecoveryLeaseTTL = 30 * time.Second
+	// delegatedFailureRecoveryLeaseRenew must leave room for a missed renewal
+	// (a GC pause, a brief Redis blip) to be retried before the TTL runs out,
+	// so it stays at a third of it.
+	delegatedFailureRecoveryLeaseRenew = 10 * time.Second
 	// delegatedFailureRecoveryBatchSize bounds the durable recovery-outbox
 	// replay so a historical backlog cannot monopolise one round.
 	delegatedFailureRecoveryBatchSize = 100
@@ -204,7 +210,7 @@ func runRuntimeGCSweeper(ctx context.Context, txStarter runtimeGCTxStarter, quer
 // is NOT followed by a restart: previously 30 seconds, now five minutes. Every
 // other path to a recovery is unchanged and still immediate.
 func runDelegatedFailureRecoverySweeper(ctx context.Context, taskSvc *service.TaskService, lease sweepLease) {
-	runLeasedSweep(ctx, delegatedFailureRecoverySweepInterval, delegatedFailureRecoveryLeaseTTL, lease, func() {
+	runLeasedSweep(ctx, delegatedFailureRecoverySweepInterval, lease, func() {
 		sweepPendingDelegatedFailureRecoveries(ctx, taskSvc)
 	})
 }
@@ -212,22 +218,28 @@ func runDelegatedFailureRecoverySweeper(ctx context.Context, taskSvc *service.Ta
 // runLeasedSweep runs sweep once immediately and then on every interval tick,
 // skipping any round this replica does not win the lease for.
 //
+// The admission is held for the whole round and released when it ends, so a
+// round that runs long cannot be joined by a second replica, and a round that
+// finishes early does not reserve the key it no longer needs.
+//
 // The startup round is deliberately leased too. What it repairs is global
 // database state, not anything owned by this process, so one replica covering
 // the round covers it for all of them — and during a rolling deploy that is the
 // difference between one scan and one scan per replica restarted.
-func runLeasedSweep(ctx context.Context, interval, leaseTTL time.Duration, lease sweepLease, sweep func()) {
+func runLeasedSweep(ctx context.Context, interval time.Duration, lease sweepLease, sweep func()) {
 	guarded := func() {
 		if ctx.Err() != nil {
 			return
 		}
-		if !lease.Acquire(ctx, leaseTTL) {
+		release, ok := lease.Acquire(ctx)
+		if !ok {
 			// Deliberately not observed as a sweep stage: a zero-duration,
 			// zero-candidate sample would be indistinguishable from a round
 			// that ran and found nothing.
 			slog.Debug("leased sweep: another replica holds this round")
 			return
 		}
+		defer release()
 		sweep()
 	}
 	guarded()

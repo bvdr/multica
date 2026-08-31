@@ -657,7 +657,8 @@ func main() {
 	// round, which is what it did before at ten times the rate.
 	var recoverySweepLease sweepLease = unleased{}
 	if storeRedis != nil {
-		recoverySweepLease = newRedisSweepLease(storeRedis, delegatedFailureRecoveryLeaseKey)
+		recoverySweepLease = newRedisSweepLease(storeRedis, delegatedFailureRecoveryLeaseKey,
+			delegatedFailureRecoveryLeaseTTL, delegatedFailureRecoveryLeaseRenew)
 	}
 	go runDelegatedFailureRecoverySweeper(sweepCtx, taskSvc, recoverySweepLease)
 	// Source-context cleanup is object-store work, so it gets its own goroutine
