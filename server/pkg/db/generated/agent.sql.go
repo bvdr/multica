@@ -8153,6 +8153,7 @@ UPDATE comment recovery
 SET recovery_settled_at = now()
 FROM agent_task_queue task
 WHERE task.id = $1
+  AND task.status IN ('completed', 'failed', 'cancelled')
   AND recovery.id = ANY(task.delivered_comment_ids)
   AND recovery.author_type = 'system'
   AND recovery.type = 'progress_update'
@@ -8173,6 +8174,13 @@ WHERE task.id = $1
 // A comment that was only planned into the task and never delivered is absent
 // from delivered_comment_ids, so an automatic cancellation correctly leaves it
 // pending for the sweeper to replay.
+//
+// The terminal-status predicate is the guarantee itself, not a caller
+// convention. Settling a dispatched or running task's receipt would freeze the
+// reclaim window into a permanently lost recovery, and this marker is
+// monotonic — there is no later pass that could undo it. A caller that passes a
+// non-terminal task therefore updates nothing rather than silently destroying
+// the obligation.
 func (q *Queries) SettleDelegatedFailureRecoveriesForTask(ctx context.Context, taskID pgtype.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, settleDelegatedFailureRecoveriesForTask, taskID)
 	if err != nil {

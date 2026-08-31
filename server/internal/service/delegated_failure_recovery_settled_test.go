@@ -243,30 +243,106 @@ func TestManualRerunSettlesDeliveredRecovery(t *testing.T) {
 	}
 }
 
-// Archiving an agent cancels its tasks with a bulk statement and then calls
-// CaptureCancelledTasks. That call is the only follow-up those rows get, so it
-// is where settlement has to live for the archive path to close its receipts.
-func TestCaptureCancelledTasksSettlesDeliveredRecovery(t *testing.T) {
+// Archiving an agent cancels its tasks with a bulk statement. The cancel and
+// the settlement have to commit together: CaptureCancelledTasks runs after the
+// commit, so a settlement there could neither be rolled back nor repaired.
+func TestArchivedAgentCancelSettlesDeliveredRecovery(t *testing.T) {
 	f, svc := seedDelegatedFailureFixture(t)
 	ctx := context.Background()
 	recoveryTaskID, recoveryCommentID := f.seedRecoverySignal(t, svc)
 	f.markDelivered(t, recoveryTaskID, recoveryCommentID)
 
-	cancelled, err := f.pool.Query(ctx, `
-		UPDATE agent_task_queue SET status = 'cancelled', completed_at = now()
-		WHERE id = $1 RETURNING id`, recoveryTaskID)
+	agentID, err := util.ParseUUID(f.coordinator)
 	if err != nil {
-		t.Fatalf("bulk cancel: %v", err)
+		t.Fatalf("parse agent id: %v", err)
 	}
-	cancelled.Close()
-
-	task, err := svc.Queries.GetAgentTask(ctx, recoveryTaskID)
+	cancelled, err := svc.CancelTasksForArchivedAgent(ctx, agentID)
 	if err != nil {
-		t.Fatalf("load cancelled task: %v", err)
+		t.Fatalf("CancelTasksForArchivedAgent: %v", err)
 	}
-	svc.CaptureCancelledTasks(ctx, []db.AgentTaskQueue{task})
-
+	if len(cancelled) == 0 {
+		t.Fatal("archive cancelled nothing; the test no longer covers the cancel path")
+	}
 	if !f.settled(t, recoveryCommentID) {
-		t.Fatal("bulk cancellation follow-up did not settle the delivered recovery receipt")
+		t.Fatal("archive cancellation did not settle the delivered recovery receipt")
+	}
+}
+
+// The settlement marker is monotonic — nothing can undo it — so the terminal
+// requirement has to live in the SQL rather than in caller discipline. A
+// dispatched task's receipt is still replaceable by a reclaiming daemon, so
+// settling one would freeze that window into a permanently lost recovery.
+func TestNonTerminalTaskWithAReceiptIsNotSettled(t *testing.T) {
+	for _, status := range []string{"dispatched", "running"} {
+		t.Run(status, func(t *testing.T) {
+			f, svc := seedDelegatedFailureFixture(t)
+			ctx := context.Background()
+			recoveryTaskID, recoveryCommentID := f.seedRecoverySignal(t, svc)
+			if _, err := f.pool.Exec(ctx, `
+				UPDATE agent_task_queue
+				SET status = $2, dispatched_at = now(), delivered_comment_ids = ARRAY[$3]::uuid[]
+				WHERE id = $1`, recoveryTaskID, status, recoveryCommentID); err != nil {
+				t.Fatalf("stage %s task: %v", status, err)
+			}
+
+			task, err := svc.Queries.GetAgentTask(ctx, recoveryTaskID)
+			if err != nil {
+				t.Fatalf("load task: %v", err)
+			}
+			if err := SettleDeliveredDelegatedFailureRecoveries(ctx, svc.Queries, task); err != nil {
+				t.Fatalf("SettleDeliveredDelegatedFailureRecoveries: %v", err)
+			}
+			if f.settled(t, recoveryCommentID) {
+				t.Fatalf("a %s task's receipt was settled; a reclaim would now lose the recovery", status)
+			}
+		})
+	}
+}
+
+// The atomicity that replaced the old best-effort call: if settlement cannot
+// commit, the terminal write must not commit either. Otherwise the stranded
+// receipt is unreachable — the outbox scan excludes a comment whose covering
+// task is terminal and holds it, so it would never replay and never settle.
+func TestBulkCancelRollsBackWhenSettlementFails(t *testing.T) {
+	f, svc := seedDelegatedFailureFixture(t)
+	ctx := context.Background()
+	recoveryTaskID, recoveryCommentID := f.seedRecoverySignal(t, svc)
+	f.markDelivered(t, recoveryTaskID, recoveryCommentID)
+
+	// A trigger that fails only on the settlement UPDATE, so the cancel inside
+	// the same transaction has to roll back with it.
+	if _, err := f.pool.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION reject_recovery_settlement() RETURNS trigger AS $$
+		BEGIN RAISE EXCEPTION 'settlement rejected'; END;
+		$$ LANGUAGE plpgsql`); err != nil {
+		t.Fatalf("create settlement trigger function: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		CREATE TRIGGER reject_recovery_settlement
+		BEFORE UPDATE OF recovery_settled_at ON comment
+		FOR EACH ROW EXECUTE FUNCTION reject_recovery_settlement()`); err != nil {
+		t.Fatalf("install settlement trigger: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = f.pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS reject_recovery_settlement ON comment`)
+	})
+
+	agentID, err := util.ParseUUID(f.coordinator)
+	if err != nil {
+		t.Fatalf("parse agent id: %v", err)
+	}
+	if _, err := svc.CancelTasksForArchivedAgent(ctx, agentID); err == nil {
+		t.Fatal("bulk cancel reported success while its settlement failed")
+	}
+
+	var status string
+	if err := f.pool.QueryRow(ctx, `SELECT status FROM agent_task_queue WHERE id = $1`, recoveryTaskID).Scan(&status); err != nil {
+		t.Fatalf("read task status: %v", err)
+	}
+	if status == "cancelled" {
+		t.Fatal("the cancel committed without its settlement, stranding the receipt permanently")
+	}
+	if f.settled(t, recoveryCommentID) {
+		t.Fatal("settlement committed despite the failure")
 	}
 }
