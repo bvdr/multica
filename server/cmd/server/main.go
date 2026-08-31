@@ -653,12 +653,14 @@ func main() {
 	go runRuntimeGCSweeper(sweepCtx, pool, queries, taskSvc.Metrics, h)
 	// The durable delegated-failure recovery outbox is a crash backstop, not a
 	// liveness signal, so it gets its own low-frequency loop and a Redis lease
-	// that admits one replica per round. Without Redis every replica runs every
-	// round, which is what it did before at ten times the rate.
+	// that admits ONE scan per cadence window across every replica. Without
+	// Redis each replica keeps its own cadence, which is what it did before at
+	// a tenth of the rate.
 	var recoverySweepLease sweepLease = unleased{}
 	if storeRedis != nil {
 		recoverySweepLease = newRedisSweepLease(storeRedis, delegatedFailureRecoveryLeaseKey,
-			delegatedFailureRecoveryLeaseTTL, delegatedFailureRecoveryLeaseRenew)
+			delegatedFailureRecoveryLeaseTTL, delegatedFailureRecoveryLeaseRenew,
+			delegatedFailureRecoverySweepCadence)
 	}
 	go runDelegatedFailureRecoverySweeper(sweepCtx, taskSvc, recoverySweepLease)
 	// Source-context cleanup is object-store work, so it gets its own goroutine

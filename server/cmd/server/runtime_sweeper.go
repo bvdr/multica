@@ -95,10 +95,23 @@ const (
 	chatFinalizeGraceSeconds = 60.0
 	// chatFinalizeBatchSize caps deferred finalizations per tick.
 	chatFinalizeBatchSize = 100
-	// delegatedFailureRecoverySweepInterval is the cadence of the durable
-	// recovery outbox, which is a crash backstop rather than a liveness signal
-	// (see runDelegatedFailureRecoverySweeper).
-	delegatedFailureRecoverySweepInterval = 5 * time.Minute
+	// delegatedFailureRecoverySweepCadence is the GLOBAL rate of the durable
+	// recovery outbox: at most one scan per cadence across the whole
+	// deployment, not per replica. It is a crash backstop rather than a
+	// liveness signal (see runDelegatedFailureRecoverySweeper).
+	delegatedFailureRecoverySweepCadence = 5 * time.Minute
+	// delegatedFailureRecoveryPollInterval is how often a replica CHECKS
+	// whether the cadence window has reopened, which is deliberately finer than
+	// the cadence itself.
+	//
+	// Ticking at the cadence would make the phase of each replica's ticker
+	// decide who runs: the window would be claimed by whichever replica happens
+	// to tick first after it opens, and if that replica then died the window
+	// could stay unclaimed for nearly a second full cadence. Polling finer
+	// decouples the two — the cadence is enforced by the shared cooldown, while
+	// the poll only decides how promptly a live replica notices. A poll that
+	// loses costs one Redis SETNX and touches no database.
+	delegatedFailureRecoveryPollInterval = time.Minute
 	// delegatedFailureRecoveryLeaseTTL is how long the admission survives
 	// WITHOUT a renewal, not how long a round may take. Because the lease is
 	// renewed for as long as the round runs, this no longer has to be guessed
@@ -210,37 +223,55 @@ func runRuntimeGCSweeper(ctx context.Context, txStarter runtimeGCTxStarter, quer
 // is NOT followed by a restart: previously 30 seconds, now five minutes. Every
 // other path to a recovery is unchanged and still immediate.
 func runDelegatedFailureRecoverySweeper(ctx context.Context, taskSvc *service.TaskService, lease sweepLease) {
-	runLeasedSweep(ctx, delegatedFailureRecoverySweepInterval, lease, func() {
+	runLeasedSweep(ctx, delegatedFailureRecoveryPollInterval, delegatedFailureRecoverySweepCadence, lease, func() {
 		sweepPendingDelegatedFailureRecoveries(ctx, taskSvc)
 	})
 }
 
-// runLeasedSweep runs sweep once immediately and then on every interval tick,
-// skipping any round this replica does not win the lease for.
+// runLeasedSweep polls every interval and runs sweep in any cadence window this
+// replica claims, starting with one attempt at startup.
 //
-// The admission is held for the whole round and released when it ends, so a
-// round that runs long cannot be joined by a second replica, and a round that
-// finishes early does not reserve the key it no longer needs.
+// Two guards decide that, and both are needed:
 //
-// The startup round is deliberately leased too. What it repairs is global
+//   - the lease, which is what makes the cadence GLOBAL. It excludes other
+//     replicas for the duration of the round and then, on success, for the rest
+//     of the cadence window. Without the second half the lease would only stop
+//     replicas overlapping, and out-of-phase replicas would still take turns
+//     running one scan each per window.
+//   - lastCompleted, the local floor. It bounds the no-Redis deployment, where
+//     there is no shared cooldown to consult, and it is what lets the poll be
+//     finer than the cadence without turning fail-open into a hot loop.
+//
+// The startup round goes through the same gate. What it repairs is global
 // database state, not anything owned by this process, so one replica covering
-// the round covers it for all of them — and during a rolling deploy that is the
+// the window covers it for all of them — during a rolling restart that is the
 // difference between one scan and one scan per replica restarted.
-func runLeasedSweep(ctx context.Context, interval time.Duration, lease sweepLease, sweep func()) {
+func runLeasedSweep(ctx context.Context, interval, cadence time.Duration, lease sweepLease, sweep func()) {
+	var lastCompleted time.Time
 	guarded := func() {
 		if ctx.Err() != nil {
 			return
 		}
-		release, ok := lease.Acquire(ctx)
+		if !lastCompleted.IsZero() && time.Since(lastCompleted) < cadence {
+			return
+		}
+		finish, ok := lease.Acquire(ctx)
 		if !ok {
 			// Deliberately not observed as a sweep stage: a zero-duration,
 			// zero-candidate sample would be indistinguishable from a round
 			// that ran and found nothing.
-			slog.Debug("leased sweep: another replica holds this round")
+			slog.Debug("leased sweep: this cadence window is already covered")
 			return
 		}
-		defer release()
 		sweep()
+		// A shutdown mid-round leaves the window uncovered, so hand it back
+		// instead of cooling down: the replica that takes over should not have
+		// to wait out a cadence this one did not finish.
+		completed := ctx.Err() == nil
+		finish(completed)
+		if completed {
+			lastCompleted = time.Now()
+		}
 	}
 	guarded()
 	runPeriodicSweep(ctx, interval, guarded)
