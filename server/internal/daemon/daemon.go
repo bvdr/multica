@@ -602,6 +602,11 @@ type Daemon struct {
 
 	runner             taskRunner    // executes agent tasks; set to d.runTask by New(), overridable in tests
 	cancelPollInterval time.Duration // how often handleTask polls for server-side cancellation; overridable in tests
+	// envRootBusyWait is how long a task that is entitled to a prior env root
+	// waits for the previous run to let go of it before giving up and preparing
+	// a fresh one. New() sets it; the zero value means "do not wait", which is
+	// what focused unit tests want. See lockReusablePriorEnvRoot (MUL-6880).
+	envRootBusyWait time.Duration
 	// executionEnvironmentCommand resolves the killable helper used for
 	// Prepare/Reuse. New always sets it; nil keeps focused unit tests in-process.
 	executionEnvironmentCommand executionEnvironmentCommand
@@ -654,6 +659,7 @@ func New(cfg Config, logger *slog.Logger) *Daemon {
 		reregisterNextAttempt:     make(map[string]time.Time),
 		reregisterLastCompletedAt: make(map[string]time.Time),
 		cancelPollInterval:        5 * time.Second,
+		envRootBusyWait:           15 * time.Second,
 		taskPrepareTimeout:        defaultTaskPrepareTimeout,
 		reconcile:                 newReconcileBroadcaster(),
 		workspaceChanges:          newWorkspaceChangeSignal(),
@@ -6322,7 +6328,7 @@ func (d *Daemon) startTaskPrepareLeaseExtender(ctx context.Context, task Task, t
 // The re-check under the lock closes the gap between proving eligibility and
 // acting on it. Declining is always safe: the caller falls back to a fresh
 // Prepare, which costs session continuity, not correctness.
-func (d *Daemon) lockReusablePriorEnvRoot(task Task, localAssignment *localDirectoryAssignment, heldRoot string) (*execenv.EnvRootClaim, string, os.FileInfo, bool) {
+func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localAssignment *localDirectoryAssignment, heldRoot string) (*execenv.EnvRootClaim, string, os.FileInfo, bool) {
 	// Pin the workspaces root BEFORE validating anything. Opening it after,
 	// from a name validation just approved, would re-resolve that name: rename
 	// the root aside, leave a symlink to a look-alike tree, and os.Root
@@ -6374,11 +6380,11 @@ func (d *Daemon) lockReusablePriorEnvRoot(task Task, localAssignment *localDirec
 		reuseLockTestHook()
 	}
 
-	claim, lockedInfo, err := execenv.LockEnvRootForReuse(wsRoot, rel, priorRoot)
+	claim, lockedInfo, err := d.lockEnvRootForReuseWaitingOutTheBusyWindow(ctx, wsRoot, rel, priorRoot, task)
 	switch {
 	case errors.Is(err, execenv.ErrEnvRootBusy):
-		d.logger.Info("prior workdir is in use by another execution; starting a fresh environment",
-			"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot))
+		d.logger.Info("prior workdir is still in use after waiting for it; starting a fresh environment",
+			"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot), "waited", d.envRootBusyWait)
 		return nil, "", nil, false
 	case err != nil:
 		d.logger.Warn("could not lock prior workdir; starting a fresh environment",
@@ -6416,6 +6422,62 @@ func (d *Daemon) lockReusablePriorEnvRoot(task Task, localAssignment *localDirec
 		return nil, "", nil, false
 	}
 	return claim, workDir, lockedInfo, true
+}
+
+// envRootBusyRetryInterval is how often the wait below re-tries the lock. The
+// window it is covering is seconds long, so this only has to be small relative
+// to that, not tight.
+const envRootBusyRetryInterval = 250 * time.Millisecond
+
+// lockEnvRootForReuseWaitingOutTheBusyWindow takes the reuse lock, waiting out
+// a lock the PREVIOUS run of this (issue, agent) has not let go of yet.
+//
+// A busy lock here has one cause in a healthy system: the server hands a task
+// to a daemon only when no other task for the same (issue, agent) is dispatched
+// or running (ClaimAgentTask's serialization), so by the time this task exists
+// its predecessor is already finished as far as the server is concerned. The
+// process is not: it learns of its cancellation from its own poll tick and
+// takes a few seconds to exit, and it holds .task_lock until it does. That is
+// the whole of the gap — a machine-local fact, visible right here.
+//
+// Giving up immediately costs the workdir, and with it the provider session
+// living in it: the agent restarts with no memory of the conversation the user
+// was in the middle of editing (MUL-6880). Waiting costs a few seconds of one
+// task slot, which is far less than the fresh Prepare — including a repo
+// checkout — that declining forces instead.
+//
+// The wait is bounded and gives up into exactly the old behaviour, so a
+// predecessor that is genuinely wedged, or a lock held by something else on a
+// shared workspaces root, still ends in a fresh environment rather than a
+// stuck task.
+func (d *Daemon) lockEnvRootForReuseWaitingOutTheBusyWindow(
+	ctx context.Context,
+	wsRoot *os.Root,
+	rel, priorRoot string,
+	task Task,
+) (*execenv.EnvRootClaim, os.FileInfo, error) {
+	deadline := time.Now().Add(d.envRootBusyWait)
+	for attempt := 0; ; attempt++ {
+		claim, info, err := execenv.LockEnvRootForReuse(wsRoot, rel, priorRoot)
+		if !errors.Is(err, execenv.ErrEnvRootBusy) || !time.Now().Before(deadline) {
+			if attempt > 0 && err == nil {
+				d.logger.Info("prior workdir freed while waiting for the previous run to exit",
+					"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
+					"waited", time.Duration(attempt)*envRootBusyRetryInterval)
+			}
+			return claim, info, err
+		}
+		if attempt == 0 {
+			d.logger.Info("prior workdir is still held by the previous run; waiting for it",
+				"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
+				"budget", d.envRootBusyWait)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, err
+		case <-time.After(envRootBusyRetryInterval):
+		}
+	}
 }
 
 // reuseLockTestHook runs between reuse eligibility validation and taking the
@@ -7060,7 +7122,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		}
 	}
 	envReused := false
-	if priorClaim, priorWorkDir, lockedPriorInfo, ok := d.lockReusablePriorEnvRoot(task, localAssignment, envClaim.RootDir()); ok {
+	if priorClaim, priorWorkDir, lockedPriorInfo, ok := d.lockReusablePriorEnvRoot(ctx, task, localAssignment, envClaim.RootDir()); ok {
 		defer priorClaim.Release()
 		// Deterministic seam for the last-window regression: tests swap the
 		// directory here, after the claim is settled and before Reuse resolves
