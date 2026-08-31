@@ -72,8 +72,21 @@ export function isShowingLiveEndRow(scrollEl: HTMLElement): boolean {
   return rect.bottom <= viewport.bottom + 1 && rect.bottom > viewport.top;
 }
 
-// A list that never reports showing its newest row must not stay hidden.
-// Past this, reveal whatever Virtuoso has: the flicker beats a blank chat.
+/**
+ * How long the newest message must sit at the fold, with the scroll extent
+ * unchanged, before the list is revealed.
+ *
+ * Reaching the live end once is not enough: rows keep settling after their
+ * first paint (an image decodes, a code block highlights, a font swaps), and
+ * each one moves the content under a reader who is pinned to the bottom. This
+ * is the window the list waits for that to stop — raise it to absorb slower
+ * content at the cost of showing the conversation later, lower it to paint
+ * sooner and let late arrivals shift the view.
+ */
+const LIVE_END_SETTLE_MS = 120;
+
+// A list whose content never stops moving must not stay hidden. Past this,
+// reveal whatever Virtuoso has: a shift beats a blank chat.
 const REVEAL_DEADLINE_MS = 1000;
 
 export interface StickToBottom {
@@ -133,18 +146,29 @@ export function useStickToBottom(
   // Polled rather than driven off Virtuoso's callbacks: `atBottomStateChange`
   // still reads true from before the rows existed, `itemsRendered` reports
   // rows that a measuring pass is about to unmount again, and neither fires
-  // on the frame the correcting scroll lands. A frame loop that stops the
-  // moment it succeeds costs a handful of rect reads at open.
+  // on the frame the correcting scroll lands. A frame loop that stops as soon
+  // as the list holds still costs a handful of rect reads at open.
   const [hasReachedLiveEnd, setHasReachedLiveEnd] = useState(false);
   useEffect(() => {
     if (!scrollEl || hasReachedLiveEnd) return;
-    let frame = requestAnimationFrame(function poll() {
-      if (isShowingLiveEndRow(scrollEl)) {
+    let frame = 0;
+    // The scroll extent is the cheapest proxy for "some row changed size":
+    // every late arrival that would shift the view also moves it.
+    let lastHeight = -1;
+    let steadySince: number | null = null;
+    const poll = (now: number) => {
+      const height = scrollEl.scrollHeight;
+      const steady = height === lastHeight && isShowingLiveEndRow(scrollEl);
+      lastHeight = height;
+      if (!steady) steadySince = null;
+      else if (steadySince === null) steadySince = now;
+      else if (now - steadySince >= LIVE_END_SETTLE_MS) {
         setHasReachedLiveEnd(true);
         return;
       }
       frame = requestAnimationFrame(poll);
-    });
+    };
+    frame = requestAnimationFrame(poll);
     const deadline = setTimeout(() => setHasReachedLiveEnd(true), REVEAL_DEADLINE_MS);
     return () => {
       cancelAnimationFrame(frame);

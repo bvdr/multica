@@ -443,17 +443,52 @@ describe("ChatMessageList auto-scroll", () => {
     const liveEndRow = view.container.querySelector("[data-chat-live-end]");
     if (!liveEndRow) throw new Error("the newest row is not marked as the live end");
 
+    const frames = (count: number) => {
+      for (let i = 0; i < count; i++) act(() => renderFrame());
+    };
+
     expect(scroll.el.className).toContain("invisible");
 
     // Rows are on screen, but sitting where the estimate put them: below the
     // fold, still to be corrected. This is the frame that used to flicker.
     box(liveEndRow, 4600, 5200);
-    act(() => renderFrame());
+    frames(20);
     expect(scroll.el.className).toContain("invisible");
 
-    // The correction lands and the newest row reaches the bottom.
+    // The correction lands and the newest row reaches the bottom — but the
+    // list holds until the content has stopped moving there.
     box(liveEndRow, VIEWPORT - 200, VIEWPORT - 16);
-    act(() => renderFrame());
+    frames(2);
+    expect(scroll.el.className).toContain("invisible");
+
+    frames(20);
+    expect(scroll.el.className).not.toContain("invisible");
+  });
+
+  // A row settling after its first paint — an image decoding, a code block
+  // highlighting — moves the content under a reader pinned to the bottom.
+  // Reaching the live end once is not enough to reveal (MUL-6879).
+  it("keeps waiting while rows are still changing size at the live end", () => {
+    const { view, scroll } = renderStreamingChat();
+
+    const box = (el: Element, top: number, bottom: number) => {
+      el.getBoundingClientRect = () => ({ top, bottom }) as DOMRect;
+    };
+    box(scroll.el, 0, VIEWPORT);
+    const liveEndRow = view.container.querySelector("[data-chat-live-end]");
+    if (!liveEndRow) throw new Error("the newest row is not marked as the live end");
+    box(liveEndRow, VIEWPORT - 200, VIEWPORT - 16);
+
+    // Content keeps arriving: every settle window restarts.
+    for (let i = 0; i < 6; i++) {
+      scroll.grow(120);
+      act(() => renderFrame());
+      act(() => renderFrame());
+    }
+    expect(scroll.el.className).toContain("invisible");
+
+    // It stops, and the list appears.
+    for (let i = 0; i < 20; i++) act(() => renderFrame());
     expect(scroll.el.className).not.toContain("invisible");
   });
 
