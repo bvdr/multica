@@ -4747,14 +4747,25 @@ func (h *Handler) AckTaskCancelled(w http.ResponseWriter, r *http.Request) {
 		// and will not refetch again on their own.
 		h.TaskService.RebroadcastCancelledTask(r.Context(), task.ID)
 	}
-	// The ack is also the only proof the server gets that the cancelled run's
-	// PROCESS is gone: the daemon posts it after runTask returned, which is
-	// when the env root lock is released. Releasing the stop lease here hands
-	// the (issue, agent) slot to whatever was queued behind this run — most
-	// often the replacement task an edited comment enqueued — so it reuses the
-	// same workdir and resumes the same provider session (MUL-6880).
+	if _, err := h.TaskService.FinalizeDeferredCancelledChat(r.Context(), task.ID); err != nil {
+		// Fail closed rather than release the slot below. The settlement writes
+		// this run's outcome and, in the same transaction, re-anchors the next
+		// turn's user message behind it — and that re-anchor only reaches a turn
+		// that is still 'queued'. Releasing the slot after a failed settle would
+		// let the successor be claimed first and leave the transcript reading
+		// user-B-before-assistant-A. Keeping the lease costs the successor the
+		// sweeper's retry or the lease deadline, both bounded; 500 also makes the
+		// daemon retry this ack, which is the fastest path back to settled.
+		writeError(w, http.StatusInternalServerError, "failed to settle cancelled chat")
+		return
+	}
+	// Released LAST, and only once every write this ack owes the cancelled run
+	// has committed. The ack is the only proof the server gets that the run's
+	// PROCESS is gone — the daemon posts it after runTask returned, which is
+	// when the env root lock is released — so this is what hands the
+	// (issue, agent) slot to whatever was queued behind it, most often the
+	// replacement task an edited comment enqueued (MUL-6880).
 	h.TaskService.ReleaseStopLease(r.Context(), task.ID)
-	h.TaskService.FinalizeDeferredCancelledChat(r.Context(), task.ID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

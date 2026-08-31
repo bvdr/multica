@@ -522,10 +522,20 @@ func TestFinalizeDeferredCancelledChat_SecondCallIsNoop(t *testing.T) {
 	}
 	f.insertTranscriptRow(t, ctx)
 
-	if changed := svc.FinalizeDeferredCancelledChat(ctx, util.MustParseUUID(f.taskID)); !changed {
+	changed, err := svc.FinalizeDeferredCancelledChat(ctx, util.MustParseUUID(f.taskID))
+	if err != nil {
+		t.Fatalf("first deferred finalize: %v", err)
+	}
+	if !changed {
 		t.Fatal("first deferred finalize did not report its marker claim")
 	}
-	if changed := svc.FinalizeDeferredCancelledChat(ctx, util.MustParseUUID(f.taskID)); changed {
+	// A no-op replay must be distinguishable from a failure: changed=false with
+	// a nil error is what tells the cancel-ack it may release the slot.
+	changed, err = svc.FinalizeDeferredCancelledChat(ctx, util.MustParseUUID(f.taskID))
+	if err != nil {
+		t.Fatalf("duplicate deferred finalize: %v", err)
+	}
+	if changed {
 		t.Fatal("duplicate deferred finalize reported a persisted change")
 	}
 

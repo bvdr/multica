@@ -716,7 +716,9 @@ func sweepDeferredChatFinalizations(ctx context.Context, queries *db.Queries, ta
 		return
 	}
 	for _, t := range rows {
-		if taskSvc.FinalizeDeferredCancelledChat(ctx, t.ID) {
+		// The settle error is already logged inside the service; the sweeper
+		// only counts what it actually settled and lets the next tick retry.
+		if changed, err := taskSvc.FinalizeDeferredCancelledChat(ctx, t.ID); err == nil && changed {
 			stats.changed++
 		}
 	}

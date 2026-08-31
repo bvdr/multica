@@ -3185,11 +3185,18 @@ func (s *TaskService) RebroadcastCancelledTask(ctx context.Context, taskID pgtyp
 	s.broadcastTaskEvent(ctx, protocol.EventTaskCancelled, task)
 }
 
-func (s *TaskService) FinalizeDeferredCancelledChat(ctx context.Context, taskID pgtype.UUID) bool {
+// The two return values are deliberately separate. changed reports that THIS
+// call claimed and settled the marker; err reports that the settlement failed
+// (already logged here). A single false used to mean both "nothing was
+// deferred" and "the write failed", which is not enough for a caller that must
+// order later work behind a SUCCESSFUL settle — the cancel-ack releases the
+// execution slot only once this has committed, because
+// ReanchorNextQueuedDirectChatInput can place this run's outcome ahead of the
+// next turn's user message only while that turn is still queued (MUL-6880).
+func (s *TaskService) FinalizeDeferredCancelledChat(ctx context.Context, taskID pgtype.UUID) (changed bool, err error) {
 	var (
 		task    db.AgentTaskQueue
 		payload protocol.ChatCancelFinalizedPayload
-		changed bool
 		settled bool
 	)
 	if err := s.runInTx(ctx, func(qtx *db.Queries) error {
@@ -3320,13 +3327,13 @@ func (s *TaskService) FinalizeDeferredCancelledChat(ctx context.Context, taskID 
 			"task_id", util.UUIDToString(taskID),
 			"error", err,
 		)
-		return false
+		return false, err
 	}
 	if !settled || payload.Outcome == "" {
-		return changed
+		return changed, nil
 	}
 	s.broadcastChatCancelFinalized(ctx, task, payload)
-	return changed
+	return changed, nil
 }
 
 func (s *TaskService) broadcastChatCancelFinalized(ctx context.Context, task db.AgentTaskQueue, payload protocol.ChatCancelFinalizedPayload) {

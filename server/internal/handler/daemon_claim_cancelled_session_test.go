@@ -340,6 +340,134 @@ func TestCancelTask_PointerAdvanceIsAtomicWithStatusFlip(t *testing.T) {
 	}
 }
 
+// TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits pins the
+// ordering the stop lease depends on (MUL-6880 review).
+//
+// The cancel-ack does two things: it settles the deferred chat finalization
+// (writing this turn's outcome and, in the SAME transaction, re-anchoring the
+// next turn's user message behind it) and it releases the execution slot the
+// cancelled run still held. The re-anchor in ReanchorNextQueuedDirectChatInput
+// only reaches a follow-up that is still 'queued' — so releasing the slot first
+// would let the daemon claim the follow-up in between, the re-anchor would match
+// nothing, and the transcript would read user B before assistant A. That is the
+// exact inversion the query's own contract rules out.
+//
+// The settle is pinned mid-flight on the chat_session row lock, which is what
+// makes the window observable at all.
+func TestAckTaskCancelled_ReleasesTheSlotOnlyAfterTheChatSettleCommits(t *testing.T) {
+	if testHandler == nil || testPool == nil {
+		t.Skip("database not available")
+	}
+
+	ctx := context.Background()
+	agentID, runtimeID, daemonID := createRuntimeGuardAgent(t, ctx)
+
+	chatSessionID := dbfx.ChatSession(t, agentID, testutil.Cols{
+		"title":      "cancel ack settle ordering",
+		"session_id": "turn1-session",
+		"work_dir":   "/tmp/turn1-workdir",
+		"runtime_id": runtimeID,
+	})
+
+	// Turn A: running when the user stops it. Its transcript is still empty at
+	// cancel time, so the cancel defers the empty/non-empty judgment to the ack.
+	taskA := dbfx.Task(t, agentID, testutil.Cols{
+		"runtime_id":      runtimeID,
+		"chat_session_id": chatSessionID,
+		"status":          "running",
+		"started_at":      testutil.Raw("now()"),
+		"session_id":      "turn2-session",
+		"work_dir":        "/tmp/turn2-workdir",
+	})
+
+	// Turn B: the follow-up the user sent while A was still stopping, with the
+	// user message that must stay behind A's outcome.
+	taskB := dbfx.Task(t, agentID, testutil.Cols{
+		"runtime_id":      runtimeID,
+		"chat_session_id": chatSessionID,
+		"status":          "queued",
+	})
+	dbfx.Exec(t, `UPDATE agent_task_queue SET chat_input_task_id = id WHERE id = $1`, taskB)
+	dbfx.Exec(t, `
+		INSERT INTO chat_message (chat_session_id, role, content, task_id)
+		VALUES ($1, 'user', 'and one more thing', $2)
+	`, chatSessionID, taskB)
+
+	if _, err := testHandler.TaskService.CancelTaskWithResult(ctx, parseUUID(taskA),
+		service.CancelTaskOptions{ClientSupportsDraftRestore: true}); err != nil {
+		t.Fatalf("cancel turn A: %v", err)
+	}
+	var deferredAt *time.Time
+	dbfx.QueryRow(t, `SELECT chat_finalize_deferred_at FROM agent_task_queue WHERE id = $1`, taskA).Scan(&deferredAt)
+	if deferredAt == nil {
+		t.Fatal("fixture no longer exercises the deferred settle: the cancel armed no marker")
+	}
+	// The daemon's late flush: the transcript lands after the cancel, so the
+	// settle resolves to "Stopped." rather than a draft restore.
+	dbfx.Exec(t, `
+		INSERT INTO task_message (task_id, seq, type, content)
+		VALUES ($1, 1, 'text', 'late flush')
+	`, taskA)
+
+	// Pin the settle: it takes this row lock before it writes anything.
+	blockTx := beginWarmedTx(t, ctx)
+	if _, err := blockTx.Exec(ctx, `SELECT id FROM chat_session WHERE id = $1 FOR UPDATE`, chatSessionID); err != nil {
+		t.Fatalf("lock chat session: %v", err)
+	}
+
+	ackCode := make(chan int, 1)
+	ackDone := make(chan struct{})
+	go func() {
+		defer close(ackDone)
+		req := newDaemonTokenRequest("POST", "/api/daemon/tasks/"+taskA+"/cancel-ack", nil, testWorkspaceID, daemonID)
+		req = withURLParam(req, "taskId", taskA)
+		w := httptest.NewRecorder()
+		testHandler.AckTaskCancelled(w, req)
+		ackCode <- w.Code
+	}()
+
+	if !waitForBlockedBackend(t, ackDone) {
+		t.Fatal("cancel-ack finished while the chat_session row was locked: it did not settle before returning, so nothing orders the settle ahead of the slot release")
+	}
+
+	// The whole point: the follow-up stays unclaimable for as long as the settle
+	// has not committed.
+	claim := newDaemonTokenRequest("POST", "/api/daemon/runtimes/"+runtimeID+"/claim", nil, testWorkspaceID, daemonID)
+	claim = withURLParam(claim, "runtimeId", runtimeID)
+	var duringSettle struct {
+		Task *claimRuntimeGuardTask `json:"task"`
+	}
+	testutil.Call(t, testHandler.ClaimTaskByRuntime, claim).Want(http.StatusOK).JSON(&duringSettle)
+	if duringSettle.Task != nil {
+		t.Fatal("the follow-up claimed while the cancelled turn was still being settled; its input can no longer be re-anchored behind that turn's outcome")
+	}
+
+	if err := blockTx.Rollback(ctx); err != nil {
+		t.Fatalf("release chat session lock: %v", err)
+	}
+	<-ackDone
+	if code := <-ackCode; code != http.StatusOK {
+		t.Fatalf("cancel-ack returned %d, want 200", code)
+	}
+
+	// Settled and released: the follow-up runs, and the transcript reads
+	// assistant A before user B.
+	claimTaskForRuntimeGuard(t, runtimeID, daemonID)
+	if got := taskStatus(t, taskB); got != "dispatched" {
+		t.Fatalf("follow-up status = %q once the ack settled, want dispatched", got)
+	}
+	var stoppedAt, userBAt time.Time
+	dbfx.QueryRow(t, `
+		SELECT created_at FROM chat_message WHERE task_id = $1 AND role = 'assistant'
+	`, taskA).Scan(&stoppedAt)
+	dbfx.QueryRow(t, `
+		SELECT created_at FROM chat_message WHERE task_id = $1 AND role = 'user'
+	`, taskB).Scan(&userBAt)
+	if !stoppedAt.Before(userBAt) {
+		t.Fatalf("assistant A at %s is not before user B at %s: the settle could not re-anchor the follow-up's input", stoppedAt, userBAt)
+	}
+}
+
 // TestPinTaskSession_LateCancelledPinAdvancesChatPointer covers the other
 // ordering: the cancel wins the race and finds no session to publish (a Codex
 // pin is still waiting on its rollout), then the pin lands on the cancelled row.
