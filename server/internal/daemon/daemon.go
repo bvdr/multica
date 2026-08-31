@@ -6380,11 +6380,13 @@ func (d *Daemon) lockReusablePriorEnvRoot(ctx context.Context, task Task, localA
 		reuseLockTestHook()
 	}
 
+	lockStartedAt := time.Now()
 	claim, lockedInfo, err := d.lockEnvRootForReuseWaitingOutTheBusyWindow(ctx, wsRoot, rel, priorRoot, task)
 	switch {
 	case errors.Is(err, execenv.ErrEnvRootBusy):
 		d.logger.Info("prior workdir is still in use after waiting for it; starting a fresh environment",
-			"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot), "waited", d.envRootBusyWait)
+			"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
+			"waited", time.Since(lockStartedAt).Round(time.Millisecond), "budget", d.envRootBusyWait)
 		return nil, "", nil, false
 	case err != nil:
 		d.logger.Warn("could not lock prior workdir; starting a fresh environment",
@@ -6456,24 +6458,34 @@ func (d *Daemon) lockEnvRootForReuseWaitingOutTheBusyWindow(
 	rel, priorRoot string,
 	task Task,
 ) (*execenv.EnvRootClaim, os.FileInfo, error) {
-	deadline := time.Now().Add(d.envRootBusyWait)
-	for attempt := 0; ; attempt++ {
+	start := time.Now()
+	deadline := start.Add(d.envRootBusyWait)
+	waited := false
+	for {
 		claim, info, err := execenv.LockEnvRootForReuse(wsRoot, rel, priorRoot)
 		if !errors.Is(err, execenv.ErrEnvRootBusy) || !time.Now().Before(deadline) {
-			if attempt > 0 && err == nil {
+			// The wait's real duration is logged, not the budget: 15s is a
+			// reasoned guess (one cancel-poll interval plus the agent's exit),
+			// and these lines are how it gets checked against production
+			// instead of staying a guess.
+			if waited && err == nil {
 				d.logger.Info("prior workdir freed while waiting for the previous run to exit",
 					"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
-					"waited", time.Duration(attempt)*envRootBusyRetryInterval)
+					"waited", time.Since(start).Round(time.Millisecond))
 			}
 			return claim, info, err
 		}
-		if attempt == 0 {
+		if !waited {
+			waited = true
 			d.logger.Info("prior workdir is still held by the previous run; waiting for it",
 				"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
 				"budget", d.envRootBusyWait)
 		}
 		select {
 		case <-ctx.Done():
+			d.logger.Info("stopped waiting for the prior workdir: the run was cancelled",
+				"task", shortID(task.ID), "prior_root", filepath.Base(priorRoot),
+				"waited", time.Since(start).Round(time.Millisecond))
 			return nil, nil, err
 		case <-time.After(envRootBusyRetryInterval):
 		}
