@@ -60,9 +60,10 @@ git worktree of that repo, so tasks run concurrently and each delivers its work 
 instead of editing the working copy. Every task of one conversation shares that branch — `agent/<agent>/<issue>` for
 an issue, `agent/<agent>/chat-<session>` for a chat — and each turn's worktree starts from the previous turn's work
 rather than from `HEAD`; a task with no conversation behind it gets `agent/<agent>/<task>`. Continuation is decided by
-an ownership record (`refs/multica/local-state/<branch>`, which also holds the snapshot of the user's directory the
-branch already carries), never by the branch name, so a same-named branch the user created is left alone and the task
-falls back to `agent/<agent>/<issue>-<id>`. A turn replays only what the user changed since that snapshot; when those
+an ownership record (`refs/multica/local-state/<branch>`, which holds the owning conversation, the snapshot of the
+user's directory the branch already carries, and the branch tip it was recorded at), never by the branch name. A
+same-named branch the user created — or one that no longer contains the recorded commit, i.e. deleted and recreated or
+force-moved — is left alone and the task falls back to `agent/<agent>/<issue>-<id>`. A turn replays only what the user changed since that snapshot; when those
 edits conflict with the branch's own work the worktree is handed to the agent mid-merge and the run delivers nothing
 until the agent resolves it. `worktree` requires the path to be a git repository with at
 least one commit; tasks fail with an explicit error otherwise. The gate is the `local-worktree-v1` capability the

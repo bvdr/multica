@@ -223,7 +223,7 @@ func TestCaptureUserSnapshotIgnoresTheRepositoryIndexLock(t *testing.T) {
 	defer os.Remove(lock)
 
 	head := gitRun(t, repo, "rev-parse", "HEAD")
-	snapshot, err := captureUserSnapshot(repo, t.TempDir(), head, testBranchOwner, worktreeTestLogger())
+	snapshot, err := captureUserSnapshot(repo, t.TempDir(), head, worktreeTestLogger())
 	if err != nil {
 		t.Fatalf("captureUserSnapshot with index.lock held: %v", err)
 	}

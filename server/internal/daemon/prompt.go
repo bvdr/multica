@@ -121,6 +121,11 @@ func buildSharedLocalDirectoryBlock(shared bool) string {
 	return b.String()
 }
 
+// maxListedConflicts bounds the file list. A conflict this wide is a merge the
+// agent will work through with git rather than by reading names, and a
+// pathological repo must not be able to spend the turn's context on filenames.
+const maxListedConflicts = 50
+
 // buildWorktreeReplayConflictBlock tells the turn that its own working tree
 // starts out mid-merge, and that finishing that merge comes before the task.
 //
@@ -130,15 +135,25 @@ func buildSharedLocalDirectoryBlock(shared bool) string {
 // Silence here is what the earlier version of this feature got wrong: it
 // resolved the conflict by discarding the user's edit, which lost that edit
 // from every later turn as well.
+//
+// The names are QUOTED, not wrapped in a code span. They come from the user's
+// repository, and a git path may contain newlines, backticks and quotes — a
+// raw one could close the list item and continue as its own instruction line in
+// the prompt. %q keeps every path on one line with its own delimiters, so a
+// crafted filename can only ever read as a filename.
 func buildWorktreeReplayConflictBlock(files []string) string {
 	if len(files) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("## Unresolved merge in your working tree\n\n")
-	b.WriteString("This branch carries your previous turn's work. Since then the user edited the same lines in their own directory, and git could not merge the two:\n\n")
-	for _, file := range files {
-		fmt.Fprintf(&b, "- `%s`\n", file)
+	b.WriteString("This branch carries your previous turn's work. Since then the user edited the same lines in their own directory, and git could not merge the two (paths are quoted Go string literals — a filename may itself contain quotes or newlines):\n\n")
+	for i, file := range files {
+		if i == maxListedConflicts {
+			fmt.Fprintf(&b, "- …and %d more; `git status` in this worktree lists them all\n", len(files)-i)
+			break
+		}
+		fmt.Fprintf(&b, "- %q\n", file)
 	}
 	b.WriteString("\nResolve it before anything else, with ordinary git commands — `git status` lists the unmerged paths, `git diff` shows both sides, `git add <file>` marks each one done. The \"ours\" side is what you wrote last turn; \"theirs\" is the user's newer edit, and it is the side you have not seen before, so read it before choosing. Keep both intentions where they are compatible; where they are not, prefer the user's and say so in your reply.\n\n")
 	b.WriteString("This run cannot deliver its branch while any file is still unmerged — the task fails and the worktree is kept for a human instead. Do not commit conflict markers.\n\n")

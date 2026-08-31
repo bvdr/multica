@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,14 +24,17 @@ import (
 // Three properties this file exists to guarantee:
 //
 //  1. The agent sees what the user sees. `git worktree add` alone would check
-//     out HEAD, silently hiding the user's uncommitted work. We replay the
-//     dirty state into the worktree instead (tracked edits via a stash commit,
-//     untracked files by copy).
+//     out HEAD, silently hiding the user's uncommitted work. We replay a
+//     snapshot of their directory into the worktree instead — tracked edits and
+//     untracked files as one tree (captureUserSnapshot).
 //  2. The user's directory is never written to. Everything — including the
 //     sidecar context files Prepare writes — lands inside the worktree, which
-//     is disposable. The only lasting effect on the user's repo is the branch.
+//     is disposable. What lasts in the user's repo is the branch, plus one
+//     hidden ref per branch recording who owns it and what it carries.
 //  3. Nothing is silently discarded. Whatever the agent leaves uncommitted is
-//     committed to the branch before the worktree goes away.
+//     committed to the branch before the worktree goes away, and an edit of the
+//     user's that could not be merged is offered again next turn rather than
+//     recorded as delivered.
 
 const (
 	// localWorktreeDirName is the env-root-relative directory holding the
@@ -179,10 +183,6 @@ type LocalWorktree struct {
 	// task-scoped branch, or the one a busy sibling forked. Recording a
 	// snapshot for those would leave a ref nothing ever reads.
 	tracksState bool
-	// stateRecorded is true once this task's snapshot is recorded against the
-	// branch. Prepare does it as soon as the branch carries the snapshot;
-	// Finalize does it for a turn that had to resolve a conflict first.
-	stateRecorded bool
 	// aborted, when set, makes Finalize refuse to commit or remove anything.
 	// Set by the daemon when a pre-commit step failed in a way that would make
 	// the committed branch wrong (see AbortWithReason).
@@ -206,8 +206,8 @@ type LocalWorktreeOutcome struct {
 
 // PrepareLocalWorktree creates the task's worktree and replays the user's
 // uncommitted state into it. It never writes to the user's working tree: the
-// dirty state is read through `git stash create`, which builds a commit object
-// without touching the index or the files on disk.
+// snapshot is built in a private index inside the task's env root, which leaves
+// their index, their files and their refs exactly as they were.
 func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*LocalWorktree, error) {
 	if params.LocalPath == "" {
 		return nil, errors.New("execenv: local worktree requires a local path")
@@ -291,7 +291,7 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 	// The commit describing the user's directory as this task sees it — their
 	// tracked edits and their untracked files in one tree. Everything below
 	// reasons about the user's state through this single object.
-	userState, err := captureUserSnapshot(gitRoot, params.EnvRoot, headSHA, params.owner(), logger)
+	userState, err := captureUserSnapshot(gitRoot, params.EnvRoot, headSHA, logger)
 	if err != nil {
 		// Fail closed. The promise of this mode is that the agent reasons about
 		// the code the user actually has; silently starting from HEAD instead
@@ -489,7 +489,7 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 			"refusing to deliver branch %s: your local edits to %s are still unmerged in the task worktree; "+
 				"the worktree is preserved at %s (listed by `git worktree list` in %s) — resolve the conflict there, "+
 				"or re-run the task and let the agent finish the merge",
-			w.Branch, strings.Join(unmerged, ", "), w.Path, w.GitRoot)
+			w.Branch, quotedPaths(unmerged), w.Path, w.GitRoot)
 	}
 
 	// Treat "can't tell" like "dirty": committing costs an empty commit at
@@ -538,9 +538,12 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 		dropBranch(w.GitRoot, w.Branch, logger)
 		outcome.Branch = ""
 	} else {
-		// Records only what Prepare could not: a turn that started with a
-		// conflict, which the agent has now resolved and this Finalize has just
-		// committed. Everything else recorded at prepare time.
+		// Re-record against the tip this turn actually delivered. Prepare's
+		// record was written before the agent had committed anything, and a
+		// checkpoint sitting at the branch's base cannot tell this branch apart
+		// from one recreated at the same commit. This is also where a turn that
+		// started with a conflict records for the first time, now that the
+		// agent's resolution is committed.
 		w.recordState(logger)
 	}
 
@@ -761,7 +764,7 @@ func resolveGitRoot(dir string) (string, error) {
 // blob objects and that file — which is also what makes the capture immune to
 // the .git/index.lock races that used to be able to end the task (#7434): the
 // only lock taken is on our own temporary file.
-func captureUserSnapshot(gitRoot, envRoot, headSHA string, owner branchOwner, logger *slog.Logger) (string, error) {
+func captureUserSnapshot(gitRoot, envRoot, headSHA string, logger *slog.Logger) (string, error) {
 	if envRoot == "" {
 		return "", errors.New("execenv: user snapshot requires an env root to build its index in")
 	}
@@ -801,7 +804,8 @@ func captureUserSnapshot(gitRoot, envRoot, headSHA string, owner branchOwner, lo
 	// The identity args cover a repo with no user.email configured: writing a
 	// commit object needs a committer, and without them the user's uncommitted
 	// work would be dropped on a technicality.
-	args := append(commitIdentityArgs(gitRoot), "commit-tree", tree, "-p", headSHA, "-m", snapshotMessage(owner))
+	args := append(commitIdentityArgs(gitRoot), "commit-tree", tree, "-p", headSHA, "-m",
+		"multica: local directory snapshot\n\nThe tree of this commit is the user's working directory as a task saw it.")
 	snapshot, err := runGitTrimmed(gitRoot, args...)
 	if err != nil {
 		return "", fmt.Errorf("git commit-tree: %w", err)
@@ -867,28 +871,67 @@ const (
 	ownerTrailerConversation = "Multica-Conversation"
 )
 
-func snapshotMessage(owner branchOwner) string {
+// branchRecord is what refs/multica/local-state/<branch> holds: a commit whose
+// TREE is the user's directory as the branch last carried it, whose SECOND
+// PARENT is the branch tip at that moment, and whose message names the owner.
+//
+// The checkpoint is what makes the record about this BRANCH rather than merely
+// about its name. Owner alone proved only that Multica once wrote a branch
+// called this, and that stayed true after the user deleted it and created their
+// own under the same name — the next task then continued into their work
+// (MUL-6881 review). Requiring the checkpoint to still be an ancestor of the
+// tip is the continuity proof: a branch deleted and recreated, force-moved onto
+// unrelated history, or rebased no longer contains the commit recorded here.
+type branchRecord struct {
+	// state is the commit whose tree is the user snapshot the branch carries.
+	state string
+	// checkpoint is the branch tip this record was written against.
+	checkpoint string
+	owner      branchOwner
+}
+
+// writeBranchRecord records the branch as carrying userState at its current
+// tip, and points the branch's ref at that record.
+func writeBranchRecord(gitRoot, branch, userState string, owner branchOwner) (string, error) {
+	tip, err := runGitTrimmed(gitRoot, "rev-parse", "--verify", "refs/heads/"+branch)
+	if err != nil {
+		return "", fmt.Errorf("resolve branch %s: %w", branch, err)
+	}
+	args := append(commitIdentityArgs(gitRoot), "commit-tree", userState+"^{tree}",
+		"-p", userState, "-p", tip, "-m", branchRecordMessage(owner))
+	record, err := runGitTrimmed(gitRoot, args...)
+	if err != nil {
+		return "", fmt.Errorf("git commit-tree: %w", err)
+	}
+	if out, err := runGit(gitRoot, "update-ref", userStateRef(branch), record); err != nil {
+		return "", fmt.Errorf("git update-ref: %s: %w", strings.TrimSpace(out), err)
+	}
+	return record, nil
+}
+
+func branchRecordMessage(owner branchOwner) string {
 	var b strings.Builder
-	b.WriteString("multica: local directory snapshot\n\n")
-	b.WriteString("The tree of this commit is the user's working directory as a task saw it.\n")
-	b.WriteString("Recorded under refs/multica/local-state/<branch> so the next turn on that\n")
-	b.WriteString("branch can replay only what changed after it. Safe to delete along with\n")
-	b.WriteString("the branch.\n\n")
+	b.WriteString("multica: task branch record\n\n")
+	b.WriteString("Written by Multica for a local_directory task running in worktree mode. Its\n")
+	b.WriteString("tree is the user's working directory as this branch last carried it, and its\n")
+	b.WriteString("second parent is the branch tip at that moment — together they let the next\n")
+	b.WriteString("turn replay only what changed since, and prove the branch is still the one\n")
+	b.WriteString("recorded here. Safe to delete along with the branch.\n\n")
 	fmt.Fprintf(&b, "%s: %s\n", ownerTrailerWorkspace, owner.WorkspaceID)
 	fmt.Fprintf(&b, "%s: %s\n", ownerTrailerAgent, owner.AgentID)
 	fmt.Fprintf(&b, "%s: %s\n", ownerTrailerConversation, owner.ConversationID)
 	return b.String()
 }
 
-// readSnapshotOwner reads back the identity a snapshot commit was recorded
-// under. A commit without all three trailers — anything not written by this
-// code — yields a zero owner, which never matches a valid one.
-func readSnapshotOwner(gitRoot, commit string) (branchOwner, error) {
+// readBranchRecord reads back what a branch is recorded as carrying. A commit
+// without all three trailers or without a second parent — anything not written
+// by writeBranchRecord — yields a record that can never match a valid owner.
+func readBranchRecord(gitRoot, commit string) (branchRecord, error) {
 	body, err := runGitTrimmed(gitRoot, "log", "-1", "--format=%B", commit)
 	if err != nil {
-		return branchOwner{}, err
+		return branchRecord{}, err
 	}
-	var owner branchOwner
+	record := branchRecord{state: commit}
 	for _, line := range strings.Split(body, "\n") {
 		key, value, found := strings.Cut(strings.TrimSpace(line), ":")
 		if !found {
@@ -897,14 +940,17 @@ func readSnapshotOwner(gitRoot, commit string) (branchOwner, error) {
 		value = strings.TrimSpace(value)
 		switch key {
 		case ownerTrailerWorkspace:
-			owner.WorkspaceID = value
+			record.owner.WorkspaceID = value
 		case ownerTrailerAgent:
-			owner.AgentID = value
+			record.owner.AgentID = value
 		case ownerTrailerConversation:
-			owner.ConversationID = value
+			record.owner.ConversationID = value
 		}
 	}
-	return owner, nil
+	if checkpoint, err := runGitTrimmed(gitRoot, "rev-parse", "--verify", "--quiet", commit+"^2"); err == nil {
+		record.checkpoint = checkpoint
+	}
+	return record, nil
 }
 
 // addLocalWorktree creates the worktree, retrying once under a suffixed branch
@@ -1004,7 +1050,7 @@ func planForConversationBranch(gitRoot, name, headSHA string, owner branchOwner,
 		// Free to create.
 		return plan, true
 	}
-	state, owned := branchOwnedBy(gitRoot, name, owner)
+	state, owned := branchOwnedBy(gitRoot, name, owner, logger)
 	if !owned {
 		return taskBranchPlan{}, false
 	}
@@ -1024,21 +1070,35 @@ func planForConversationBranch(gitRoot, name, headSHA string, owner branchOwner,
 	return plan, true
 }
 
-// branchOwnedBy reports whether a branch is this conversation's, returning the
-// user snapshot it is recorded as already carrying.
+// branchOwnedBy reports whether a branch is still the one this conversation
+// recorded, returning the user snapshot it carries.
 //
-// A branch with no recorded state is not ours by definition: every branch this
-// code creates records one before its task is allowed to run.
-func branchOwnedBy(gitRoot, branch string, owner branchOwner) (string, bool) {
-	state, err := readUserStateRef(gitRoot, branch)
-	if err != nil || state == "" {
+// Two questions, and both have to hold. Is the record ours — workspace, agent
+// and conversation ids. And is the branch still the one it was written against
+// — the recorded checkpoint has to be an ancestor of the current tip. The
+// second is not pedantry: a branch the user deleted and recreated under the
+// same name still satisfies the first, and continuing it would append this
+// conversation onto their unrelated work.
+//
+// A branch with no record is not ours by definition: every branch this code
+// creates writes one before its task is allowed to run.
+func branchOwnedBy(gitRoot, branch string, owner branchOwner, logger *slog.Logger) (string, bool) {
+	ref, err := readUserStateRef(gitRoot, branch)
+	if err != nil || ref == "" {
 		return "", false
 	}
-	recorded, err := readSnapshotOwner(gitRoot, state)
-	if err != nil || recorded != owner {
+	record, err := readBranchRecord(gitRoot, ref)
+	if err != nil || record.owner != owner || record.checkpoint == "" {
 		return "", false
 	}
-	return state, true
+	if _, err := runGit(gitRoot, "merge-base", "--is-ancestor", record.checkpoint, "refs/heads/"+branch); err != nil {
+		if logger != nil {
+			logger.Info("execenv: branch no longer contains the commit it was recorded at; not continuing it",
+				"git_root", gitRoot, "branch", branch, "checkpoint", record.checkpoint)
+		}
+		return "", false
+	}
+	return record.state, true
 }
 
 // addLocalWorktree materialises the planned branch as a worktree and reports
@@ -1174,6 +1234,18 @@ func replayUserState(worktreePath string, plan taskBranchPlan, snapshot string, 
 	return replayResult{conflicts: conflicts}, nil
 }
 
+// quotedPaths renders repository paths for a human-facing message. Quoted
+// because a git path may contain newlines, quotes or control characters, and
+// this string is read in logs and task errors where a raw one would look like
+// several entries.
+func quotedPaths(paths []string) string {
+	quoted := make([]string, 0, len(paths))
+	for _, path := range paths {
+		quoted = append(quoted, strconv.Quote(path))
+	}
+	return strings.Join(quoted, ", ")
+}
+
 // unmergedPaths lists the files git considers unresolved in a worktree.
 func unmergedPaths(worktreePath string) ([]string, error) {
 	out, err := runGitStdout(worktreePath, "diff", "--name-only", "--diff-filter=U", "-z")
@@ -1201,8 +1273,9 @@ func abortCherryPick(worktreePath string, logger *slog.Logger) {
 	}
 }
 
-// userStateRef is where a branch records the snapshot of the user's directory
-// it already carries, and the conversation it belongs to.
+// userStateRef is where a branch's record lives: the snapshot of the user's
+// directory it already carries, the conversation it belongs to, and the tip it
+// was recorded at.
 func userStateRef(branch string) string {
 	return localStateRefPrefix + branch
 }
@@ -1213,25 +1286,28 @@ func readUserStateRef(gitRoot, branch string) (string, error) {
 	return runGitTrimmed(gitRoot, "rev-parse", "--verify", "--quiet", userStateRef(branch))
 }
 
-// recordState pins the user's directory as this task saw it, once the branch
-// actually carries it. Two things depend on the ref existing: the next turn
-// replays from it, and every later task proves the branch is its own by the
-// owner recorded in it.
+// recordState pins the user's directory as this task saw it together with the
+// branch tip it currently sits on. Two things depend on the record: the next
+// turn replays from its tree, and every later task proves the branch is still
+// its own from its owner and checkpoint.
 //
-// Best-effort on failure — losing the pointer costs the next turn its
+// Called twice in a normal turn, and both matter. Prepare records as soon as
+// the branch carries the snapshot, so a turn that dies before Finalize still
+// leaves the branch identifiable. Finalize records again, because by then the
+// agent's commits have moved the tip and a checkpoint left behind at the base
+// is no proof at all — it is exactly where a branch the user deleted and
+// recreated from HEAD would sit.
+//
+// Best-effort on failure — losing the record costs the next turn its
 // incremental replay and, at worst, a differently-named branch, never any work.
 func (w *LocalWorktree) recordState(logger *slog.Logger) {
-	if w == nil || !w.tracksState || w.stateRecorded || w.Branch == "" || w.userState == "" {
+	if w == nil || !w.tracksState || w.Branch == "" || w.userState == "" {
 		return
 	}
-	if out, err := runGit(w.GitRoot, "update-ref", userStateRef(w.Branch), w.userState); err != nil {
-		if logger != nil {
-			logger.Warn("execenv: could not record the local-directory snapshot for the task branch (non-fatal)",
-				"branch", w.Branch, "output", strings.TrimSpace(out), "error", err)
-		}
-		return
+	if _, err := writeBranchRecord(w.GitRoot, w.Branch, w.userState, w.owner); err != nil && logger != nil {
+		logger.Warn("execenv: could not record the local-directory snapshot for the task branch (non-fatal)",
+			"branch", w.Branch, "error", err)
 	}
-	w.stateRecorded = true
 }
 
 // dropBranch deletes a task branch that carries nothing worth keeping, together
