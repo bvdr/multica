@@ -510,8 +510,15 @@ func TestCustomTerminalStatusCountsAsTerminalInSQL(t *testing.T) {
 				t.Fatalf("attach to project: %v", err)
 			}
 		}
+		foreignWorkspaceID := dbfx.Workspace(t, "Foreign project stats", fmt.Sprintf("foreign-project-stats-%d", time.Now().UnixNano()))
+		dbfx.Issue(t, "foreign workspace issue with mismatched project", testutil.Cols{
+			"workspace_id": foreignWorkspaceID,
+			"project_id":   uuidToString(projectID),
+			"status":       "todo",
+		})
 
 		stats, err := testHandler.Queries.GetProjectIssueStats(ctx, db.GetProjectIssueStatsParams{
+			WorkspaceID:        parseUUID(testWorkspaceID),
 			ProjectIds:         []pgtype.UUID{projectID},
 			TerminalStatusKeys: terminalStatusKeys,
 		})

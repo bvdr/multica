@@ -128,12 +128,14 @@ SELECT project_id,
        count(*)::bigint AS total_count,
        count(*) FILTER (WHERE status = ANY($1::text[]))::bigint AS done_count
 FROM issue
-WHERE project_id = ANY($2::uuid[])
+WHERE workspace_id = $2::uuid
+  AND project_id = ANY($3::uuid[])
 GROUP BY project_id
 `
 
 type GetProjectIssueStatsParams struct {
 	TerminalStatusKeys []string      `json:"terminal_status_keys"`
+	WorkspaceID        pgtype.UUID   `json:"workspace_id"`
 	ProjectIds         []pgtype.UUID `json:"project_ids"`
 }
 
@@ -144,7 +146,7 @@ type GetProjectIssueStatsRow struct {
 }
 
 func (q *Queries) GetProjectIssueStats(ctx context.Context, arg GetProjectIssueStatsParams) ([]GetProjectIssueStatsRow, error) {
-	rows, err := q.db.Query(ctx, getProjectIssueStats, arg.TerminalStatusKeys, arg.ProjectIds)
+	rows, err := q.db.Query(ctx, getProjectIssueStats, arg.TerminalStatusKeys, arg.WorkspaceID, arg.ProjectIds)
 	if err != nil {
 		return nil, err
 	}

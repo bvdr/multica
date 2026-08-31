@@ -541,6 +541,7 @@ func (q *Queries) DetachDirectChildIssues(ctx context.Context, arg DetachDirectC
 const findActiveDuplicateIssue = `-- name: FindActiveDuplicateIssue :one
 SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number, project_id, origin_type, origin_id, first_executed_at, start_date, metadata, stage, properties, revision, last_activity_at FROM issue
 WHERE workspace_id = $1
+  -- Negate only known terminal keys so an unknown legacy key remains active.
   AND NOT (status = ANY($2::text[]))
   AND project_id IS NOT DISTINCT FROM $3::uuid
   AND parent_issue_id IS NOT DISTINCT FROM $4::uuid
@@ -602,6 +603,7 @@ func (q *Queries) FindActiveDuplicateIssue(ctx context.Context, arg FindActiveDu
 const findRecentAutopilotDuplicateIssue = `-- name: FindRecentAutopilotDuplicateIssue :one
 SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number, i.project_id, i.origin_type, i.origin_id, i.first_executed_at, i.start_date, i.metadata, i.stage, i.properties, i.revision, i.last_activity_at FROM issue i
 WHERE i.workspace_id = $1
+  -- Negate only known terminal keys so an unknown legacy key remains active.
   AND NOT (i.status = ANY($3::text[]))
   AND i.origin_type = 'autopilot'
   AND i.origin_id = $2
@@ -1215,6 +1217,7 @@ SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority,
        i.revision
 FROM issue i
 WHERE i.workspace_id = $1
+  -- Negate only known terminal keys so an unknown legacy key remains visible.
   AND NOT (i.status = ANY($2::text[]))
   AND ($3::text IS NULL OR i.priority = $3)
   AND ($4::uuid IS NULL OR i.assignee_id = $4)
@@ -1227,8 +1230,10 @@ WHERE i.workspace_id = $1
   -- must match at least one pattern from EVERY group (AND of ORs). A pattern
   -- of the shape {"__none__": "<definitionId>"} is the "no value" marker and
   -- matches when the issue's properties are missing that key. The correlated
-  -- form skips the GIN index, which is fine here: open_only is an
-  -- unpaginated workspace scan already narrowed by status.
+  -- form skips the GIN index, which is fine here: open_only is already an
+  -- unpaginated workspace scan. The terminal-status predicate intentionally
+  -- remains a filter rather than a positive index narrowing so unknown legacy
+  -- status keys stay visible.
   AND (
     $9::jsonb IS NULL
     OR NOT EXISTS (
