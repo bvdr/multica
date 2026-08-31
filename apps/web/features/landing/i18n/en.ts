@@ -294,6 +294,38 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     },
     entries: [
       {
+        version: "0.4.37",
+        date: "2026-08-31",
+        title: "More reliable WeCom bots, CodeArts runtimes, and native iPad support",
+        changes: [],
+        features: [
+          "Self-hosted WeCom bots reply reliably, even with several servers running.",
+          "When a WeCom reply doesn't land, you can now see why.",
+          "You can now build a custom runtime on Huawei Cloud CodeArts.",
+          "CodeArts runs pick up past sessions and use MCP and local Skills.",
+          "Multica installs natively on iPad and works in both orientations.",
+        ],
+        improvements: [
+          "Issue lists and agent Skills load faster.",
+          "Self-hosted servers do less background work and stay lighter.",
+          "The web service keeps responding even when a connection stalls.",
+          "Agent output no longer hides parts of your paths by mistake.",
+          "Chinese, Japanese, and Korean screens read consistently, with no gaps left.",
+        ],
+        fixes: [
+          "The Analytics leaderboard scrolls sideways in narrow windows.",
+          "Codex sessions no longer fail while starting up.",
+          "Chat stays on the newest reply, with no jumping or flicker.",
+          "A local Skill request wakes your background app instead of failing.",
+          "The desktop app brings the background app back after it stops unexpectedly.",
+          "The Issue header on mobile is tighter, with avatars still easy to tap.",
+          "Upgrades from older self-hosted versions no longer get stuck.",
+          "Pi and Oh My Pi sessions survive a change of working folder.",
+          "Deleting a workspace now lists only what actually gets removed.",
+          "Long-running and queued tasks are no longer cancelled by mistake.",
+        ],
+      },
+      {
         version: "0.4.36",
         date: "2026-08-28",
         title: "Custom property filters, Skill imports, and MCP for Oh My Pi",
