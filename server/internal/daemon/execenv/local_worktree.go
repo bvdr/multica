@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -204,6 +205,64 @@ type LocalWorktree struct {
 	// Set by the daemon when a pre-commit step failed in a way that would make
 	// the committed branch wrong (see AbortWithReason).
 	aborted error
+}
+
+// MarshalJSON / UnmarshalJSON carry this struct's unexported state across the
+// preparation helper boundary.
+//
+// Prepare runs in a short-lived helper process (PrepareIsolated) and the
+// Environment it built comes back to the daemon as JSON, so everything Finalize
+// needs has to be on the wire. Ordinary struct marshalling drops unexported
+// fields silently: the daemon then finalized a worktree whose owner, snapshot
+// and tracksState were all zero, which turned every proof this file makes into
+// a no-op — no delivery verification, no record of the delivered tip, and a
+// read-only turn keeping its branch. Nothing failed; the guarantees were simply
+// absent in production while every in-process test still passed.
+//
+// aborted is deliberately NOT carried: it is set by the daemon after Prepare
+// returns (AbortWithReason), so it belongs to the parent process only.
+func (w *LocalWorktree) MarshalJSON() ([]byte, error) {
+	type wire LocalWorktree
+	return json.Marshal(struct {
+		*wire
+		CreatedBranch   bool        `json:"created_branch"`
+		UserState       string      `json:"user_state"`
+		PriorState      string      `json:"prior_state"`
+		Owner           branchOwner `json:"owner"`
+		TracksState     bool        `json:"tracks_state"`
+		SnapshotPending bool        `json:"snapshot_pending"`
+	}{
+		wire:            (*wire)(w),
+		CreatedBranch:   w.createdBranch,
+		UserState:       w.userState,
+		PriorState:      w.priorState,
+		Owner:           w.owner,
+		TracksState:     w.tracksState,
+		SnapshotPending: w.snapshotPending,
+	})
+}
+
+func (w *LocalWorktree) UnmarshalJSON(data []byte) error {
+	type wire LocalWorktree
+	aux := struct {
+		*wire
+		CreatedBranch   bool        `json:"created_branch"`
+		UserState       string      `json:"user_state"`
+		PriorState      string      `json:"prior_state"`
+		Owner           branchOwner `json:"owner"`
+		TracksState     bool        `json:"tracks_state"`
+		SnapshotPending bool        `json:"snapshot_pending"`
+	}{wire: (*wire)(w)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	w.createdBranch = aux.CreatedBranch
+	w.userState = aux.UserState
+	w.priorState = aux.PriorState
+	w.owner = aux.Owner
+	w.tracksState = aux.TracksState
+	w.snapshotPending = aux.SnapshotPending
+	return nil
 }
 
 // LocalWorktreeOutcome is what a finished worktree task delivered.

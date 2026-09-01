@@ -1,6 +1,7 @@
 package execenv
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func worktreeTestLogger() *slog.Logger {
@@ -1968,4 +1970,125 @@ func TestPrepareTwoTurnsOfOneIssueThroughPrepare(t *testing.T) {
 			other.LocalWorktree.Branch, other.LocalWorktree.Continued)
 	}
 	finalizeOK(t, other.LocalWorktree)
+}
+
+// Production never prepares in the daemon's own process: PrepareIsolated runs
+// Prepare in a helper and the Environment comes back as JSON. Every guarantee
+// Finalize makes depends on state this struct keeps unexported, and ordinary
+// marshalling drops those fields without a word — the daemon then finalized a
+// worktree it believed it owned nothing of. This test runs two turns across
+// that boundary, which is where the in-process tests above cannot look.
+func TestIsolatedPrepareCarriesTheStateFinalizeNeeds(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
+	workspacesRoot := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	turn := func(taskID string) *Environment {
+		t.Helper()
+		env, err := PrepareIsolated(ctx, preparationHelperTestCommand(), PrepareParams{
+			WorkspacesRoot:  workspacesRoot,
+			WorkspaceID:     testBranchOwner.WorkspaceID,
+			TaskID:          taskID,
+			IssueIdentifier: "MUL-6881",
+			Provider:        "claude",
+			AgentName:       "J",
+			Task: TaskContextForEnv{
+				IssueID: testBranchOwner.ConversationID,
+				AgentID: testBranchOwner.AgentID,
+			},
+			LocalWorktree: &LocalWorktreeParams{LocalPath: repo},
+		}, worktreeTestLogger())
+		if err != nil {
+			t.Fatalf("PrepareIsolated(%s): %v", taskID, err)
+		}
+		return env
+	}
+
+	first := turn(turnOneTask)
+	wt := first.LocalWorktree
+	if wt.Branch != "agent/j/mul-6881" {
+		t.Fatalf("branch = %q", wt.Branch)
+	}
+	// The proofs Finalize makes all hang off state that crosses as JSON.
+	if !wt.tracksState || wt.userState == "" || wt.owner != testBranchOwner || !wt.createdBranch {
+		t.Fatalf("state lost crossing the helper boundary: tracksState=%v userState=%q owner=%+v createdBranch=%v",
+			wt.tracksState, wt.userState, wt.owner, wt.createdBranch)
+	}
+
+	writeFile(t, filepath.Join(wt.WorkDir, "agent.txt"), "work from turn one\n")
+	finalizeOK(t, wt)
+
+	// Finalize's record is the observable proof it had the state: the checkpoint
+	// must be the tip it delivered, not the baseline Prepare recorded.
+	delivered := gitRun(t, repo, "rev-parse", "agent/j/mul-6881")
+	ref, err := readUserStateRef(repo, "agent/j/mul-6881")
+	if err != nil {
+		t.Fatalf("readUserStateRef: %v", err)
+	}
+	record, err := readBranchRecord(repo, ref)
+	if err != nil {
+		t.Fatalf("readBranchRecord: %v", err)
+	}
+	if record.checkpoint != delivered {
+		t.Errorf("checkpoint = %s, want the delivered tip %s", record.checkpoint, delivered)
+	}
+	if record.owner != testBranchOwner {
+		t.Errorf("record owner = %+v, want %+v", record.owner, testBranchOwner)
+	}
+
+	// And the continuation the whole feature is for still holds across it.
+	second := turn(turnTwoTask)
+	if !second.LocalWorktree.Continued || second.LocalWorktree.Branch != "agent/j/mul-6881" {
+		t.Fatalf("turn two: branch = %q continued = %v", second.LocalWorktree.Branch, second.LocalWorktree.Continued)
+	}
+	if _, err := os.Stat(filepath.Join(second.WorkDir, "agent.txt")); err != nil {
+		t.Errorf("turn two does not carry turn one's work: %v", err)
+	}
+	finalizeOK(t, second.LocalWorktree)
+}
+
+// A read-only turn drops its branch — which the daemon could not do either
+// while createdBranch was being lost on the way back from the helper.
+func TestIsolatedPrepareKeepsTheReadOnlyBranchDrop(t *testing.T) {
+	repo := newTestRepo(t)
+	workspacesRoot := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	env, err := PrepareIsolated(ctx, preparationHelperTestCommand(), PrepareParams{
+		WorkspacesRoot:  workspacesRoot,
+		WorkspaceID:     testBranchOwner.WorkspaceID,
+		TaskID:          turnOneTask,
+		IssueIdentifier: "MUL-6881",
+		Provider:        "claude",
+		AgentName:       "J",
+		Task: TaskContextForEnv{
+			IssueID: testBranchOwner.ConversationID,
+			AgentID: testBranchOwner.AgentID,
+		},
+		LocalWorktree: &LocalWorktreeParams{LocalPath: repo},
+	}, worktreeTestLogger())
+	if err != nil {
+		t.Fatalf("PrepareIsolated: %v", err)
+	}
+
+	// The daemon strips its own sidecars before finalizing; without that they
+	// are untracked files in the worktree and every turn looks like it produced
+	// something.
+	if err := CleanupRuntimeConfig(env.WorkDir, "claude"); err != nil {
+		t.Fatalf("CleanupRuntimeConfig: %v", err)
+	}
+	if err := CleanupSidecars(env.RootDir); err != nil {
+		t.Fatalf("CleanupSidecars: %v", err)
+	}
+
+	outcome := finalizeOK(t, env.LocalWorktree)
+	if outcome.Branch != "" {
+		t.Errorf("read-only turn reported branch %q", outcome.Branch)
+	}
+	if _, err := gitTry(t, repo, "rev-parse", "--verify", "agent/j/mul-6881"); err == nil {
+		t.Error("a turn that changed nothing left its branch behind")
+	}
 }
