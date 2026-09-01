@@ -111,6 +111,10 @@ const (
 	// decouples the two — the cadence is enforced by the shared cooldown, while
 	// the poll only decides how promptly a live replica notices. A poll that
 	// loses costs one Redis SETNX and touches no database.
+	//
+	// It is therefore also the second term of
+	// delegatedFailureRecoveryWorstCaseHandoff: the finer it is, the sooner a
+	// surviving replica picks up a window whose previous holder died.
 	delegatedFailureRecoveryPollInterval = time.Minute
 	// delegatedFailureRecoveryLeaseTTL is how long the admission survives
 	// WITHOUT a renewal, not how long a round may take. Because the lease is
@@ -124,6 +128,29 @@ const (
 	// (a GC pause, a brief Redis blip) to be retried before the TTL runs out,
 	// so it stays at a third of it.
 	delegatedFailureRecoveryLeaseRenew = 10 * time.Second
+	// delegatedFailureRecoveryWorstCaseHandoff is how long a stranded
+	// obligation can go unrepaired in the worst case, and it is the SUM of the
+	// two waits above rather than the cadence alone.
+	//
+	// The path that produces it: a replica completes a round, converts its
+	// admission into the cadence cooldown, and then dies. The cooldown is
+	// global and outlives it, so nobody may start the next round until the
+	// window reopens a cadence later; the replica that takes over only notices
+	// that it reopened on its next poll. Cadence + poll = 6m, and no shorter
+	// bound is available while the cooldown is what enforces the global rate.
+	//
+	// Confirmed acceptable for MUL-6883 rather than derived from an SLA. What
+	// this bound governs is a double fault: a dispatch lost after its recovery
+	// comment committed, AND no process restart afterwards — a restart runs the
+	// scan immediately, and that is the dominant shape of the failure this
+	// repairs. Every other route to a recovery is unchanged and still
+	// immediate, and the 30 seconds this replaced was a side effect of sharing
+	// the liveness tick, never a requirement of the repair.
+	//
+	// Tightening it is a one-line change to the poll: the poll costs one Redis
+	// SETNX per replica and touches no database, so 30s of poll would buy a
+	// 5m30s bound. It was not taken because nothing is waiting on this path.
+	delegatedFailureRecoveryWorstCaseHandoff = delegatedFailureRecoverySweepCadence + delegatedFailureRecoveryPollInterval
 	// delegatedFailureRecoveryBatchSize bounds the durable recovery-outbox
 	// replay so a historical backlog cannot monopolise one round.
 	delegatedFailureRecoveryBatchSize = 100
@@ -216,12 +243,19 @@ func runRuntimeGCSweeper(ctx context.Context, txStarter runtimeGCTxStarter, quer
 //
 // Two changes replace that cadence. The scan runs once at startup, because a
 // process that just started is precisely the aftermath of the exit this repairs
-// and is when a stranded obligation is most likely to exist. It then runs every
-// five minutes, gated so one replica per round does the work.
+// and is when a stranded obligation is most likely to exist. It then runs on a
+// five-minute global cadence, gated so one round per window runs across the
+// whole deployment rather than one per replica.
 //
 // The tradeoff is the worst-case age of an obligation stranded by a crash that
-// is NOT followed by a restart: previously 30 seconds, now five minutes. Every
-// other path to a recovery is unchanged and still immediate.
+// is NOT followed by a restart: previously 30 seconds, now
+// delegatedFailureRecoveryWorstCaseHandoff — the five-minute cooldown a dead
+// holder leaves standing, plus the poll its successor needs to notice the
+// window reopened. That is six minutes, not five; the derivation and the
+// decision to accept it are recorded on that constant, and
+// TestWorstCaseRecoveryHandoffIsTheConfirmedBound fails if either input drifts
+// away from it. Every other path to a recovery is unchanged and still
+// immediate.
 func runDelegatedFailureRecoverySweeper(ctx context.Context, taskSvc *service.TaskService, lease sweepLease) {
 	runLeasedSweep(ctx, delegatedFailureRecoveryPollInterval, delegatedFailureRecoverySweepCadence, lease, func() {
 		sweepPendingDelegatedFailureRecoveries(ctx, taskSvc)

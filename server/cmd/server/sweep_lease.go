@@ -37,6 +37,13 @@ type sweepLease interface {
 	// finish(false) means it was cut short — a shutdown mid-round — and hands
 	// the window back so another replica can cover it immediately. Both stay
 	// safe to call after the caller's context is cancelled.
+	//
+	// The cooldown is shared state, so it deliberately outlives the replica
+	// that set it: a holder that dies right after completing a round keeps
+	// everyone else out for the rest of that window. That is the cost of making
+	// the cadence global, and it is what makes the caller's worst-case handoff
+	// a cadence plus a poll rather than a cadence
+	// (delegatedFailureRecoveryWorstCaseHandoff records the accepted bound).
 	Acquire(ctx context.Context) (finish func(completed bool), ok bool)
 }
 

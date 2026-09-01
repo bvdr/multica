@@ -141,6 +141,88 @@ func TestDelegatedFailureRecoveryLeaseTimings(t *testing.T) {
 	}
 }
 
+// The bound is six minutes, not the five the cadence suggests, and that is
+// accepted rather than papered over (MUL-6883). Pin the composition so that
+// moving either input has to move the recorded decision with it: a holder that
+// dies straight after a round leaves a cadence-long cooldown behind, and its
+// successor only notices the reopening on its next poll.
+func TestWorstCaseRecoveryHandoffIsTheConfirmedBound(t *testing.T) {
+	const confirmed = 6 * time.Minute
+	if delegatedFailureRecoveryWorstCaseHandoff != confirmed {
+		t.Fatalf("worst-case handoff = %s, but %s is what was confirmed as acceptable",
+			delegatedFailureRecoveryWorstCaseHandoff, confirmed)
+	}
+	if got := delegatedFailureRecoverySweepCadence + delegatedFailureRecoveryPollInterval; got != delegatedFailureRecoveryWorstCaseHandoff {
+		t.Fatalf("cadence %s + poll %s = %s, which no longer matches the documented bound %s",
+			delegatedFailureRecoverySweepCadence, delegatedFailureRecoveryPollInterval,
+			got, delegatedFailureRecoveryWorstCaseHandoff)
+	}
+}
+
+// What makes that bound a cadence plus a POLL rather than a cadence plus a
+// cadence: the successor is watching finer than the rate it is enforcing. A
+// replica ticking at the cadence would miss a reopening it fell a hair short of
+// and wait out another full window — which is the shape this measures, by
+// setting the successor's phase just before the cooldown begins.
+func TestDeadHolderHandsOverWithinOnePollOfTheCooldown(t *testing.T) {
+	const (
+		cooldown = 400 * time.Millisecond
+		poll     = 60 * time.Millisecond
+		// Scheduler slack only. The bound under test is cooldown + poll; a
+		// cadence-ticking successor would need up to cooldown + cooldown.
+		slack = 120 * time.Millisecond
+	)
+
+	for attempt := range 3 {
+		shared := &cadenceLease{cooldown: cooldown}
+		finishA, ok := (replicaLease{shared: shared, name: "replica-a"}).Acquire(context.Background())
+		if !ok {
+			t.Fatalf("attempt %d: the first replica could not acquire", attempt)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		swept := make(chan time.Time, 1)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			runLeasedSweep(ctx, poll, cooldown, replicaLease{shared: shared, name: "replica-b"}, func() {
+				select {
+				case swept <- time.Now():
+				default:
+				}
+			})
+		}()
+		// B's startup attempt is refused while A still holds the round, so B's
+		// poll phase is fixed just before the cooldown starts.
+		time.Sleep(2 * time.Millisecond)
+		completedAt := time.Now()
+		// A completes and is then never heard from again: its cooldown is
+		// shared state and outlives it.
+		finishA(true)
+
+		var sweptAt time.Time
+		select {
+		case sweptAt = <-swept:
+		case <-time.After(cooldown + poll + slack + time.Second):
+			cancel()
+			<-done
+			t.Fatalf("attempt %d: the window was never picked up after its holder stopped", attempt)
+		}
+		cancel()
+		<-done
+
+		delay := sweptAt.Sub(completedAt)
+		if delay < cooldown {
+			t.Fatalf("attempt %d: the next round started %s after the last one, inside the %s cooldown",
+				attempt, delay, cooldown)
+		}
+		if delay > cooldown+poll+slack {
+			t.Fatalf("attempt %d: handover took %s, past the cooldown plus one poll (%s)",
+				attempt, delay, cooldown+poll)
+		}
+	}
+}
+
 // The point of the gate: the number of scans the deployment performs must be
 // set by the cadence, not by how many replicas are running. Deleting the key at
 // the end of a round would satisfy the concurrency test below and still fail
