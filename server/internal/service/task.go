@@ -5866,20 +5866,26 @@ const (
 // sweeper tick. Without it the outbox scan grows with total history even when
 // it returns nothing.
 //
-// INVARIANT: every path that moves tasks to a terminal status must reach this,
-// or the rows it strands stay in the index forever and the index reacquires the
-// unbounded growth it exists to remove. Per-task terminal writes call it inside
-// their transaction; bulk cancellations call it with their own qtx, or through
-// CaptureCancelledTasks when they finalize outside one.
+// INVARIANT: every path that moves tasks to a terminal status must reach this
+// with the same qtx as the terminal write — per-task writes and bulk
+// cancellations alike, so the marker commits atomically with the status change
+// or not at all. A row stranded by a committed-but-unsettled terminal write
+// cannot be repaired later: ListPendingDelegatedFailureRecoveries excludes a
+// comment whose covering task is already terminal and holds its receipt, so
+// nothing replays the settlement and nothing else marks it, and the index
+// reacquires the unbounded growth it exists to remove.
+//
+// For the same reason the post-commit helpers — BroadcastCancelledTasks,
+// CaptureCancelledTasks, HandleFailedTasks — must never call this: they run
+// after their caller has committed, where a failure here can neither roll back
+// nor be compensated. Do not reintroduce a best-effort settlement outside the
+// transaction; the old one was deleted, not kept.
 //
 // Call this only once the task is terminal. A dispatched task's receipt is
 // still replaceable (SetTaskDeliveredCommentIDs), so settling earlier would
 // freeze a legitimate reclaim window into a permanently lost recovery.
-//
-// Pass the same qtx as the terminal write to make the marker atomic with it;
-// bulk cancellations that already finalize outside a transaction pass
-// s.Queries and log instead. An unmarked row is the safe direction — it is
-// scanned exactly as it was before this marker existed.
+// SettleDelegatedFailureRecoveriesForTask re-checks the terminal status in SQL,
+// so a mistaken early call updates nothing rather than losing a recovery.
 //
 // A task with no delivery receipt — nearly every task — costs a slice length
 // check and no query.

@@ -323,8 +323,13 @@ func TestBulkCancelRollsBackWhenSettlementFails(t *testing.T) {
 		FOR EACH ROW EXECUTE FUNCTION reject_recovery_settlement()`); err != nil {
 		t.Fatalf("install settlement trigger: %v", err)
 	}
+	// Drop the function as well as the trigger: the test database is shared, so
+	// a leftover reject_recovery_settlement() would outlive this test and stay
+	// attachable to comment by any later run.
 	t.Cleanup(func() {
-		_, _ = f.pool.Exec(context.Background(), `DROP TRIGGER IF EXISTS reject_recovery_settlement ON comment`)
+		cleanupCtx := context.Background()
+		_, _ = f.pool.Exec(cleanupCtx, `DROP TRIGGER IF EXISTS reject_recovery_settlement ON comment`)
+		_, _ = f.pool.Exec(cleanupCtx, `DROP FUNCTION IF EXISTS reject_recovery_settlement()`)
 	})
 
 	agentID, err := util.ParseUUID(f.coordinator)
