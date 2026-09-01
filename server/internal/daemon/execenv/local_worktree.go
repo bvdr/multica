@@ -148,8 +148,18 @@ type LocalWorktree struct {
 	WorkDir string
 	// Branch is the branch created for this task, in the user's repo.
 	Branch string
-	// BaseCommit is the commit the worktree started from. Finalize compares
-	// the branch tip against it to decide whether the task produced anything.
+	// BaseCommit is the commit the worktree started from — this turn's baseline
+	// when one was committed, otherwise the branch tip it continued. Finalize
+	// compares the delivered tip against it twice: to decide whether the task
+	// produced anything, and to decide whether it may be recorded at all.
+	//
+	// It is the strongest commit this turn can point at, which is why the second
+	// question uses it rather than the checkpoint an earlier turn recorded. That
+	// checkpoint is only an ancestor of it: the user may have committed on the
+	// delivered branch since, and this turn's own baseline sits later still.
+	// Measuring against the older commit let a run reset away everything this
+	// turn replayed and still be recorded as having delivered it, which is how
+	// the user's edits went missing from the turn after (MUL-6881 review).
 	BaseCommit string
 	// DirtyBaseCaptured records that the user had uncommitted tracked edits
 	// which were replayed into the worktree.
@@ -183,19 +193,6 @@ type LocalWorktree struct {
 	// task-scoped branch, or the one a busy sibling forked. Recording a
 	// snapshot for those would leave a ref nothing ever reads.
 	tracksState bool
-	// anchor is the newest commit known to carry userState into the branch: the
-	// baseline this prepare committed, or — when there was nothing to commit —
-	// the checkpoint a previous turn recorded and this one verified. Finalize
-	// refuses to record a delivery that no longer contains it.
-	//
-	// It proves two different things, which is why it has to track the LATEST
-	// such commit rather than any one of them. A tip without it is a commit the
-	// user could equally be sitting at, so recording one would let a branch they
-	// recreate under the same name pass the ownership check. And a tip without
-	// it no longer carries the snapshot this turn is about to record as
-	// delivered, so the next turn would compute its replay from a state the
-	// branch never took and the user's edits would go missing (MUL-6881 review).
-	anchor string
 	// priorState is the snapshot the branch carried when this turn started, and
 	// the one to record when this turn could not get its own into the branch.
 	priorState string
@@ -339,7 +336,6 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 		userState:     userState,
 		priorState:    plan.priorState,
 		owner:         plan.owner,
-		anchor:        plan.priorCheckpoint,
 		// A branch a sibling task forked because the conversation's own branch
 		// was busy is delivered once and never continued, so it records nothing.
 		tracksState: plan.tracksState && actualBranch == plan.name,
@@ -412,13 +408,9 @@ func PrepareLocalWorktree(params LocalWorktreeParams, logger *slog.Logger) (*Loc
 				rollback()
 				return nil, fmt.Errorf("execenv: could not record a baseline commit for the replayed state of %q: %w", gitRoot, baseErr)
 			}
-			// This commit exists only because this task made it, and it is the
-			// commit that carries the snapshot into the branch — so it replaces
-			// whatever the previous turn left as the anchor. Keeping the older
-			// one would let a run reset away this turn's baseline and still be
-			// recorded as having delivered the user's newest edits.
+			// The branch now stands on a commit that carries this turn's snapshot,
+			// and everything downstream measures the delivery against it.
 			wt.BaseCommit = baseline
-			wt.anchor = baseline
 		}
 		// The branch now carries this snapshot, so record it — together with the
 		// owner, which is what lets the next task prove this branch is its own
@@ -569,17 +561,18 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 	dropped := !producedWork && w.createdBranch
 
 	// A turn that started mid-merge only gets to advance the branch's recorded
-	// state if it committed something after resolving. When the branch never
-	// moved, nothing distinguishes "the agent resolved in favour of the version
-	// already on the branch" from "the agent threw the merge away" — the tree is
-	// identical either way — so the record keeps the state the branch is known
-	// to carry, and the next turn offers the user's edits again.
+	// state if it committed something after resolving. When the branch is still
+	// where THIS turn found it, nothing distinguishes "the agent resolved in
+	// favour of the version already on the branch" from "the agent threw the
+	// merge away" — the tree is identical either way — so the record keeps the
+	// state the branch is known to carry, and the next turn offers the user's
+	// edits again.
 	//
 	// The cost is a merge the agent may have to conclude more than once, in the
 	// one case where its conclusion left no trace. The alternative is recording
 	// edits as delivered that may have been discarded, which is how they go
 	// missing without anyone seeing it.
-	if w.snapshotPending && tip == w.anchor {
+	if w.snapshotPending && tip == w.BaseCommit {
 		if w.priorState == "" {
 			outcome.Branch = ""
 			outcome.PreservedPath = w.Path
@@ -607,7 +600,7 @@ func (w *LocalWorktree) Finalize(logger *slog.Logger) (LocalWorktreeOutcome, err
 			outcome.PreservedPath = w.Path
 			if logger != nil {
 				logger.Error("execenv: the run's delivery point cannot be recorded as this conversation's; nothing recorded, worktree kept",
-					"path", w.Path, "branch", w.Branch, "git_root", w.GitRoot, "tip", tip, "anchor", w.anchor, "error", verifyErr)
+					"path", w.Path, "branch", w.Branch, "git_root", w.GitRoot, "tip", tip, "base", w.BaseCommit, "error", verifyErr)
 			}
 			return outcome, fmt.Errorf(
 				"refusing to record branch %s: %w; the task worktree is preserved at %s (listed by `git worktree list` in %s) — "+
@@ -708,7 +701,7 @@ func (w *LocalWorktree) AbortWithReason(err error) {
 // A new branch gets one even with nothing to record. The commit is then empty,
 // and that is the point: it is the branch's first commit of its own, the thing
 // that makes it distinguishable later from a branch the user creates at the
-// same place — see LocalWorktree.anchor.
+// same place — see LocalWorktree.BaseCommit.
 func commitBaseline(worktreePath string, continued, dirty bool) (string, error) {
 	message := "chore(agent): baseline — uncommitted work from the local directory"
 	switch {
@@ -1083,8 +1076,9 @@ type taskBranchPlan struct {
 	// turn's replay.
 	priorState string
 	// priorCheckpoint is the commit that branch was recorded at and still
-	// contains — this turn's proof that the branch is the conversation's, and
-	// the anchor it has to keep carrying.
+	// contains — this turn's proof that the branch is the conversation's. The
+	// branch tip this turn starts from descends from it, so everything after
+	// prepare measures against that tip instead.
 	priorCheckpoint string
 	// reset is true when the conversation's branch exists but is fully merged
 	// into HEAD, and this task restarts it there.
@@ -1370,11 +1364,13 @@ func quotedPaths(paths []string) string {
 // something other than what this task built. The tip has to BE the task's
 // branch — a run that checked out something else, or a branch someone moved
 // underneath it, delivers a commit this record has no business describing. And
-// it has to still contain the anchor: the baseline this prepare committed, or
-// the checkpoint the previous turn recorded. A run that resets its worktree back
-// to the user's own HEAD passes neither test but the second is the one that
-// matters — recording a plain user commit as the checkpoint is exactly what
-// makes a branch they later recreate there look like ours (MUL-6881 review).
+// it has to still contain the commit this turn started from — this turn's own
+// baseline when it made one, otherwise the branch tip it continued. A run that
+// resets its worktree back to the user's own HEAD passes neither test but the
+// second is the one that matters, twice over: recording a plain user commit as
+// the checkpoint is what makes a branch they later recreate there look like
+// ours, and a tip without this turn's starting point no longer carries the
+// snapshot about to be recorded as delivered (MUL-6881 review).
 func (w *LocalWorktree) verifyDeliveryPoint(tip string) error {
 	if !w.tracksState {
 		// Nothing will be recorded for this branch, so there is nothing to prove.
@@ -1391,12 +1387,12 @@ func (w *LocalWorktree) verifyDeliveryPoint(tip string) error {
 		return fmt.Errorf("the worktree delivered %s while branch %s points at %s, so the run did not deliver onto its own branch",
 			shortID(tip), w.Branch, shortID(branchTip))
 	}
-	if w.anchor == "" {
+	if w.BaseCommit == "" {
 		return fmt.Errorf("branch %s has no commit of this task's own to prove it by", w.Branch)
 	}
-	if _, err := runGit(w.GitRoot, "merge-base", "--is-ancestor", w.anchor, tip); err != nil {
-		return fmt.Errorf("the delivered commit %s no longer contains %s, the commit this branch started from",
-			shortID(tip), shortID(w.anchor))
+	if _, err := runGit(w.GitRoot, "merge-base", "--is-ancestor", w.BaseCommit, tip); err != nil {
+		return fmt.Errorf("the delivered commit %s no longer contains %s, the commit this turn started from",
+			shortID(tip), shortID(w.BaseCommit))
 	}
 	return nil
 }

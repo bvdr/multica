@@ -1847,3 +1847,63 @@ func TestConflictResolvedWithoutACommitDoesNotAdvanceTheRecord(t *testing.T) {
 	}
 	finalizeAndDiscardForTest(t, third)
 }
+
+// The user committing on a delivered branch is supported, so a later turn can
+// start well past the checkpoint the previous one recorded. What tells that
+// turn whether its own merge landed is where IT started, not that older
+// checkpoint: measuring against the checkpoint let a resolution that committed
+// nothing count as delivered, and the user's local edit then went missing from
+// the turn after.
+func TestConflictAfterAUserCommitOnTheBranchStillOffersTheEditAgain(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
+
+	first := prepareTurn(t, repo, "MUL-6881", turnOneTask)
+	writeFile(t, filepath.Join(first.WorkDir, "tracked.txt"), "rewritten by the agent\n")
+	finalizeOK(t, first)
+	recordedAfterFirst := gitRun(t, repo, "rev-parse", userStateRef("agent/j/mul-6881"))
+
+	// The user reviews the branch and commits on top of it — the documented,
+	// supported case. The branch tip now sits past the recorded checkpoint.
+	worktree := filepath.Join(t.TempDir(), "review")
+	gitRun(t, repo, "worktree", "add", "--quiet", worktree, "agent/j/mul-6881")
+	writeFile(t, filepath.Join(worktree, "review.txt"), "the user's own commit on the branch\n")
+	gitRun(t, worktree, "add", "-A")
+	gitRun(t, worktree, "commit", "-m", "the user's tweak on the agent's branch")
+	gitRun(t, repo, "worktree", "remove", "--force", worktree)
+	movedTip := gitRun(t, repo, "rev-parse", "agent/j/mul-6881")
+
+	// And in their own directory they rewrite the same line the agent did, so
+	// the next turn starts mid-merge.
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "rewritten by the user instead\n")
+
+	second := prepareTurn(t, repo, "MUL-6881", turnTwoTask)
+	if !second.Continued {
+		t.Fatal("second turn did not continue the branch the user had committed on")
+	}
+	if second.BaseCommit != movedTip {
+		t.Fatalf("second turn base = %s, want the branch tip the user left %s", second.BaseCommit, movedTip)
+	}
+	if len(second.ReplayConflicts) == 0 {
+		t.Fatal("second turn saw no conflict")
+	}
+	// The agent resolves in favour of what the branch already had: nothing to
+	// commit, so the branch stays exactly where this turn found it.
+	writeFile(t, filepath.Join(second.WorkDir, "tracked.txt"), "rewritten by the agent\n")
+	gitRun(t, second.Path, "add", "tracked.txt")
+	finalizeOK(t, second)
+	if got := gitRun(t, repo, "rev-parse", "agent/j/mul-6881"); got != movedTip {
+		t.Fatalf("branch moved to %s, want %s — the turn committed nothing", got, movedTip)
+	}
+	if got := gitRun(t, repo, "rev-parse", userStateRef("agent/j/mul-6881")); got == recordedAfterFirst {
+		t.Error("the turn recorded nothing at all; it should have re-recorded the state the branch carries")
+	}
+
+	// The edit was never committed anywhere, so the third turn has to offer it
+	// again rather than treat it as delivered.
+	third := prepareTurn(t, repo, "MUL-6881", turnThreeTask)
+	if len(third.ReplayConflicts) == 0 {
+		t.Error("the user's local edit was recorded as delivered even though no commit carried it")
+	}
+	finalizeAndDiscardForTest(t, third)
+}
