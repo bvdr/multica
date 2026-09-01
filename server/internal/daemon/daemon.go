@@ -301,6 +301,11 @@ type workspaceState struct {
 	settings        json.RawMessage              // workspace settings (JSONB)
 	lastRepoSyncErr string
 	repoRefreshMu   contextLock
+	// coAuthorPublishMu serializes publication of the Co-authored-by verdict
+	// for this workspace. Unlike the fields above it is NOT guarded by
+	// Daemon.mu: it exists precisely so the verdict can be read and written as
+	// one step without holding the daemon's central lock across file I/O.
+	coAuthorPublishMu sync.Mutex
 	// profileSetSig is a content hash of the workspace's custom runtime
 	// profile list (MUL-3332) as last seen from the server. An on-demand
 	// refresh compares the live signature with this cached value; any drift
@@ -3213,28 +3218,59 @@ func (d *Daemon) refreshWorkspaceRepos(ctx context.Context, workspaceID string) 
 	return resp, nil
 }
 
+// coAuthoredByPublisher is the repo cache's half of the Co-authored-by wiring:
+// the state file every installed hook reads at commit time, and the hooks
+// themselves in the workspace's bare caches. Optional so test daemons can run
+// with a minimal repoCacheBackend.
+type coAuthoredByPublisher interface {
+	WriteCoAuthoredByState(workspaceID string, enabled bool) error
+	ReconcileCoAuthoredByHooks(workspaceID string, enabled bool) error
+}
+
 // persistCoAuthoredByState records the workspace's current Co-authored-by
-// verdict where the installed prepare-commit-msg hooks can see it. Called
-// after every settings refresh; best-effort, since a failed write only leaves
-// the previous value in place.
+// verdict where the installed prepare-commit-msg hooks can see it, and brings
+// hooks written by earlier daemon releases — which read no state at all — in
+// line with it. Called after every settings refresh and on every workspace
+// sync; best-effort, since a failed write only leaves the previous value in
+// place.
+//
+// The daemon is the only writer of this state, and publishes under a
+// per-workspace lock with the verdict read INSIDE that lock. Two publishers
+// racing (a settings refresh and a sync tick, say) therefore serialize, and the
+// one that writes last is the one that read last — a publisher that started
+// before a settings update can never overwrite the value that update produced.
 func (d *Daemon) persistCoAuthoredByState(workspaceID string) {
 	if d.repoCache == nil || workspaceID == "" {
 		return
 	}
-	writer, ok := d.repoCache.(interface {
-		WriteCoAuthoredByState(workspaceID string, enabled bool) error
-	})
+	cache, ok := d.repoCache.(coAuthoredByPublisher)
 	if !ok {
 		return
 	}
-	if err := writer.WriteCoAuthoredByState(workspaceID, d.workspaceCoAuthoredByEnabled(workspaceID)); err != nil {
+
+	d.mu.Lock()
+	ws := d.workspaces[workspaceID]
+	d.mu.Unlock()
+	if ws == nil {
+		return
+	}
+
+	ws.coAuthorPublishMu.Lock()
+	defer ws.coAuthorPublishMu.Unlock()
+
+	enabled := d.workspaceCoAuthoredByEnabled(workspaceID)
+	if err := cache.WriteCoAuthoredByState(workspaceID, enabled); err != nil {
 		d.logger.Warn("record co-authored-by state failed", "workspace_id", workspaceID, "error", err)
+	}
+	if err := cache.ReconcileCoAuthoredByHooks(workspaceID, enabled); err != nil {
+		d.logger.Warn("reconcile co-authored-by hooks failed", "workspace_id", workspaceID, "error", err)
 	}
 }
 
 // publishTrackedCoAuthoredByState writes the current verdict for every tracked
-// workspace. Purely local: WriteCoAuthoredByState skips the rewrite when the
-// value on disk already matches.
+// workspace and reconciles the hooks in their bare caches. Purely local — no
+// request — and both halves skip the write when what is on disk already
+// matches, so a sync tick on a converged host costs a handful of small reads.
 func (d *Daemon) publishTrackedCoAuthoredByState() {
 	d.mu.Lock()
 	ids := make([]string, 0, len(d.workspaces))
@@ -3675,6 +3711,11 @@ func (d *Daemon) workspaceSyncLoop(ctx context.Context) {
 			if d.reconcile != nil {
 				reconcileCh = d.reconcile.notify()
 			}
+			// A settings edit made while the websocket was down produced a
+			// workspaces-changed hint nobody received. Reconnecting is the
+			// daemon's chance to catch up on it: without this the stale
+			// verdict would just get republished by the sync below.
+			d.refreshTrackedWorkspaceSettings(ctx)
 			syncNow(true)
 		case <-workspaceChangesCh:
 			// The hint fires for membership changes AND for workspace edits,
@@ -3901,9 +3942,10 @@ func (d *Daemon) syncWorkspacesFromAPI(ctx context.Context, reconcileProfiles bo
 
 	// Republish each tracked workspace's Co-authored-by verdict. This costs no
 	// request — it writes the daemon's cached verdict where prepare-commit-msg
-	// hooks read it — and is what covers the cases no refresh reaches: a
-	// toggle flipped while the daemon was down (settings arrive with the
-	// register response above) and a state file removed by repo cache GC.
+	// hooks read it, and migrates hooks left by earlier releases — and is what
+	// covers the cases no refresh reaches: a toggle flipped while the daemon
+	// was down (settings arrive with the register response above), a host that
+	// just upgraded, and a state file removed by repo cache GC.
 	d.publishTrackedCoAuthoredByState()
 
 	if len(d.allRuntimeIDs()) == 0 && registered == 0 && len(workspaces) > 0 {

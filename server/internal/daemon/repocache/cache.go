@@ -1647,15 +1647,24 @@ func (c *Cache) WriteCoAuthoredByState(workspaceID string, enabled bool) error {
 	return nil
 }
 
-// applyCoAuthoredBySettingContext brings both halves of the Co-authored-by
-// wiring in line with the setting this checkout was created under: the state
-// file every installed hook reads at commit time, and this checkout's own hook
-// file.
+// applyCoAuthoredBySettingContext reconciles this checkout's hook file with the
+// workspace setting.
+//
+// It deliberately does NOT publish the state file. params.CoAuthoredByEnabled
+// is a snapshot the handler took before fetch and lock waits, so a checkout can
+// finish long after the value it captured stopped being true; writing that
+// snapshot to the workspace-wide state file would let a slow checkout resurrect
+// a trailer the user has since turned off. The daemon is the only publisher —
+// it holds the ordering between settings updates — and this reads what the
+// daemon published, falling back to the snapshot only when nothing has been
+// published yet (a cache driven without a daemon, or a state file removed under
+// us).
 func (c *Cache) applyCoAuthoredBySettingContext(ctx context.Context, worktreePath string, params WorktreeParams) {
-	if err := c.WriteCoAuthoredByState(params.WorkspaceID, params.CoAuthoredByEnabled); err != nil {
-		c.logger.Warn("repo checkout: record co-authored-by state failed (non-fatal)", "error", err)
+	enabled := params.CoAuthoredByEnabled
+	if published, ok := c.readCoAuthoredByState(params.WorkspaceID); ok {
+		enabled = published
 	}
-	if params.CoAuthoredByEnabled {
+	if enabled {
 		if err := installCoAuthoredByHookContext(ctx, worktreePath, c.CoAuthoredByStatePath(params.WorkspaceID)); err != nil {
 			c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
 		}
@@ -1664,6 +1673,107 @@ func (c *Cache) applyCoAuthoredBySettingContext(ctx context.Context, worktreePat
 	if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
 		c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
 	}
+}
+
+// readCoAuthoredByState reports the setting the daemon last published for a
+// workspace. ok is false when nothing has been published — the caller decides
+// what "unknown" means for it.
+func (c *Cache) readCoAuthoredByState(workspaceID string) (enabled, ok bool) {
+	path := c.CoAuthoredByStatePath(workspaceID)
+	if path == "" {
+		return false, false
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return false, false
+	}
+	switch strings.TrimSpace(string(contents)) {
+	case coAuthoredByStateEnabled:
+		return true, true
+	case coAuthoredByStateDisabled:
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+// ReconcileCoAuthoredByHooks brings the hooks in a workspace's bare caches in
+// line with enabled, without waiting for those repos to be checked out again.
+//
+// This is the migration path for hooks installed by earlier daemon versions:
+// they predate the state file and read nothing at commit time, so publishing a
+// new value cannot reach them. Enabled rewrites them to the current gated
+// script (a later toggle-off then applies at commit time); disabled deletes
+// them. Hooks the daemon does not own are never touched.
+//
+// Only bare caches are enumerable here. An isolated checkout keeps its hook
+// inside its own task workdir, which this cache cannot enumerate; those are
+// rewritten by their next checkout, and any installed after MUL-6921 already
+// read the state file.
+func (c *Cache) ReconcileCoAuthoredByHooks(workspaceID string, enabled bool) error {
+	if workspaceID == "" {
+		return nil
+	}
+	wsDir := filepath.Join(c.root, workspaceID)
+	entries, err := os.ReadDir(wsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read workspace cache dir: %w", err)
+	}
+
+	var firstErr error
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		barePath := filepath.Join(wsDir, entry.Name())
+		if !isBareRepo(barePath) {
+			continue
+		}
+		if err := c.reconcileHookAt(filepath.Join(barePath, "hooks"), workspaceID, enabled); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// reconcileHookAt applies the workspace setting to one hooks directory. It
+// leaves a hook the daemon did not install alone, and never creates a hooks
+// directory it did not find.
+func (c *Cache) reconcileHookAt(hooksDir, workspaceID string, enabled bool) error {
+	hookPath := filepath.Join(hooksDir, "prepare-commit-msg")
+	current, err := os.ReadFile(hookPath)
+	switch {
+	case err == nil && !isDaemonInstalledHook(current):
+		return nil // user or third-party hook: not ours to reconcile
+	case err != nil && !os.IsNotExist(err):
+		return fmt.Errorf("read prepare-commit-msg hook: %w", err)
+	}
+	exists := err == nil
+
+	if !enabled {
+		if !exists {
+			return nil
+		}
+		if err := os.Remove(hookPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove prepare-commit-msg hook: %w", err)
+		}
+		return nil
+	}
+
+	want := prepareCommitMsgHook(c.CoAuthoredByStatePath(workspaceID))
+	if exists && string(current) == want {
+		return nil
+	}
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		return fmt.Errorf("create hooks dir: %w", err)
+	}
+	if err := writeHookFile(hookPath, want); err != nil {
+		return fmt.Errorf("write prepare-commit-msg hook: %w", err)
+	}
+	return nil
 }
 
 // prepareCommitMsgHook builds the prepare-commit-msg hook script that appends
@@ -1751,8 +1861,38 @@ func installCoAuthoredByHookContext(ctx context.Context, worktreePath, statePath
 	}
 
 	hookPath := filepath.Join(hooksDir, "prepare-commit-msg")
-	if err := os.WriteFile(hookPath, []byte(prepareCommitMsgHook(statePath)), 0o755); err != nil {
+	if err := writeHookFile(hookPath, prepareCommitMsgHook(statePath)); err != nil {
 		return fmt.Errorf("write prepare-commit-msg hook: %w", err)
+	}
+	return nil
+}
+
+// writeHookFile publishes a hook script by rename. A plain truncate-and-write
+// would be visible to a commit running at that moment as a half-written
+// script, and this path rewrites hooks in repos with checkouts live on them.
+func writeHookFile(hookPath, contents string) error {
+	dir := filepath.Dir(hookPath)
+	tmp, err := os.CreateTemp(dir, ".multica-hook-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString(contents); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o755); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, hookPath); err != nil {
+		os.Remove(tmpName)
+		return err
 	}
 	return nil
 }

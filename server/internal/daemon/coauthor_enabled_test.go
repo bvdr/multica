@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/multica-ai/multica/server/internal/daemon/repocache"
 )
@@ -132,8 +133,9 @@ func TestSyncWorkspacesSkipsReposRefreshOnExistingWorkspace(t *testing.T) {
 // coAuthoredByStateCache is a repoCacheBackend that records what the daemon
 // publishes for installed prepare-commit-msg hooks to read.
 type coAuthoredByStateCache struct {
-	mu     sync.Mutex
-	writes []bool
+	mu         sync.Mutex
+	writes     []bool
+	reconciles []bool
 }
 
 func (c *coAuthoredByStateCache) Lookup(string, string) string   { return "" }
@@ -151,6 +153,23 @@ func (c *coAuthoredByStateCache) WriteCoAuthoredByState(_ string, enabled bool) 
 	defer c.mu.Unlock()
 	c.writes = append(c.writes, enabled)
 	return nil
+}
+
+func (c *coAuthoredByStateCache) ReconcileCoAuthoredByHooks(_ string, enabled bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.reconciles = append(c.reconciles, enabled)
+	return nil
+}
+
+func (c *coAuthoredByStateCache) lastReconcile(t *testing.T) bool {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.reconciles) == 0 {
+		t.Fatal("hooks were never reconciled")
+	}
+	return c.reconciles[len(c.reconciles)-1]
 }
 
 func (c *coAuthoredByStateCache) lastWrite(t *testing.T) bool {
@@ -285,5 +304,140 @@ func TestSyncWorkspacesPublishesCoAuthoredByState(t *testing.T) {
 
 	if cache.lastWrite(t) {
 		t.Error("published state = enabled, want disabled for a workspace whose settings say so")
+	}
+}
+
+// Publishing has to carry hooks written by earlier daemon releases too: they
+// read no state file, so a new value alone never reaches them.
+func TestPersistCoAuthoredByStateReconcilesHooks(t *testing.T) {
+	t.Parallel()
+
+	const workspaceID = "ws-1"
+	settings := `{"co_authored_by_enabled":false}`
+	d, cache := newCoAuthoredByStateDaemon(t, workspaceID, &settings)
+	d.workspaces[workspaceID] = newWorkspaceState(workspaceID, nil, "", nil, json.RawMessage(settings))
+
+	d.persistCoAuthoredByState(workspaceID)
+
+	if cache.lastWrite(t) {
+		t.Error("published state = enabled, want disabled")
+	}
+	if cache.lastReconcile(t) {
+		t.Error("reconciled hooks as enabled, want disabled")
+	}
+}
+
+// A publisher that started before a settings update must not overwrite the
+// value that update produced. persistCoAuthoredByState reads the verdict inside
+// the per-workspace publish lock, so the write that lands last is the read that
+// happened last — otherwise a slow publisher could resurrect a trailer the user
+// just turned off.
+func TestPersistCoAuthoredByStateReadsVerdictUnderPublishLock(t *testing.T) {
+	t.Parallel()
+
+	const workspaceID = "ws-1"
+	d, cache := newCoAuthoredByStateDaemon(t, workspaceID, nil)
+	ws := newWorkspaceState(workspaceID, nil, "", nil, json.RawMessage(`{"co_authored_by_enabled":true}`))
+	d.workspaces[workspaceID] = ws
+
+	// Block publication, then flip the setting while the publisher waits.
+	ws.coAuthorPublishMu.Lock()
+	published := make(chan struct{})
+	go func() {
+		defer close(published)
+		d.persistCoAuthoredByState(workspaceID)
+	}()
+
+	// Give the publisher a chance to reach the lock before the settings move.
+	time.Sleep(20 * time.Millisecond)
+	d.mu.Lock()
+	ws.settings = json.RawMessage(`{"co_authored_by_enabled":false}`)
+	d.mu.Unlock()
+	ws.coAuthorPublishMu.Unlock()
+
+	select {
+	case <-published:
+	case <-time.After(5 * time.Second):
+		t.Fatal("publication never completed")
+	}
+
+	if cache.lastWrite(t) {
+		t.Error("published state = enabled: the publisher used a verdict it read before taking the lock")
+	}
+}
+
+// A settings edit made while the daemon's websocket was down produces a hint
+// nobody receives. Reconnect reconcile must re-read settings for tracked
+// workspaces, or the daemon keeps republishing the stale verdict and existing
+// checkouts stay wrong until their next checkout.
+func TestWorkspaceSyncLoop_ReconcilePicksUpSettingsChangedWhileOffline(t *testing.T) {
+	t.Parallel()
+
+	const workspaceID = "ws-1"
+	var repoCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/daemon/workspaces":
+			json.NewEncoder(w).Encode([]WorkspaceInfo{{ID: workspaceID, Name: "ws"}})
+		case "/api/daemon/workspaces/" + workspaceID + "/repos":
+			repoCalls.Add(1)
+			// What the server has believed since the user flipped the toggle
+			// during the websocket outage.
+			json.NewEncoder(w).Encode(WorkspaceReposResponse{
+				WorkspaceID:  workspaceID,
+				ReposVersion: "v2",
+				Settings:     json.RawMessage(`{"co_authored_by_enabled":false}`),
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	cache := &coAuthoredByStateCache{}
+	d := &Daemon{
+		client:       NewClient(srv.URL),
+		logger:       slog.Default(),
+		repoCache:    cache,
+		workspaces:   make(map[string]*workspaceState),
+		runtimeIndex: make(map[string]Runtime),
+		runtimeSet:   newRuntimeSetWatcher(),
+		reconcile:    newReconcileBroadcaster(),
+	}
+	// Cached from before the outage: a live runtime ID keeps the sync from
+	// short-circuiting into a re-register.
+	d.workspaces[workspaceID] = newWorkspaceState(
+		workspaceID,
+		[]string{"rt-1"},
+		"v1",
+		nil,
+		json.RawMessage(`{"co_authored_by_enabled":true}`),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	loopDone := make(chan struct{})
+	go func() {
+		defer close(loopDone)
+		d.workspaceSyncLoop(ctx)
+	}()
+
+	d.reconcile.broadcast()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && d.workspaceCoAuthoredByEnabled(workspaceID) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-loopDone
+
+	if repoCalls.Load() == 0 {
+		t.Fatal("reconnect reconcile never re-read workspace settings")
+	}
+	if d.workspaceCoAuthoredByEnabled(workspaceID) {
+		t.Fatal("daemon still reports the trailer as enabled after reconnecting")
+	}
+	if cache.lastWrite(t) {
+		t.Error("published state = enabled, want the value the server held during the outage")
 	}
 }
