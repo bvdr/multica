@@ -1137,26 +1137,22 @@ func escapeLikePattern(s string) string {
 
 // prefilterableContainsNeedle reports whether a raw `contains` needle may be
 // pre-screened against LOWER(properties::text), the expression
-// idx_issue_properties_bigm indexes (migration 446). Two ways a needle
-// disqualifies, and both fall back to today's per-key-only filtering.
+// idx_issue_properties_bigm indexes (migration 446). A needle that cannot falls
+// back to today's per-key-only filtering: slower on a large workspace, never
+// wrong.
 //
-// It must appear literally in the serialized object. Postgres writes jsonb
-// strings through escape_json, which escapes `"`, `\` and every character
-// below U+0020; a needle containing one of those has no literal occurrence in
-// properties::text, so pre-screening on it would drop rows the per-key ILIKE
-// does match. Everything else matches literally, CJK and other non-ASCII
-// text included — escape_json passes bytes >= U+0020 through in every server
-// encoding, and CJK is why this index is pg_bigm rather than pg_trgm.
+// The one disqualifier is JSON escaping. Postgres writes jsonb strings through
+// escape_json, which escapes `"`, `\` and every character below U+0020; a
+// needle containing one of those has no literal occurrence in properties::text,
+// so pre-screening on it would drop rows the per-key ILIKE does match.
 //
-// It must also be long enough to carry a bigram. A single character narrows
-// nothing, so the clause would be pure per-row cost on a scan that still has to
-// happen: it serializes and lowercases the whole object where the per-key check
-// extracts one value, measured at ~3x that filter's runtime on a 500k-row
-// proxy.
+// Everything else matches literally and is prefiltered, however short. CJK and
+// other non-ASCII text is passed through by escape_json in every server
+// encoding, and pg_bigm indexes 1- and 2-character keywords — the capability it
+// exists for over pg_trgm, and the length at which a CJK needle is already a
+// real word. Length is deliberately not a condition here: excluding short
+// needles would exclude exactly the searches this index was chosen to serve.
 func prefilterableContainsNeedle(needle string) bool {
-	if utf8.RuneCountInString(needle) < 2 {
-		return false
-	}
 	return !strings.ContainsFunc(needle, func(r rune) bool {
 		return r == '"' || r == '\\' || r < 0x20
 	})

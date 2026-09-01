@@ -1652,10 +1652,11 @@ func TestPropertyContainsPrefilterCompilationUnit(t *testing.T) {
 		// serialized value.
 		{"like wildcards", "50% off_now", `50\% off\_now`},
 		{"cjk", "中文属性", "中文属性"},
-		// One character carries no bigram, so the clause could only cost the
-		// scan it cannot narrow.
-		{"single character", "x", ""},
-		{"two characters", "xy", "xy"},
+		// Short needles are prefiltered too: pg_bigm indexes 1- and
+		// 2-character keywords, which is the capability it exists for over
+		// pg_trgm, and one CJK character is already a word.
+		{"single character", "x", "x"},
+		{"single cjk character", "文", "文"},
 		{"double quote", `say "hi"`, ""},
 		{"backslash", `C:\logs`, ""},
 		{"tab", "col\tvalue", ""},
