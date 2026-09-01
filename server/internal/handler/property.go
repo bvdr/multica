@@ -1111,6 +1111,11 @@ type propertyOperatorPattern struct {
 	Op    string `json:"__op__"`
 	Def   string `json:"def"`
 	Value string `json:"value"`
+	// Prefilter repeats Value for the `contains` needles worth pre-screening
+	// against LOWER(properties::text) (see prefilterableContainsNeedle). It is
+	// absent — never empty — for the rest, so the static unroll can test for
+	// the key.
+	Prefilter string `json:"prefilter,omitempty"`
 }
 
 var propertyFilterOps = map[string]string{
@@ -1128,6 +1133,33 @@ var propertyFilterOps = map[string]string{
 func escapeLikePattern(s string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return replacer.Replace(s)
+}
+
+// prefilterableContainsNeedle reports whether a raw `contains` needle may be
+// pre-screened against LOWER(properties::text), the expression
+// idx_issue_properties_bigm indexes (migration 446). Two ways a needle
+// disqualifies, and both fall back to today's per-key-only filtering.
+//
+// It must appear literally in the serialized object. Postgres writes jsonb
+// strings through escape_json, which escapes `"`, `\` and every character
+// below U+0020; a needle containing one of those has no literal occurrence in
+// properties::text, so pre-screening on it would drop rows the per-key ILIKE
+// does match. Everything else matches literally, CJK and other non-ASCII
+// text included — escape_json passes bytes >= U+0020 through in every server
+// encoding, and CJK is why this index is pg_bigm rather than pg_trgm.
+//
+// It must also be long enough to carry a bigram. A single character narrows
+// nothing, so the clause would be pure per-row cost on a scan that still has to
+// happen: it serializes and lowercases the whole object where the per-key check
+// extracts one value, measured at ~3x that filter's runtime on a 500k-row
+// proxy.
+func prefilterableContainsNeedle(needle string) bool {
+	if utf8.RuneCountInString(needle) < 2 {
+		return false
+	}
+	return !strings.ContainsFunc(needle, func(r rune) bool {
+		return r == '"' || r == '\\' || r < 0x20
+	})
 }
 
 // validatePropertyFilterOperator checks one operator member and returns the
@@ -1148,6 +1180,9 @@ func validatePropertyFilterOperator(definitionID string, op propertyFilterOperat
 			return propertyOperatorPattern{}, fmt.Errorf("properties filter value must be %d characters or fewer", maxPropertyTextValueLen)
 		}
 		pattern.Value = escapeLikePattern(op.Value)
+		if prefilterableContainsNeedle(op.Value) {
+			pattern.Prefilter = pattern.Value
+		}
 	case "gt", "gte", "lt", "lte":
 		num, err := strconv.ParseFloat(op.Value, 64)
 		if err != nil || math.IsNaN(num) || math.IsInf(num, 0) {
@@ -1322,7 +1357,7 @@ func parseOperatorPattern(alt json.RawMessage) (propertyOperatorPattern, bool) {
 	if !hasOp || !hasDef {
 		return propertyOperatorPattern{}, false
 	}
-	return propertyOperatorPattern{Op: op, Def: def, Value: marker["value"]}, true
+	return propertyOperatorPattern{Op: op, Def: def, Value: marker["value"], Prefilter: marker["prefilter"]}, true
 }
 
 // operatorPatternPredicate renders one operator alternative as SQL. Ops were
@@ -1335,8 +1370,23 @@ func operatorPatternPredicate(pattern propertyOperatorPattern, addArg func(any) 
 		// Value is ILIKE-escaped at parse time. Restrict substring matching to
 		// stored strings: ->> also serializes numbers, booleans, and arrays, while
 		// the client matcher intentionally treats contains as a text/url operator.
-		return fmt.Sprintf("(jsonb_typeof(i.properties -> %s) = 'string' AND (i.properties ->> %s) ILIKE '%%' || %s || '%%')",
+		match := fmt.Sprintf("(jsonb_typeof(i.properties -> %s) = 'string' AND (i.properties ->> %s) ILIKE '%%' || %s || '%%')",
 			defArg, defArg, addArg(pattern.Value))
+		if pattern.Prefilter == "" {
+			return match
+		}
+		// Redundant prefilter over the whole object's text form, which
+		// idx_issue_properties_bigm indexes (migration 446). The per-key check
+		// above still decides the result — this one only narrows the candidate
+		// set from "every issue in the workspace" to what the bigram index
+		// returns, and by construction (prefilterableContainsNeedle) never
+		// drops a row the per-key check would keep.
+		//
+		// LOWER(...) LIKE LOWER(...) rather than a second ILIKE: pg_bigm 1.2 has
+		// no ILIKE index scan (migration 036), and lowering both sides in SQL is
+		// exactly how ILIKE folds case, so the two cannot disagree.
+		return fmt.Sprintf("(LOWER(i.properties::text) LIKE LOWER('%%' || %s || '%%') AND %s)",
+			addArg(pattern.Prefilter), match)
 	case "gt", "gte", "lt", "lte":
 		// Bind the canonical decimal as numeric on every serving path. CASE makes
 		// the jsonb type guard structural instead of relying on SQL qualifier
@@ -1365,8 +1415,10 @@ func operatorPatternPredicate(pattern propertyOperatorPattern, addArg func(any) 
 // A "no value" marker alternative renders as a key-absence disjunction —
 // `NOT (i.properties ? $m)` — which cannot use the GIN index but is exact for
 // the unset state (property values are never null; DELETE unsets). An operator
-// alternative renders as its typed comparison (ILIKE / numeric / date string),
-// also unindexed: scalar ranges fundamentally cannot use a containment index.
+// alternative renders as its typed comparison (ILIKE / numeric / date string):
+// scalar ranges fundamentally cannot use a containment index, and only
+// `contains` gets an indexable prefilter in front of it (see
+// operatorPatternPredicate).
 func propertiesFilterPredicate(groups [][]json.RawMessage, addArg func(any) string) string {
 	groupSQL := make([]string, 0, len(groups))
 	for _, alternatives := range groups {
