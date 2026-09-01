@@ -1907,3 +1907,65 @@ func TestConflictAfterAUserCommitOnTheBranchStillOffersTheEditAgain(t *testing.T
 	}
 	finalizeAndDiscardForTest(t, third)
 }
+
+// Everything above drives PrepareLocalWorktree with hand-filled params. This
+// one goes through Prepare, the entry point the daemon actually calls, so the
+// plumbing between them is covered too: which claim fields become the branch
+// name, and which become the identity the branch is recorded under.
+func TestPrepareTwoTurnsOfOneIssueThroughPrepare(t *testing.T) {
+	repo := newTestRepo(t)
+	writeFile(t, filepath.Join(repo, "tracked.txt"), "user work in progress\n")
+	workspacesRoot := t.TempDir()
+
+	turn := func(taskID, workspaceID string) *Environment {
+		t.Helper()
+		env, err := Prepare(PrepareParams{
+			WorkspacesRoot:  workspacesRoot,
+			WorkspaceID:     workspaceID,
+			TaskID:          taskID,
+			IssueIdentifier: "MUL-6881",
+			AgentName:       "J",
+			Provider:        "claude",
+			LocalWorktree:   &LocalWorktreeParams{LocalPath: repo},
+			Task: TaskContextForEnv{
+				IssueID:   "01a056ac-0eda-797d-8ac2-b7d7a3935ae7",
+				AgentID:   "5fb87ac7-23b5-4a7a-81fa-ed295a54545d",
+				AgentName: "J",
+			},
+		}, worktreeTestLogger())
+		if err != nil {
+			t.Fatalf("Prepare(%s): %v", taskID, err)
+		}
+		return env
+	}
+
+	first := turn(turnOneTask, "ws-1")
+	if first.LocalWorktree.Branch != "agent/j/mul-6881" {
+		t.Fatalf("branch = %q, want the issue identifier from the claim", first.LocalWorktree.Branch)
+	}
+	if got := readFile(t, filepath.Join(first.WorkDir, "tracked.txt")); got != "user work in progress\n" {
+		t.Fatalf("turn one did not see the user's uncommitted work: %q", got)
+	}
+	writeFile(t, filepath.Join(first.WorkDir, "agent.txt"), "work from turn one\n")
+	if outcome := finalizeOK(t, first.LocalWorktree); outcome.Branch != "agent/j/mul-6881" {
+		t.Fatalf("turn one delivered %q", outcome.Branch)
+	}
+
+	second := turn(turnTwoTask, "ws-1")
+	if !second.LocalWorktree.Continued || second.LocalWorktree.Branch != "agent/j/mul-6881" {
+		t.Fatalf("turn two: branch = %q, continued = %v", second.LocalWorktree.Branch, second.LocalWorktree.Continued)
+	}
+	if _, err := os.Stat(filepath.Join(second.WorkDir, "agent.txt")); err != nil {
+		t.Errorf("turn two does not carry turn one's work: %v", err)
+	}
+	finalizeOK(t, second.LocalWorktree)
+
+	// The identity comes from the claim too: another workspace whose issue
+	// carries the same identifier gets its own branch.
+	other := turn(turnThreeTask, "ws-2")
+	if other.LocalWorktree.Continued || other.LocalWorktree.Branch == "agent/j/mul-6881" {
+		t.Errorf("another workspace's MUL-6881 landed on %q (continued = %v)",
+			other.LocalWorktree.Branch, other.LocalWorktree.Continued)
+	}
+	finalizeOK(t, other.LocalWorktree)
+}
