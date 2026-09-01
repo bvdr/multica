@@ -294,6 +294,30 @@ export function createEnDict(allowSignup: boolean): LandingDict {
     },
     entries: [
       {
+        version: "0.4.38",
+        date: "2026-09-01",
+        title: "A Standard speed for Codex, locale-aware dates and numbers, and steadier agent branches",
+        changes: [],
+        features: [
+          "Choose Standard speed for a Codex agent, not just Fast or your machine's default.",
+        ],
+        improvements: [
+          "Japanese and Korean use one consistent word for Issues and tasks.",
+          "Self-hosted servers do less repeated background work as history grows.",
+          "Long text is trimmed more cleanly in task records and desktop diagnostics.",
+        ],
+        fixes: [
+          "An Issue on a local folder keeps the same working branch across runs.",
+          "The next agent picks up the previous round's changes instead of losing them.",
+          "Issue pages with several inline images no longer flicker when you come back.",
+          "And private images are never reused across accounts.",
+          "Dates, times, numbers, amounts, and charts follow the language you picked in Multica.",
+          "Pi agents resume on Windows instead of failing to start.",
+          "The desktop app's daemon settings, logs, and sign-in prompts read in your language.",
+          "Editing a comment starts the next run without losing the ongoing session.",
+        ],
+      },
+      {
         version: "0.4.37",
         date: "2026-08-31",
         title: "Faster Issue lists, steadier long runs, and more complete localization",
