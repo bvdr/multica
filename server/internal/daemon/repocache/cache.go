@@ -1706,10 +1706,10 @@ func (c *Cache) readCoAuthoredByState(workspaceID string) (enabled, ok bool) {
 // script (a later toggle-off then applies at commit time); disabled deletes
 // them. Hooks the daemon does not own are never touched.
 //
-// Only bare caches are enumerable here. An isolated checkout keeps its hook
-// inside its own task workdir, which this cache cannot enumerate; those are
-// rewritten by their next checkout, and any installed after MUL-6921 already
-// read the state file.
+// Only bare caches are enumerable here — the cache root is all this type
+// knows. Isolated checkouts keep their hook inside a task workdir; the daemon
+// finds those and reconciles them one at a time through
+// ReconcileCoAuthoredByHookInCheckout.
 func (c *Cache) ReconcileCoAuthoredByHooks(workspaceID string, enabled bool) error {
 	if workspaceID == "" {
 		return nil
@@ -1737,6 +1737,26 @@ func (c *Cache) ReconcileCoAuthoredByHooks(workspaceID string, enabled bool) err
 		}
 	}
 	return firstErr
+}
+
+// ReconcileCoAuthoredByHookInCheckout applies the workspace setting to a single
+// checkout that owns its git metadata — an isolated checkout, whose .git lives
+// in the task workdir instead of the shared bare cache and is therefore
+// invisible to ReconcileCoAuthoredByHooks. The daemon knows where those
+// workdirs are and calls this for each one it finds.
+//
+// A linked worktree has a .git FILE pointing at the bare cache; it is skipped
+// here because its hook is reconciled through the bare cache instead.
+func (c *Cache) ReconcileCoAuthoredByHookInCheckout(checkoutPath, workspaceID string, enabled bool) error {
+	if checkoutPath == "" || workspaceID == "" {
+		return nil
+	}
+	gitDir := filepath.Join(checkoutPath, ".git")
+	info, err := os.Stat(gitDir)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	return c.reconcileHookAt(filepath.Join(gitDir, "hooks"), workspaceID, enabled)
 }
 
 // reconcileHookAt applies the workspace setting to one hooks directory. It

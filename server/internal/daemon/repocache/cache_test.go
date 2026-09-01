@@ -2609,3 +2609,90 @@ func TestCreateWorktreeDoesNotResurrectDisabledState(t *testing.T) {
 		t.Errorf("commit carries the trailer although the workspace setting is off.\ngot:\n%s", msg)
 	}
 }
+
+// Codex on Linux and the Windows sandbox check out with isolated git metadata,
+// so the hook lives in the task workdir instead of the shared bare cache and no
+// sweep of the cache root can see it. The daemon finds those checkouts and
+// reconciles them one at a time; this is that path, end to end on a checkout
+// carrying the previous release's hook.
+func TestReconcileCoAuthoredByHookInCheckoutMigratesReleasedHook(t *testing.T) {
+	t.Parallel()
+	sourceRepo := createTestRepo(t)
+	cache := New(t.TempDir(), testLogger())
+	if err := cache.Sync("ws-1", []RepoInfo{{URL: sourceRepo}}); err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+
+	result, err := cache.CreateWorktree(WorktreeParams{
+		WorkspaceID:         "ws-1",
+		RepoURL:             sourceRepo,
+		WorkDir:             t.TempDir(),
+		AgentName:           "Test Agent",
+		TaskID:              "88888888-0000-0000-0000-000000000000",
+		CoAuthoredByEnabled: true,
+		IsolatedGitMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	hookPath := filepath.Join(result.Path, ".git", "hooks", "prepare-commit-msg")
+	if _, err := os.Stat(hookPath); err != nil {
+		t.Fatalf("precondition: isolated checkout should carry its own hook: %v", err)
+	}
+	// Roll it back to what the previous release installed.
+	if err := os.WriteFile(hookPath, []byte(releasedUngatedHook), 0o755); err != nil {
+		t.Fatalf("seed previous-release hook: %v", err)
+	}
+	if msg := commitInWorktree(t, result.Path, "a.txt", "before the toggle"); !strings.Contains(msg, "Co-authored-by: multica-agent") {
+		t.Fatalf("precondition: the previous release's hook should still add the trailer.\ngot:\n%s", msg)
+	}
+
+	if err := cache.WriteCoAuthoredByState("ws-1", false); err != nil {
+		t.Fatalf("WriteCoAuthoredByState failed: %v", err)
+	}
+	if err := cache.ReconcileCoAuthoredByHookInCheckout(result.Path, "ws-1", false); err != nil {
+		t.Fatalf("ReconcileCoAuthoredByHookInCheckout failed: %v", err)
+	}
+
+	if _, err := os.Stat(hookPath); !os.IsNotExist(err) {
+		t.Errorf("expected the hook to be removed at %s, stat err=%v", hookPath, err)
+	}
+	if msg := commitInWorktree(t, result.Path, "b.txt", "after the toggle"); strings.Contains(msg, "Co-authored-by: multica-agent") {
+		t.Errorf("isolated checkout still adds the trailer after the toggle was turned off.\ngot:\n%s", msg)
+	}
+}
+
+// A linked worktree keeps its hook in the bare cache, where the cache-root
+// sweep already reconciles it. Reaching into the worktree would be reaching
+// into someone else's git dir, so the per-checkout path must ignore it.
+func TestReconcileCoAuthoredByHookInCheckoutIgnoresLinkedWorktree(t *testing.T) {
+	t.Parallel()
+	sourceRepo := createTestRepo(t)
+	cache := New(t.TempDir(), testLogger())
+	if err := cache.Sync("ws-1", []RepoInfo{{URL: sourceRepo}}); err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+
+	result, err := cache.CreateWorktree(WorktreeParams{
+		WorkspaceID:         "ws-1",
+		RepoURL:             sourceRepo,
+		WorkDir:             t.TempDir(),
+		AgentName:           "Test Agent",
+		TaskID:              "99999999-0000-0000-0000-000000000000",
+		CoAuthoredByEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateWorktree failed: %v", err)
+	}
+
+	if err := cache.ReconcileCoAuthoredByHookInCheckout(result.Path, "ws-1", false); err != nil {
+		t.Fatalf("ReconcileCoAuthoredByHookInCheckout failed: %v", err)
+	}
+
+	// The bare cache's hook — the one that actually governs this worktree — is
+	// untouched by the per-checkout path.
+	if _, err := os.Stat(filepath.Join(cache.Lookup("ws-1", sourceRepo), "hooks", "prepare-commit-msg")); err != nil {
+		t.Errorf("per-checkout reconcile disturbed the bare cache's hook: %v", err)
+	}
+}

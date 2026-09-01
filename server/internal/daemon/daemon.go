@@ -3225,6 +3225,7 @@ func (d *Daemon) refreshWorkspaceRepos(ctx context.Context, workspaceID string) 
 type coAuthoredByPublisher interface {
 	WriteCoAuthoredByState(workspaceID string, enabled bool) error
 	ReconcileCoAuthoredByHooks(workspaceID string, enabled bool) error
+	ReconcileCoAuthoredByHookInCheckout(checkoutPath, workspaceID string, enabled bool) error
 }
 
 // persistCoAuthoredByState records the workspace's current Co-authored-by
@@ -3240,6 +3241,15 @@ type coAuthoredByPublisher interface {
 // one that writes last is the one that read last — a publisher that started
 // before a settings update can never overwrite the value that update produced.
 func (d *Daemon) persistCoAuthoredByState(workspaceID string) {
+	d.publishCoAuthoredByState(workspaceID, d.workspaceCoAuthoredByEnabled)
+}
+
+// publishCoAuthoredByState is persistCoAuthoredByState with the verdict read
+// injected. Production always passes workspaceCoAuthoredByEnabled; tests pass a
+// wrapper that parks a publisher between taking the lock and reading, which is
+// the one ordering the lock exists to guarantee and cannot be observed
+// otherwise.
+func (d *Daemon) publishCoAuthoredByState(workspaceID string, verdict func(string) bool) {
 	if d.repoCache == nil || workspaceID == "" {
 		return
 	}
@@ -3258,13 +3268,101 @@ func (d *Daemon) persistCoAuthoredByState(workspaceID string) {
 	ws.coAuthorPublishMu.Lock()
 	defer ws.coAuthorPublishMu.Unlock()
 
-	enabled := d.workspaceCoAuthoredByEnabled(workspaceID)
+	enabled := verdict(workspaceID)
 	if err := cache.WriteCoAuthoredByState(workspaceID, enabled); err != nil {
 		d.logger.Warn("record co-authored-by state failed", "workspace_id", workspaceID, "error", err)
 	}
 	if err := cache.ReconcileCoAuthoredByHooks(workspaceID, enabled); err != nil {
 		d.logger.Warn("reconcile co-authored-by hooks failed", "workspace_id", workspaceID, "error", err)
 	}
+	d.reconcileIsolatedCoAuthoredByHooks(cache, workspaceID, enabled)
+}
+
+// isolatedCheckoutScanDepth bounds how far below an env root the sweep looks
+// for a checkout. Repos land at <env root>/<workdir>/<repo>, so two levels
+// covers the layout with one to spare and keeps the walk from wandering into
+// the checked-out source tree.
+const isolatedCheckoutScanDepth = 2
+
+// reconcileIsolatedCoAuthoredByHooks applies the workspace setting to hooks
+// that live inside task workdirs rather than in the shared bare cache.
+//
+// Codex on Linux and the Windows sandbox check out with isolated git metadata,
+// so their hook sits in <checkout>/.git/hooks and the repo cache cannot see it.
+// Left alone, a workdir prepared by an earlier release keeps its unconditional
+// hook — and its next commit keeps adding the trailer — until that repo happens
+// to be checked out again. Env roots are attributed by their owner record, so a
+// workspace never rewrites hooks belonging to another one.
+func (d *Daemon) reconcileIsolatedCoAuthoredByHooks(cache coAuthoredByPublisher, workspaceID string, enabled bool) {
+	root := d.cfg.WorkspacesRoot
+	if root == "" || workspaceID == "" {
+		return
+	}
+	wsEntries, err := os.ReadDir(root)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			d.logger.Debug("co-authored-by sweep: read workspaces root failed", "error", err)
+		}
+		return
+	}
+
+	for _, wsEntry := range wsEntries {
+		// Dot directories are daemon-internal caches (.repos, .skill-cache),
+		// never workspace directories — the same rule runGC walks by.
+		if !wsEntry.IsDir() || strings.HasPrefix(wsEntry.Name(), ".") {
+			continue
+		}
+		wsDir := filepath.Join(root, wsEntry.Name())
+		envRoots, err := os.ReadDir(wsDir)
+		if err != nil {
+			continue
+		}
+		for _, envEntry := range envRoots {
+			if !envEntry.IsDir() || strings.HasPrefix(envEntry.Name(), ".") {
+				continue
+			}
+			envRoot := filepath.Join(wsDir, envEntry.Name())
+			owner, err := execenv.ReadEnvRootOwner(envRoot)
+			if err != nil || owner == nil || owner.WorkspaceID != workspaceID {
+				// Unknown owner (older env root that recorded only a task ID)
+				// or another workspace's root: not ours to rewrite.
+				continue
+			}
+			for _, checkout := range isolatedCheckoutCandidates(envRoot, isolatedCheckoutScanDepth) {
+				if err := cache.ReconcileCoAuthoredByHookInCheckout(checkout, workspaceID, enabled); err != nil {
+					d.logger.Warn("reconcile co-authored-by hook in checkout failed",
+						"workspace_id", workspaceID, "path", checkout, "error", err)
+				}
+			}
+		}
+	}
+}
+
+// isolatedCheckoutCandidates returns directories at or below dir that hold
+// their own git metadata. A linked worktree's .git is a file, so only isolated
+// checkouts match, and matching stops descending: nothing nested inside a
+// checkout is one.
+func isolatedCheckoutCandidates(dir string, depth int) []string {
+	if depth <= 0 {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var found []string
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		child := filepath.Join(dir, entry.Name())
+		if info, err := os.Stat(filepath.Join(child, ".git")); err == nil && info.IsDir() {
+			found = append(found, child)
+			continue
+		}
+		found = append(found, isolatedCheckoutCandidates(child, depth-1)...)
+	}
+	return found
 }
 
 // publishTrackedCoAuthoredByState writes the current verdict for every tracked

@@ -3,9 +3,12 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -136,6 +139,14 @@ type coAuthoredByStateCache struct {
 	mu         sync.Mutex
 	writes     []bool
 	reconciles []bool
+	checkouts  []reconciledCheckout
+}
+
+// reconciledCheckout records one isolated checkout the daemon asked to bring in
+// line with the workspace setting.
+type reconciledCheckout struct {
+	path    string
+	enabled bool
 }
 
 func (c *coAuthoredByStateCache) Lookup(string, string) string   { return "" }
@@ -160,6 +171,19 @@ func (c *coAuthoredByStateCache) ReconcileCoAuthoredByHooks(_ string, enabled bo
 	defer c.mu.Unlock()
 	c.reconciles = append(c.reconciles, enabled)
 	return nil
+}
+
+func (c *coAuthoredByStateCache) ReconcileCoAuthoredByHookInCheckout(checkoutPath, _ string, enabled bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.checkouts = append(c.checkouts, reconciledCheckout{path: checkoutPath, enabled: enabled})
+	return nil
+}
+
+func (c *coAuthoredByStateCache) reconciledCheckouts() []reconciledCheckout {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]reconciledCheckout(nil), c.checkouts...)
 }
 
 func (c *coAuthoredByStateCache) lastReconcile(t *testing.T) bool {
@@ -328,10 +352,13 @@ func TestPersistCoAuthoredByStateReconcilesHooks(t *testing.T) {
 }
 
 // A publisher that started before a settings update must not overwrite the
-// value that update produced. persistCoAuthoredByState reads the verdict inside
-// the per-workspace publish lock, so the write that lands last is the read that
-// happened last — otherwise a slow publisher could resurrect a trailer the user
-// just turned off.
+// value that update produced. The lock is what rules that out: the verdict is
+// read INSIDE it, so a publisher parked before its read is holding the lock and
+// no fresher publisher can slip past and be overwritten afterwards.
+//
+// The ordering is driven by channels, not sleeps: A parks inside its verdict
+// read, B is started afterwards, and B reaching the cache while A is parked is
+// itself the failure — it can only happen if A read before taking the lock.
 func TestPersistCoAuthoredByStateReadsVerdictUnderPublishLock(t *testing.T) {
 	t.Parallel()
 
@@ -340,29 +367,54 @@ func TestPersistCoAuthoredByStateReadsVerdictUnderPublishLock(t *testing.T) {
 	ws := newWorkspaceState(workspaceID, nil, "", nil, json.RawMessage(`{"co_authored_by_enabled":true}`))
 	d.workspaces[workspaceID] = ws
 
-	// Block publication, then flip the setting while the publisher waits.
-	ws.coAuthorPublishMu.Lock()
-	published := make(chan struct{})
+	parked := make(chan struct{})
+	resume := make(chan struct{})
+	staleDone := make(chan struct{})
 	go func() {
-		defer close(published)
-		d.persistCoAuthoredByState(workspaceID)
+		defer close(staleDone)
+		d.publishCoAuthoredByState(workspaceID, func(id string) bool {
+			enabled := d.workspaceCoAuthoredByEnabled(id)
+			close(parked)
+			<-resume
+			return enabled
+		})
 	}()
 
-	// Give the publisher a chance to reach the lock before the settings move.
-	time.Sleep(20 * time.Millisecond)
+	// A has read "enabled" and is parked. Under the contract it holds the
+	// publish lock while parked.
+	<-parked
+
 	d.mu.Lock()
 	ws.settings = json.RawMessage(`{"co_authored_by_enabled":false}`)
 	d.mu.Unlock()
-	ws.coAuthorPublishMu.Unlock()
 
+	freshDone := make(chan struct{})
+	go func() {
+		defer close(freshDone)
+		d.persistCoAuthoredByState(workspaceID)
+	}()
+
+	// The fresh publisher must not be able to publish while A is parked. This
+	// wait is the assertion: it is expected to expire, and any write arriving
+	// inside it means the verdict was read outside the lock.
 	select {
-	case <-published:
+	case <-freshDone:
+		close(resume)
+		<-staleDone
+		t.Fatal("a publisher completed while another was parked mid-publish: the verdict is being read outside the lock")
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	close(resume)
+	<-staleDone
+	select {
+	case <-freshDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("publication never completed")
 	}
 
 	if cache.lastWrite(t) {
-		t.Error("published state = enabled: the publisher used a verdict it read before taking the lock")
+		t.Error("last published state = enabled: a stale publisher overwrote the value the settings update produced")
 	}
 }
 
@@ -440,4 +492,63 @@ func TestWorkspaceSyncLoop_ReconcilePicksUpSettingsChangedWhileOffline(t *testin
 	if cache.lastWrite(t) {
 		t.Error("published state = enabled, want the value the server held during the outage")
 	}
+}
+
+// Isolated checkouts (Codex on Linux, the Windows sandbox) keep their hook
+// inside the task workdir, so publishing a value cannot reach a workdir
+// prepared by an earlier release. The daemon walks its env roots to find them —
+// and must reconcile only the ones the workspace owns.
+func TestPersistCoAuthoredByStateReconcilesIsolatedCheckouts(t *testing.T) {
+	t.Parallel()
+
+	const workspaceID = "ws-1"
+	settings := `{"co_authored_by_enabled":false}`
+	d, cache := newCoAuthoredByStateDaemon(t, workspaceID, &settings)
+	d.workspaces[workspaceID] = newWorkspaceState(workspaceID, nil, "", nil, json.RawMessage(settings))
+
+	root := t.TempDir()
+	d.cfg.WorkspacesRoot = root
+
+	// Two env roots that look identical on disk and differ only in the
+	// workspace that owns them, plus a daemon-internal cache directory the walk
+	// must not treat as a workspace.
+	ours := seedEnvRootCheckout(t, root, "multica-ws-1", "env-a", workspaceID)
+	theirs := seedEnvRootCheckout(t, root, "other-ws", "env-b", "ws-2")
+	if err := os.MkdirAll(filepath.Join(root, ".repos", "ws-1"), 0o755); err != nil {
+		t.Fatalf("seed cache dir: %v", err)
+	}
+
+	d.persistCoAuthoredByState(workspaceID)
+
+	got := cache.reconciledCheckouts()
+	if len(got) != 1 {
+		t.Fatalf("reconciled %d checkouts, want exactly the one this workspace owns: %+v", len(got), got)
+	}
+	if got[0].path != ours {
+		t.Errorf("reconciled %q, want %q", got[0].path, ours)
+	}
+	if got[0].enabled {
+		t.Error("reconciled the isolated checkout as enabled, want disabled")
+	}
+	for _, checkout := range got {
+		if checkout.path == theirs {
+			t.Error("reconciled a checkout owned by another workspace")
+		}
+	}
+}
+
+// seedEnvRootCheckout builds <root>/<wsDir>/<envRoot> with the owner record the
+// daemon attributes it by, and a checkout that owns its git metadata.
+func seedEnvRootCheckout(t *testing.T, root, wsDir, envRootName, ownerWorkspaceID string) string {
+	t.Helper()
+	envRoot := filepath.Join(root, wsDir, envRootName)
+	checkout := filepath.Join(envRoot, "workdir", "repo")
+	if err := os.MkdirAll(filepath.Join(checkout, ".git", "hooks"), 0o755); err != nil {
+		t.Fatalf("seed checkout: %v", err)
+	}
+	owner := fmt.Sprintf(`{"workspace_id":%q,"task_id":"task-1"}`, ownerWorkspaceID)
+	if err := os.WriteFile(filepath.Join(envRoot, ".task_owner"), []byte(owner), 0o644); err != nil {
+		t.Fatalf("seed env root owner: %v", err)
+	}
+	return checkout
 }
