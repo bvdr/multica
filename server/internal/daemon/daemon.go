@@ -3204,7 +3204,90 @@ func (d *Daemon) refreshWorkspaceRepos(ctx context.Context, workspaceID string) 
 	}
 	d.mu.Unlock()
 
+	// Publish the refreshed Co-authored-by verdict to the repo cache. Hooks
+	// installed by earlier checkouts read that file at commit time, so this is
+	// what makes a toggled-off setting apply to checkouts that already exist
+	// instead of only to the next one (MUL-6921).
+	d.persistCoAuthoredByState(workspaceID)
+
 	return resp, nil
+}
+
+// persistCoAuthoredByState records the workspace's current Co-authored-by
+// verdict where the installed prepare-commit-msg hooks can see it. Called
+// after every settings refresh; best-effort, since a failed write only leaves
+// the previous value in place.
+func (d *Daemon) persistCoAuthoredByState(workspaceID string) {
+	if d.repoCache == nil || workspaceID == "" {
+		return
+	}
+	writer, ok := d.repoCache.(interface {
+		WriteCoAuthoredByState(workspaceID string, enabled bool) error
+	})
+	if !ok {
+		return
+	}
+	if err := writer.WriteCoAuthoredByState(workspaceID, d.workspaceCoAuthoredByEnabled(workspaceID)); err != nil {
+		d.logger.Warn("record co-authored-by state failed", "workspace_id", workspaceID, "error", err)
+	}
+}
+
+// publishTrackedCoAuthoredByState writes the current verdict for every tracked
+// workspace. Purely local: WriteCoAuthoredByState skips the rewrite when the
+// value on disk already matches.
+func (d *Daemon) publishTrackedCoAuthoredByState() {
+	d.mu.Lock()
+	ids := make([]string, 0, len(d.workspaces))
+	for id := range d.workspaces {
+		ids = append(ids, id)
+	}
+	d.mu.Unlock()
+
+	for _, id := range ids {
+		d.persistCoAuthoredByState(id)
+	}
+}
+
+// trackedSettingsRefreshTimeout bounds one refreshTrackedWorkspaceSettings
+// pass. A workspace it does not reach keeps its cached settings and picks the
+// change up on its next repo checkout.
+const trackedSettingsRefreshTimeout = 30 * time.Second
+
+// refreshTrackedWorkspaceSettings re-reads repos and settings for workspaces
+// this daemon already tracks. Only the server's workspaces-changed hint calls
+// it: the periodic sync deliberately makes no repos request for a tracked
+// workspace (see syncWorkspacesFromAPI), so without this a settings edit —
+// the GitHub master switch, the Co-authored-by toggle — would sit unseen
+// until the workspace's next repo checkout.
+func (d *Daemon) refreshTrackedWorkspaceSettings(ctx context.Context) {
+	// The sync loop is single-threaded and still owes the hint its membership
+	// reconcile, so bound the whole pass rather than letting one slow
+	// workspace hold every other signal behind it.
+	ctx, cancel := context.WithTimeout(ctx, trackedSettingsRefreshTimeout)
+	defer cancel()
+
+	d.mu.Lock()
+	tracked := make(map[string]*workspaceState, len(d.workspaces))
+	for id, ws := range d.workspaces {
+		tracked[id] = ws
+	}
+	d.mu.Unlock()
+
+	for id, ws := range tracked {
+		if ctx.Err() != nil {
+			return
+		}
+		// Share ensureRepoReady's lock so a checkout in flight and this
+		// refresh cannot interleave their writes to the same workspace.
+		if err := ws.repoRefreshMu.Lock(ctx); err != nil {
+			return
+		}
+		_, err := d.refreshWorkspaceRepos(ctx, id)
+		ws.repoRefreshMu.Unlock()
+		if err != nil {
+			d.logger.Debug("workspace settings refresh failed", "workspace_id", id, "error", err)
+		}
+	}
 }
 
 // refreshWorkspaceRuntimeProfiles fetches the workspace's enabled custom
@@ -3594,6 +3677,10 @@ func (d *Daemon) workspaceSyncLoop(ctx context.Context) {
 			}
 			syncNow(true)
 		case <-workspaceChangesCh:
+			// The hint fires for membership changes AND for workspace edits,
+			// including settings. Refresh cached settings for the workspaces
+			// we already track before reconciling the membership set.
+			d.refreshTrackedWorkspaceSettings(ctx)
 			syncNow(false)
 		case <-timer.C:
 			syncNow(false)
@@ -3811,6 +3898,13 @@ func (d *Daemon) syncWorkspacesFromAPI(ctx context.Context, reconcileProfiles bo
 	if registered > 0 || removed > 0 {
 		d.notifyRuntimeSetChanged()
 	}
+
+	// Republish each tracked workspace's Co-authored-by verdict. This costs no
+	// request — it writes the daemon's cached verdict where prepare-commit-msg
+	// hooks read it — and is what covers the cases no refresh reaches: a
+	// toggle flipped while the daemon was down (settings arrive with the
+	// register response above) and a state file removed by repo cache GC.
+	d.publishTrackedCoAuthoredByState()
 
 	if len(d.allRuntimeIDs()) == 0 && registered == 0 && len(workspaces) > 0 {
 		return fmt.Errorf("failed to register runtimes for any of the %d workspace(s)", len(workspaces))

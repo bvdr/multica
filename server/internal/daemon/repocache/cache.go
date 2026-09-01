@@ -862,15 +862,7 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 		for _, pattern := range agentGitExcludePatterns {
 			_ = excludeFromGitContext(ctx, worktreePath, pattern)
 		}
-		if params.CoAuthoredByEnabled {
-			if err := installCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
-			}
-		} else {
-			if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
-			}
-		}
+		c.applyCoAuthoredBySettingContext(ctx, worktreePath, params)
 		if err := ctx.Err(); err != nil {
 			return nil, context.Cause(ctx)
 		}
@@ -896,20 +888,12 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 			_ = excludeFromGitContext(ctx, worktreePath, pattern)
 		}
 
-		// Install or remove the Co-authored-by hook based on the workspace
+		// Reconcile the Co-authored-by hook and the workspace's recorded
 		// setting. The hook lives in the bare repo's shared hooks dir, so we
 		// must actively remove it when disabled — otherwise a previously
 		// installed hook keeps appending the trailer to every commit even
 		// after the user toggles the setting off.
-		if params.CoAuthoredByEnabled {
-			if err := installCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
-			}
-		} else {
-			if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-				c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
-			}
-		}
+		c.applyCoAuthoredBySettingContext(ctx, worktreePath, params)
 		if err := ctx.Err(); err != nil {
 			return nil, context.Cause(ctx)
 		}
@@ -939,18 +923,10 @@ func (c *Cache) CreateWorktreeContext(ctx context.Context, params WorktreeParams
 		_ = excludeFromGitContext(ctx, worktreePath, pattern)
 	}
 
-	// Install or remove the Co-authored-by hook based on the workspace
-	// setting. See the existing-worktree branch above for why removal is
-	// required when the setting is disabled.
-	if params.CoAuthoredByEnabled {
-		if err := installCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-			c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
-		}
-	} else {
-		if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
-			c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
-		}
-	}
+	// Reconcile the Co-authored-by hook and the workspace's recorded setting.
+	// See the existing-worktree branch above for why removal is required when
+	// the setting is disabled.
+	c.applyCoAuthoredBySettingContext(ctx, worktreePath, params)
 	if err := ctx.Err(); err != nil {
 		return nil, context.Cause(ctx)
 	}
@@ -1601,9 +1577,123 @@ var daemonInstalledHookSignatures = []string{
 	"# Installed by the Multica daemon.",
 }
 
-// prepareCommitMsgHook is the prepare-commit-msg hook script that appends a
-// Co-authored-by trailer for the Multica Agent to every commit message.
-const prepareCommitMsgHook = `#!/bin/sh
+// coAuthoredByStateFile records the workspace's current Co-authored-by setting
+// for hooks that are already on disk. It lives beside the workspace's bare
+// caches (`<root>/<workspace-id>/`) and is rewritten every time the daemon
+// learns the setting, so a checkout made before the toggle was flipped still
+// commits under the current value. Without it the decision would be frozen
+// into the hook file at checkout time (MUL-6921).
+const (
+	coAuthoredByStateFile     = ".multica_co_authored_by"
+	coAuthoredByStateEnabled  = "1"
+	coAuthoredByStateDisabled = "0"
+)
+
+// CoAuthoredByStatePath returns the file the prepare-commit-msg hook consults
+// at commit time for a workspace. Empty when the workspace is unknown, which
+// installs a hook with no gate — the pre-MUL-6921 behavior.
+func (c *Cache) CoAuthoredByStatePath(workspaceID string) string {
+	if workspaceID == "" {
+		return ""
+	}
+	return filepath.Join(c.root, workspaceID, coAuthoredByStateFile)
+}
+
+// WriteCoAuthoredByState publishes the workspace's current setting to every
+// prepare-commit-msg hook the daemon has installed for it, including hooks in
+// checkouts this call knows nothing about. The daemon calls it whenever it
+// refreshes workspace settings, which is what makes the toggle apply without
+// waiting for the repo to be checked out again.
+//
+// The write is atomic (temp file + rename) so a hook running concurrently
+// reads either the old value or the new one, never a half-written file.
+func (c *Cache) WriteCoAuthoredByState(workspaceID string, enabled bool) error {
+	path := c.CoAuthoredByStatePath(workspaceID)
+	if path == "" {
+		return nil
+	}
+	value := coAuthoredByStateDisabled
+	if enabled {
+		value = coAuthoredByStateEnabled
+	}
+	if current, err := os.ReadFile(path); err == nil && strings.TrimSpace(string(current)) == value {
+		// Already published. The daemon republishes on every workspace sync so
+		// the file survives cache GC and daemon restarts; skipping the rewrite
+		// keeps that cheap.
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create workspace cache dir: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, coAuthoredByStateFile+".*")
+	if err != nil {
+		return fmt.Errorf("create co-authored-by state temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString(value + "\n"); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("write co-authored-by state: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("write co-authored-by state: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("publish co-authored-by state: %w", err)
+	}
+	return nil
+}
+
+// applyCoAuthoredBySettingContext brings both halves of the Co-authored-by
+// wiring in line with the setting this checkout was created under: the state
+// file every installed hook reads at commit time, and this checkout's own hook
+// file.
+func (c *Cache) applyCoAuthoredBySettingContext(ctx context.Context, worktreePath string, params WorktreeParams) {
+	if err := c.WriteCoAuthoredByState(params.WorkspaceID, params.CoAuthoredByEnabled); err != nil {
+		c.logger.Warn("repo checkout: record co-authored-by state failed (non-fatal)", "error", err)
+	}
+	if params.CoAuthoredByEnabled {
+		if err := installCoAuthoredByHookContext(ctx, worktreePath, c.CoAuthoredByStatePath(params.WorkspaceID)); err != nil {
+			c.logger.Warn("repo checkout: install co-authored-by hook failed (non-fatal)", "error", err)
+		}
+		return
+	}
+	if err := removeCoAuthoredByHookContext(ctx, worktreePath); err != nil {
+		c.logger.Warn("repo checkout: remove co-authored-by hook failed (non-fatal)", "error", err)
+	}
+}
+
+// prepareCommitMsgHook builds the prepare-commit-msg hook script that appends
+// a Co-authored-by trailer for the Multica Agent to every commit message.
+//
+// The script re-reads statePath on every commit instead of trusting its own
+// presence on disk: the hook is installed in the git common directory and
+// outlives the checkout that created it, so a workspace toggled off after the
+// checkout must still stop the trailer at the very next commit — including
+// commits the daemon never sees, and `git commit --no-verify`, which bypasses
+// pre-commit and commit-msg but not prepare-commit-msg.
+//
+// A missing or unreadable state file keeps the trailer: the hook only exists
+// because a checkout ran with the setting enabled, so "no state recorded" must
+// mean the same thing it meant before the state file existed.
+func prepareCommitMsgHook(statePath string) string {
+	var gate string
+	if statePath != "" {
+		gate = fmt.Sprintf(`# Current workspace setting, refreshed by the daemon. "0" means the
+# Co-authored-by toggle is off — leave the message alone.
+STATE_FILE=%s
+if [ -f "$STATE_FILE" ]; then
+  case "$(cat "$STATE_FILE" 2>/dev/null)" in
+    0) exit 0 ;;
+  esac
+fi
+
+`, shellSingleQuoted(filepath.ToSlash(statePath)))
+	}
+	return `#!/bin/sh
 # multica:prepare-commit-msg:co-authored-by
 # Multica: add Co-authored-by trailer for the Multica Agent.
 # Installed by the Multica daemon. Do not edit — it will be overwritten.
@@ -1616,7 +1706,7 @@ case "$COMMIT_SOURCE" in
   merge|squash) exit 0 ;;
 esac
 
-TRAILER="Co-authored-by: multica-agent <github@multica.ai>"
+` + gate + `TRAILER="Co-authored-by: multica-agent <github@multica.ai>"
 
 # Don't add if already present.
 if grep -qF "$TRAILER" "$COMMIT_MSG_FILE"; then
@@ -1626,16 +1716,26 @@ fi
 # Use git interpret-trailers for proper formatting.
 git interpret-trailers --in-place --trailer "$TRAILER" "$COMMIT_MSG_FILE"
 `
+}
+
+// shellSingleQuoted renders s as a POSIX shell single-quoted literal so a path
+// with spaces or shell metacharacters survives being embedded in the hook.
+func shellSingleQuoted(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // installCoAuthoredByHook installs a prepare-commit-msg git hook that appends
 // a Co-authored-by trailer for the Multica Agent. The hook is installed in the
 // git common directory (the bare repo for worktrees) so it applies to all
 // worktrees created from this cache.
-func installCoAuthoredByHook(worktreePath string) error {
-	return installCoAuthoredByHookContext(context.Background(), worktreePath)
+//
+// statePath is the file the hook re-reads on every commit to decide whether
+// the trailer is still wanted; pass "" to install an ungated hook.
+func installCoAuthoredByHook(worktreePath, statePath string) error {
+	return installCoAuthoredByHookContext(context.Background(), worktreePath, statePath)
 }
 
-func installCoAuthoredByHookContext(ctx context.Context, worktreePath string) error {
+func installCoAuthoredByHookContext(ctx context.Context, worktreePath, statePath string) error {
 	out, err := runGitOutputContext(ctx, "-C", worktreePath, "rev-parse", "--git-common-dir")
 	if err != nil {
 		return fmt.Errorf("resolve git common dir: %w", err)
@@ -1651,7 +1751,7 @@ func installCoAuthoredByHookContext(ctx context.Context, worktreePath string) er
 	}
 
 	hookPath := filepath.Join(hooksDir, "prepare-commit-msg")
-	if err := os.WriteFile(hookPath, []byte(prepareCommitMsgHook), 0o755); err != nil {
+	if err := os.WriteFile(hookPath, []byte(prepareCommitMsgHook(statePath)), 0o755); err != nil {
 		return fmt.Errorf("write prepare-commit-msg hook: %w", err)
 	}
 	return nil
