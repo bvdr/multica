@@ -512,8 +512,8 @@ func TestPersistCoAuthoredByStateReconcilesIsolatedCheckouts(t *testing.T) {
 	// Two env roots that look identical on disk and differ only in the
 	// workspace that owns them, plus a daemon-internal cache directory the walk
 	// must not treat as a workspace.
-	ours := seedEnvRootCheckout(t, root, "multica-ws-1", "env-a", workspaceID)
-	theirs := seedEnvRootCheckout(t, root, "other-ws", "env-b", "ws-2")
+	ours := seedEnvRootCheckout(t, root, "multica-ws-1", "env-a", workspaceAwareOwner(workspaceID))
+	theirs := seedEnvRootCheckout(t, root, "other-ws", "env-b", workspaceAwareOwner("ws-2"))
 	if err := os.MkdirAll(filepath.Join(root, ".repos", "ws-1"), 0o755); err != nil {
 		t.Fatalf("seed cache dir: %v", err)
 	}
@@ -537,18 +537,82 @@ func TestPersistCoAuthoredByStateReconcilesIsolatedCheckouts(t *testing.T) {
 	}
 }
 
-// seedEnvRootCheckout builds <root>/<wsDir>/<envRoot> with the owner record the
-// daemon attributes it by, and a checkout that owns its git metadata.
-func seedEnvRootCheckout(t *testing.T, root, wsDir, envRootName, ownerWorkspaceID string) string {
+// seedEnvRootCheckout builds <root>/<wsDir>/<envRoot> with a checkout that owns
+// its git metadata, plus the owner marker the release that created it would
+// have written. marker == "" seeds no marker at all, which is what releases
+// before .task_owner left behind.
+func seedEnvRootCheckout(t *testing.T, root, wsDir, envRootName, marker string) string {
 	t.Helper()
 	envRoot := filepath.Join(root, wsDir, envRootName)
 	checkout := filepath.Join(envRoot, "workdir", "repo")
 	if err := os.MkdirAll(filepath.Join(checkout, ".git", "hooks"), 0o755); err != nil {
 		t.Fatalf("seed checkout: %v", err)
 	}
-	owner := fmt.Sprintf(`{"workspace_id":%q,"task_id":"task-1"}`, ownerWorkspaceID)
-	if err := os.WriteFile(filepath.Join(envRoot, ".task_owner"), []byte(owner), 0o644); err != nil {
-		t.Fatalf("seed env root owner: %v", err)
+	if marker != "" {
+		if err := os.WriteFile(filepath.Join(envRoot, ".task_owner"), []byte(marker), 0o644); err != nil {
+			t.Fatalf("seed env root owner: %v", err)
+		}
 	}
 	return checkout
+}
+
+// workspaceAwareOwner is the marker written since v0.4.35: JSON carrying the
+// workspace the env root belongs to.
+func workspaceAwareOwner(workspaceID string) string {
+	return fmt.Sprintf(`{"workspace_id":%q,"task_id":"task-1"}`, workspaceID)
+}
+
+// legacyTaskOnlyOwner is the marker v0.4.32–v0.4.34 wrote: the bare task ID,
+// with nothing that names a workspace.
+const legacyTaskOnlyOwner = "01a05b87-32d9-741c-b7ce-fb90fbd8c451"
+
+// Env roots prepared before v0.4.35 name no workspace: v0.4.32–v0.4.34 wrote a
+// bare task ID into .task_owner, and older releases wrote no marker at all.
+// Both live under that era's layout — <workspaces root>/<workspace ID>/<task
+// key> — and both survive upgrades untouched, so the sweep has to attribute
+// them by directory name or the trailer never stops in the very workdirs this
+// issue was reported from (Linux Codex, Windows sandbox).
+func TestPersistCoAuthoredByStateReconcilesLegacyEnvRoots(t *testing.T) {
+	t.Parallel()
+
+	// The legacy layout used the raw workspace UUID as the directory name.
+	const workspaceID = "01a05b87-a8f3-7eea-8c17-61070ea7e840"
+	const otherWorkspaceID = "01a05b87-0000-7000-8000-000000000002"
+	settings := `{"co_authored_by_enabled":false}`
+	d, cache := newCoAuthoredByStateDaemon(t, workspaceID, &settings)
+	d.workspaces[workspaceID] = newWorkspaceState(workspaceID, nil, "", nil, json.RawMessage(settings))
+
+	root := t.TempDir()
+	d.cfg.WorkspacesRoot = root
+
+	noMarker := seedEnvRootCheckout(t, root, workspaceID, "v0431-style", "")
+	taskOnlyMarker := seedEnvRootCheckout(t, root, workspaceID, "v0434-style", legacyTaskOnlyOwner)
+	// Same two shapes under another workspace's legacy directory, plus a
+	// modern readable directory whose marker names no workspace: neither can
+	// be attributed to this workspace, so neither may be touched.
+	otherNoMarker := seedEnvRootCheckout(t, root, otherWorkspaceID, "v0431-style", "")
+	otherTaskOnly := seedEnvRootCheckout(t, root, otherWorkspaceID, "v0434-style", legacyTaskOnlyOwner)
+	readableUnattributed := seedEnvRootCheckout(t, root, "multica-61070eA_", "env-x", legacyTaskOnlyOwner)
+
+	d.persistCoAuthoredByState(workspaceID)
+
+	reconciled := make(map[string]bool)
+	for _, checkout := range cache.reconciledCheckouts() {
+		reconciled[checkout.path] = checkout.enabled
+	}
+	for _, want := range []string{noMarker, taskOnlyMarker} {
+		enabled, ok := reconciled[want]
+		if !ok {
+			t.Errorf("legacy env root was skipped: %s", want)
+			continue
+		}
+		if enabled {
+			t.Errorf("reconciled %s as enabled, want disabled", want)
+		}
+	}
+	for _, forbidden := range []string{otherNoMarker, otherTaskOnly, readableUnattributed} {
+		if _, ok := reconciled[forbidden]; ok {
+			t.Errorf("reconciled a checkout this workspace cannot claim: %s", forbidden)
+		}
+	}
 }

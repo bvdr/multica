@@ -3322,10 +3322,7 @@ func (d *Daemon) reconcileIsolatedCoAuthoredByHooks(cache coAuthoredByPublisher,
 				continue
 			}
 			envRoot := filepath.Join(wsDir, envEntry.Name())
-			owner, err := execenv.ReadEnvRootOwner(envRoot)
-			if err != nil || owner == nil || owner.WorkspaceID != workspaceID {
-				// Unknown owner (older env root that recorded only a task ID)
-				// or another workspace's root: not ours to rewrite.
+			if !d.envRootBelongsToWorkspace(wsEntry.Name(), envRoot, workspaceID) {
 				continue
 			}
 			for _, checkout := range isolatedCheckoutCandidates(envRoot, isolatedCheckoutScanDepth) {
@@ -3336,6 +3333,31 @@ func (d *Daemon) reconcileIsolatedCoAuthoredByHooks(cache coAuthoredByPublisher,
 			}
 		}
 	}
+}
+
+// envRootBelongsToWorkspace reports whether an env root is this workspace's, by
+// the strongest evidence the release that created it left behind.
+//
+// Since v0.4.35 the owner record carries the workspace ID, and an exact match
+// is required. Env roots prepared before that recorded only a task ID — or, on
+// older releases still, no marker at all — and they live under the layout that
+// release used: <workspaces root>/<workspace ID>/<task key>. So for an owner
+// record that names no workspace, the directory name is the evidence, and it
+// has to BE the workspace ID. The readable layout that replaced it always
+// appends a suffix (`<slug>-<id tail>`), so a bare workspace UUID can only be
+// one of those older roots and this can never alias a modern one.
+//
+// An unreadable marker attributes nothing: skipping costs a stale hook in one
+// workdir, guessing would rewrite hooks in another workspace's.
+func (d *Daemon) envRootBelongsToWorkspace(wsDirName, envRoot, workspaceID string) bool {
+	owner, err := execenv.ReadEnvRootOwner(envRoot)
+	if err != nil || owner == nil {
+		return false
+	}
+	if owner.WorkspaceID != "" {
+		return owner.WorkspaceID == workspaceID
+	}
+	return wsDirName == workspaceID
 }
 
 // isolatedCheckoutCandidates returns directories at or below dir that hold
