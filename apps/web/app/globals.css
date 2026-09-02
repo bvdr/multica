@@ -3,7 +3,6 @@
 @import "shadcn/tailwind.css";
 @import "../../../packages/ui/styles/tokens.css";
 @import "../../../packages/ui/styles/base.css";
-@import "./custom.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -44,6 +43,3 @@ html[lang|="ja"] {
     "Noto Sans CJK KR", sans-serif;
 }
 
-/* The landing tree overrides `--font-serif` with its own Instrument Serif +
-   per-locale CJK chain, built on the same structure; see "Landing editorial
-   serif" in ./custom.css and keep the two CJK orderings in sync. */

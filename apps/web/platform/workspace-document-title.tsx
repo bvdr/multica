@@ -48,7 +48,7 @@ export function WorkspaceDocumentTitle() {
     document.title = documentTitle;
   }, [documentTitle, url]);
 
-  // Leaving the dashboard entirely (logout, workspace switcher, landing) drops
+  // Leaving the dashboard entirely (logout, workspace switcher) drops
   // back to the site title so the stale issue name never outlives its page.
   useEffect(() => {
     return () => {

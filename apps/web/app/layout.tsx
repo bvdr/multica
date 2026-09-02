@@ -113,9 +113,11 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "/",
   },
+  // Private self-hosted fork: no public pages exist (see app/robots.ts), so
+  // pages must not be indexed even if a crawler reaches one.
   robots: {
-    index: true,
-    follow: true,
+    index: false,
+    follow: false,
   },
 };
 

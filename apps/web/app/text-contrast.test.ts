@@ -158,8 +158,6 @@ function expectTonePasses(
 
 const tokensCss = () =>
   readFileSync(resolve(repoRoot, "packages/ui/styles/tokens.css"), "utf8");
-const landingCss = () =>
-  readFileSync(resolve(repoRoot, "apps/web/app/custom.css"), "utf8");
 
 // ── source scanning ────────────────────────────────────────────────────────
 
@@ -425,20 +423,6 @@ describe("text contrast", () => {
       ).toBeLessThan(contrastRatio(muted, surface));
     });
   });
-
-  // The landing route tree re-declares the light palette so token-driven
-  // components stay light under next-themes' `.dark` class. That copy is only
-  // correct while it matches the source, so drift here is a bug in itself — a
-  // tone missing from the copy silently inherits its `.dark` value on a white
-  // surface.
-  it.each(["--muted-foreground", "--faint-foreground"])(
-    "keeps the landing-light copy of %s in sync with the light token",
-    (tone) => {
-      expect(resolveToken(readBlock(landingCss(), ".landing-light"), tone)).toBe(
-        resolveToken(readBlock(tokensCss(), ":root"), tone),
-      );
-    },
-  );
 
   /**
    * The detector is the part of this guard most likely to rot, because every

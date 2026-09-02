@@ -1,8 +1,8 @@
 import { Skeleton } from "@multica/ui/components/ui/skeleton";
 
 // Rendered by Next.js as the Suspense fallback during route transitions
-// inside the (dashboard) segment. Scoped to this segment only — auth /
-// landing keep their own full-screen fallbacks.
+// inside the (dashboard) segment. Scoped to this segment only — auth keeps
+// its own full-screen fallback.
 export default function DashboardLoading() {
   return (
     <div className="flex h-svh w-full flex-col">

@@ -48,15 +48,6 @@ const skipDirs = new Set(["node_modules", ".next", "dist", "out", "build", ".tur
 const sourceExtensions = [".ts", ".tsx", ".css"];
 
 /**
- * Landing pages run a marketing display ramp (rem/clamp, 2.2-6.4rem) that is
- * deliberately not this scale — a hero headline does not belong on the same
- * steps as a table cell. They still may not use pixel sizes, so only the
- * relative-unit rule is lifted for them.
- */
-const marketingPaths = ["apps/web/app/(landing)", "apps/web/features/landing"];
-const isMarketing = (rel: string) => marketingPaths.some((p) => rel.startsWith(p));
-
-/**
  * Tailwind's default steps that the role scale replaces one-for-one. `text-4xl`
  * and larger are not listed: their only call sites are decorative emoji and the
  * serif onboarding hero, which are not UI text and do not sit on this ramp.
@@ -74,7 +65,7 @@ const bannedPatterns = [
     label: "arbitrary relative size",
     regex: /\btext-\[\d*\.?\d+(?:rem|em)\]/g,
     hint: "use a scale step (text-micro … text-display)",
-    appliesTo: (rel: string) => !isMarketing(rel),
+    appliesTo: () => true,
   },
   {
     label: "Tailwind default size",
@@ -98,7 +89,7 @@ const bannedPatterns = [
     label: "raw CSS font-size",
     regex: /font-size:(?!\s*var\()\s*[^;}]+/g,
     hint: "use var(--text-micro) … var(--text-display)",
-    appliesTo: (rel: string) => rel.endsWith(".css") && !isMarketing(rel),
+    appliesTo: (rel: string) => rel.endsWith(".css"),
   },
 ];
 
