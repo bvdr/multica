@@ -48,11 +48,9 @@ import { useT } from "../../i18n";
 
 type DialogState = "cli" | null;
 
-// Single canonical download destination — the /download page owns
-// OS + arch detection, the All-Platforms matrix, release-note links,
-// and the CLI / Cloud alternates. Kept in sync with landing-hero.tsx
-// and landing footer nav, both of which target the same path.
-const DOWNLOAD_PAGE_URL = "/download";
+// Single canonical download destination, shared with the welcome step and
+// the login footer; see desktop-download-url.ts for why it is external.
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download-url";
 
 export function StepPlatformFork({
   wsId,
@@ -83,7 +81,7 @@ export function StepPlatformFork({
     // and the copy it used to flip to ("Opened in a new tab.") was a claim we
     // had no way to stand behind. The card states the intent up front
     // instead, which is true either way.
-    window.open(DOWNLOAD_PAGE_URL, "_blank", "noopener,noreferrer");
+    window.open(DESKTOP_DOWNLOAD_URL, "_blank", "noopener,noreferrer");
   };
 
   const handleOpenCli = () => {

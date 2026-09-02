@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download-url";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { AgentRuntime } from "@multica/core/types";
@@ -132,10 +133,10 @@ describe("StepPlatformFork", () => {
 
     await user.click(screen.getByText(/^use this computer$/i));
 
-    // Routes to the new /download page (not GitHub releases) so the
-    // user lands on the OS auto-detect surface.
+    // The fork has no /download page; the card opens the upstream GitHub
+    // releases page, shared with the login footer and the welcome step.
     expect(openSpy).toHaveBeenCalledWith(
-      "/download",
+      DESKTOP_DOWNLOAD_URL,
       "_blank",
       "noopener,noreferrer",
     );

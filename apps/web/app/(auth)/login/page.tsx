@@ -26,8 +26,8 @@ import {
 import { Button } from "@multica/ui/components/ui/button";
 import { Loader2 } from "lucide-react";
 import { setLoggedInCookie } from "@/features/auth/auth-cookie";
-import Link from "next/link";
 import { LoginPage, validateCliCallback } from "@multica/views/auth";
+import { DESKTOP_DOWNLOAD_URL } from "@multica/views/onboarding";
 import { useT } from "@multica/views/i18n";
 
 /**
@@ -236,12 +236,16 @@ function LoginPageContent() {
       extra={
         <span className="text-caption text-muted-foreground">
           {t(($) => $.web.prefer_desktop)}{" "}
-          <Link
-            href="/download"
+          {/* External (GitHub releases) since the fork has no /download page,
+              so a plain anchor in a new tab instead of next/link. */}
+          <a
+            href={DESKTOP_DOWNLOAD_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="font-medium text-foreground underline decoration-foreground/30 underline-offset-4 hover:decoration-foreground/70"
           >
             {t(($) => $.web.download)}
-          </Link>
+          </a>
         </span>
       }
     />

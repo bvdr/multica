@@ -12,6 +12,7 @@ import type { IssueStatus } from "@multica/core/types";
 import { StatusIcon } from "../../issues/components/status-icon";
 import { ProviderLogo } from "../../runtimes/components/provider-logo";
 import { useT } from "../../i18n";
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download-url";
 
 /**
  * Step 0 — the one-shot product intro shown on every onboarding
@@ -114,7 +115,7 @@ export function StepWelcome({
                       onboarding tab in case the desktop install
                       stalls and the user falls back here. */}
                   <a
-                    href="/download"
+                    href={DESKTOP_DOWNLOAD_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={buttonVariants({ size: "lg" })}
