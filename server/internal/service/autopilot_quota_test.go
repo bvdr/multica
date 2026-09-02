@@ -371,6 +371,9 @@ func TestAutopilotQuotaFirstRejectionNotifiesBillingManagersOncePerWorkspacePeri
 	if severity != "attention" {
 		t.Fatalf("quota rejection severity = %q, want attention", severity)
 	}
+	if strings.Contains(body, title) {
+		t.Fatalf("workspace-level quota rejection body names one autopilot: %q", body)
+	}
 	if strings.Contains(body, fixture.resetAt.UTC().Format(time.RFC3339)) ||
 		!strings.Contains(body, fixture.resetAt.UTC().Format("January 2, 2006 at 15:04 UTC")) {
 		t.Fatalf("quota rejection body reset time is not human-readable: %q", body)
@@ -547,6 +550,75 @@ func TestAutopilotQuotaNoticeDoesNotDependOnCreatorAgentOwner(t *testing.T) {
 	if recipientID.Bytes != fixture.publisherID.Bytes {
 		t.Fatalf("ownerless-agent notice recipient = %s, want workspace owner %s",
 			util.UUIDToString(recipientID), util.UUIDToString(fixture.publisherID))
+	}
+}
+
+func TestAutopilotQuotaNoticeRetriesAfterWorkspaceManagerIsRestored(t *testing.T) {
+	fixture := newAutopilotQuotaFixture(t, entitlement.ActionEnforce, 0)
+	fixture.setNotificationPolicy(0)
+	ctx := context.Background()
+	if _, err := fixture.pool.Exec(ctx, `
+		UPDATE member SET role = 'member' WHERE workspace_id = $1 AND user_id = $2`,
+		fixture.workspaceID, fixture.publisherID,
+	); err != nil {
+		t.Fatalf("remove final workspace manager role: %v", err)
+	}
+
+	assertRejected := func(key string) {
+		t.Helper()
+		_, _, err := fixture.service.createAutopilotRunWithQuota(
+			ctx, fixture.workspaceID, "schedule", key, fixture.createRunArgs,
+		)
+		var quotaErr *AutopilotQuotaExceededError
+		if !errors.As(err, &quotaErr) {
+			t.Fatalf("quota rejection %q = %v, want quota error", key, err)
+		}
+	}
+	loadPeriod := func() db.AutopilotQuotaPeriod {
+		t.Helper()
+		period, err := fixture.queries.GetAutopilotQuotaPeriod(ctx, db.GetAutopilotQuotaPeriodParams{
+			WorkspaceID: fixture.workspaceID,
+			PeriodStart: pgtype.Timestamptz{Time: fixture.periodStart, Valid: true},
+			PeriodEnd:   pgtype.Timestamptz{Time: fixture.periodEnd, Valid: true},
+		})
+		if err != nil {
+			t.Fatalf("load quota period: %v", err)
+		}
+		return period
+	}
+	countNotices := func() int {
+		t.Helper()
+		var count int
+		if err := fixture.pool.QueryRow(ctx, `
+			SELECT count(*) FROM inbox_item
+			WHERE workspace_id = $1 AND type = 'autopilot_quota_exceeded'`,
+			fixture.workspaceID,
+		).Scan(&count); err != nil {
+			t.Fatalf("count quota notices: %v", err)
+		}
+		return count
+	}
+
+	assertRejected("no-workspace-manager")
+	if period := loadPeriod(); period.RejectionNotifiedAt.Valid {
+		t.Fatal("quota notice marker was consumed without a workspace manager")
+	}
+	if got := countNotices(); got != 0 {
+		t.Fatalf("quota notices without a workspace manager = %d, want zero", got)
+	}
+
+	if _, err := fixture.pool.Exec(ctx, `
+		UPDATE member SET role = 'owner' WHERE workspace_id = $1 AND user_id = $2`,
+		fixture.workspaceID, fixture.publisherID,
+	); err != nil {
+		t.Fatalf("restore workspace owner: %v", err)
+	}
+	assertRejected("restored-workspace-manager")
+	if period := loadPeriod(); !period.RejectionNotifiedAt.Valid {
+		t.Fatal("quota notice marker was not persisted after manager recovery")
+	}
+	if got := countNotices(); got != 1 {
+		t.Fatalf("quota notices after manager recovery = %d, want one", got)
 	}
 }
 

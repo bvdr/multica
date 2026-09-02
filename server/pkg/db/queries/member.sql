@@ -3,7 +3,7 @@ SELECT * FROM member
 WHERE workspace_id = $1
 ORDER BY created_at ASC;
 
--- name: ListWorkspaceBillingNotificationRecipients :many
+-- name: ListWorkspaceManagerUserIDs :many
 SELECT user_id FROM member
 WHERE workspace_id = $1 AND role IN ('owner', 'admin')
 ORDER BY created_at ASC;

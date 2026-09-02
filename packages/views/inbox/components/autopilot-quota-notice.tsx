@@ -27,16 +27,10 @@ export function AutopilotQuotaNotice({
 
   let body = item.body;
   if (details.limit && resetAt) {
-    body = details.autopilot_title
-      ? t(($) => $.detail.autopilot_quota_exceeded_autopilot_body, {
-          autopilot: details.autopilot_title,
-          limit: details.limit,
-          resetAt,
-        })
-      : t(($) => $.detail.autopilot_quota_exceeded_body, {
-          limit: details.limit,
-          resetAt,
-        });
+    body = t(($) => $.detail.autopilot_quota_exceeded_body, {
+      limit: details.limit,
+      resetAt,
+    });
   }
 
   return (

@@ -48,8 +48,7 @@
     "original_input": "原始输入",
     "retry_with_context": "保留上下文重试",
     "edit_advanced": "在完整表单中编辑",
-    "autopilot_quota_exceeded_body": "当前周期的 {{limit}} 次自动化执行额度已用完，本次执行未启动。额度将于 {{resetAt}} 重置。",
-    "autopilot_quota_exceeded_autopilot_body": "自动化“{{autopilot}}”未能启动，因为当前周期的 {{limit}} 次执行额度已用完。额度将于 {{resetAt}} 重置。",
+    "autopilot_quota_exceeded_body": "当前周期的 {{limit}} 次自动化执行额度已用完。在 {{resetAt}} 重置前，后续自动化执行将不会启动。",
     "autopilot_quota_upgrade": "查看升级方案",
     "archive": "归档",
     "unarchive": "取消归档"

@@ -58,7 +58,7 @@ describe("AutopilotQuotaNotice", () => {
     expect(onOpenRecovery).toHaveBeenCalledOnce();
   });
 
-  it("uses the autopilot title without inferring billing access locally", () => {
+  it("keeps the first blocked autopilot out of the workspace-level body", () => {
     render(
       <AutopilotQuotaNotice
         item={item({
@@ -72,7 +72,8 @@ describe("AutopilotQuotaNotice", () => {
       />,
     );
 
-    expect(screen.getByText(/Daily triage/)).toBeInTheDocument();
+    expect(screen.queryByText(/Daily triage/)).not.toBeInTheDocument();
+    expect(screen.getByText(/limit of 100 autopilot runs/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "View upgrade options" })).toBeInTheDocument();
   });
 });

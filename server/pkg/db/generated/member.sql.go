@@ -167,14 +167,14 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 	return items, nil
 }
 
-const listWorkspaceBillingNotificationRecipients = `-- name: ListWorkspaceBillingNotificationRecipients :many
+const listWorkspaceManagerUserIDs = `-- name: ListWorkspaceManagerUserIDs :many
 SELECT user_id FROM member
 WHERE workspace_id = $1 AND role IN ('owner', 'admin')
 ORDER BY created_at ASC
 `
 
-func (q *Queries) ListWorkspaceBillingNotificationRecipients(ctx context.Context, workspaceID pgtype.UUID) ([]pgtype.UUID, error) {
-	rows, err := q.db.Query(ctx, listWorkspaceBillingNotificationRecipients, workspaceID)
+func (q *Queries) ListWorkspaceManagerUserIDs(ctx context.Context, workspaceID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listWorkspaceManagerUserIDs, workspaceID)
 	if err != nil {
 		return nil, err
 	}

@@ -10,12 +10,29 @@ import (
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
 )
 
-// AutopilotNotificationRecipient is the human who can act on an autopilot
-// system notice. Autopilot notices intentionally have a single responsible
-// recipient instead of broadcasting to every workspace member.
+// AutopilotNotificationRecipient is a human recipient of an autopilot system
+// notice.
 type AutopilotNotificationRecipient struct {
 	Type string
 	ID   pgtype.UUID
+}
+
+// ListWorkspaceManagerNotificationRecipients returns the current workspace
+// owners and admins for workspace-level notices and responsibility fallbacks.
+func ListWorkspaceManagerNotificationRecipients(
+	ctx context.Context,
+	queries *db.Queries,
+	workspaceID pgtype.UUID,
+) ([]AutopilotNotificationRecipient, error) {
+	userIDs, err := queries.ListWorkspaceManagerUserIDs(ctx, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	recipients := make([]AutopilotNotificationRecipient, 0, len(userIDs))
+	for _, userID := range userIDs {
+		recipients = append(recipients, AutopilotNotificationRecipient{Type: "member", ID: userID})
+	}
+	return recipients, nil
 }
 
 // ResolveAutopilotNotificationRecipient routes a notice to the autopilot's

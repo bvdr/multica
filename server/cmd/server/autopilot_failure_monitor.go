@@ -292,10 +292,21 @@ func resolveAutopilotPausedRecipients(
 		)
 		return nil
 	}
-	if !ok {
+	if ok {
+		return []service.AutopilotNotificationRecipient{recipient}
+	}
+
+	recipients, err := service.ListWorkspaceManagerNotificationRecipients(
+		ctx, queries, autopilot.WorkspaceID,
+	)
+	if err != nil {
+		slog.Debug("autopilot failure monitor: failed to resolve workspace manager fallback recipients",
+			"autopilot_id", util.UUIDToString(autopilot.ID),
+			"error", err,
+		)
 		return nil
 	}
-	return []service.AutopilotNotificationRecipient{recipient}
+	return recipients
 }
 
 // autopilotEventPayload builds the minimal payload shape consumed by

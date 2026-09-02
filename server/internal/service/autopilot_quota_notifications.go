@@ -97,9 +97,14 @@ func (s *AutopilotService) createAutopilotQuotaRejectionNotice(
 	if err != nil {
 		return nil, err
 	}
-	// A successfully resolved no-recipient result is still terminal for this
-	// period. Retrying on every rejected run would repeatedly take the period
-	// row lock even though there is no workspace billing manager to notify.
+	if len(items) == 0 {
+		// Keep the marker unset so a later rejection can notify a newly restored
+		// workspace owner or admin instead of silencing the entire period.
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit quota rejection notice without recipients: %w", err)
+		}
+		return nil, nil
+	}
 	if _, err := q.MarkAutopilotQuotaRejectionNotified(ctx, db.MarkAutopilotQuotaRejectionNotifiedParams{
 		WorkspaceID: period.WorkspaceID,
 		PeriodStart: period.PeriodStart,
@@ -125,22 +130,16 @@ func (s *AutopilotService) createAutopilotQuotaInboxItems(
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("load autopilot for quota notice: %w", err)
 	}
-	recipientIDs, err := q.ListWorkspaceBillingNotificationRecipients(ctx, facts.WorkspaceID)
+	recipients, err := ListWorkspaceManagerNotificationRecipients(ctx, q, facts.WorkspaceID)
 	if err != nil {
 		return nil, fmt.Errorf("list workspace billing notification recipients: %w", err)
 	}
 	resetAt := facts.ResetAt.UTC().Format("January 2, 2006 at 15:04 UTC")
 
 	body := fmt.Sprintf(
-		"This workspace has reached its limit of %d autopilot runs for the current period. This execution was not started. The allowance resets at %s.",
+		"This workspace has reached its limit of %d autopilot runs for the current period. Further autopilot runs will not start until the allowance resets at %s.",
 		facts.Limit, resetAt,
 	)
-	if autopilotTitle != "" {
-		body = fmt.Sprintf(
-			"Autopilot %q was not started because this workspace has reached its limit of %d runs for the current period. The allowance resets at %s.",
-			autopilotTitle, facts.Limit, resetAt,
-		)
-	}
 	details, err := json.Marshal(map[string]string{
 		"notice_kind":     "rejected",
 		"notice_key":      autopilotQuotaFirstRejectionNoticeKey,
@@ -157,11 +156,11 @@ func (s *AutopilotService) createAutopilotQuotaInboxItems(
 		return nil, fmt.Errorf("marshal autopilot quota inbox details: %w", err)
 	}
 
-	items := make([]db.InboxItem, 0, len(recipientIDs))
-	for _, recipientID := range recipientIDs {
+	items := make([]db.InboxItem, 0, len(recipients))
+	for _, recipient := range recipients {
 		item, err := q.CreateInboxItem(ctx, db.CreateInboxItemParams{
 			ID: dbid.NewV7(), WorkspaceID: facts.WorkspaceID,
-			RecipientType: "member", RecipientID: recipientID,
+			RecipientType: recipient.Type, RecipientID: recipient.ID,
 			Type: "autopilot_quota_exceeded", Severity: "attention", IssueID: pgtype.UUID{},
 			Title: "Autopilot run limit reached", Body: pgtype.Text{String: body, Valid: true},
 			ActorType: pgtype.Text{String: "system", Valid: true}, ActorID: pgtype.UUID{},

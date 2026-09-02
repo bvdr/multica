@@ -89,9 +89,10 @@ dependency; the autopilot consumer owns its policy-neutral accounting and
 recovery lifecycle separately. Cloud remains the only place that determines
 the effective policy from subscription facts and authoritative limits.
 
-For an enforcing autopilot policy, the first rejected run in a period is
-delivered once to all current workspace members. Later rejections in the same
-period do not create more Inbox items.
+For an enforcing autopilot policy, the first rejected run in a period that
+finds at least one workspace owner or admin is delivered once to all such
+managers. With no manager the marker stays unset so a later rejection can retry;
+after a successful delivery, later rejections create no more Inbox items.
 
 Quota admission and blocked-count transactions commit before a separate Inbox
 transaction begins. Inbox inserts and notification-state parsing are therefore
