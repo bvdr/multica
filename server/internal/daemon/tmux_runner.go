@@ -2,15 +2,20 @@ package daemon
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/multica-ai/multica/server/internal/daemon/execenv"
+	"github.com/multica-ai/multica/server/pkg/agent"
 )
 
 // tmux mode (ContextPRO fork): a local_directory task runs as an interactive
@@ -160,4 +165,140 @@ func transcriptTail(path string, lines int) string {
 		ring = append(ring, line)
 	}
 	return strings.Join(ring, "\n") + "\n"
+}
+
+func (d *Daemon) tmuxController() (tmuxController, error) {
+	if d.tmux != nil {
+		return d.tmux, nil
+	}
+	ctl, err := newExecTmux()
+	if err != nil {
+		return nil, err
+	}
+	d.tmux = ctl
+	return ctl, nil
+}
+
+// runTmuxTask is the tmux-mode counterpart of executeAndDrain. The folder has
+// already been prepared by execenv.Prepare (brief, MCP config, sidecars), so
+// this only has to launch the interactive session and wait for it to end.
+func (d *Daemon) runTmuxTask(ctx context.Context, task Task, env *execenv.Environment, assignment *localDirectoryAssignment, claudePath string, opts agent.ExecOptions, prompt string, taskLog *slog.Logger) (TaskResult, error) {
+	ctl, err := d.tmuxController()
+	if err != nil {
+		return TaskResult{}, err
+	}
+	dir := tmuxTaskDir(d.cfg.WorkspacesRoot, task.ID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return TaskResult{}, fmt.Errorf("tmux task dir: %w", err)
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+
+	promptPath := filepath.Join(dir, "prompt.md")
+	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
+		cleanup()
+		return TaskResult{}, fmt.Errorf("write tmux prompt: %w", err)
+	}
+	mcpPath := ""
+	if agent.HasManagedMcpConfig(opts.McpConfig) {
+		mcpPath = filepath.Join(dir, "mcp.json")
+		if err := os.WriteFile(mcpPath, opts.McpConfig, 0o600); err != nil {
+			cleanup()
+			return TaskResult{}, fmt.Errorf("write tmux mcp config: %w", err)
+		}
+	}
+	exitPath := filepath.Join(dir, "exit-code")
+	transcript := filepath.Join(dir, "transcript.log")
+	args := agent.BuildClaudeInteractiveArgs(opts, mcpPath, d.logger)
+	scriptPath := filepath.Join(dir, "run.sh")
+	if err := os.WriteFile(scriptPath, []byte(renderTmuxRunScript(assignment.AbsPath, claudePath, args, promptPath, exitPath)), 0o700); err != nil {
+		cleanup()
+		return TaskResult{}, fmt.Errorf("write tmux run script: %w", err)
+	}
+
+	name := tmuxSessionName(task.IssueIdentifier, task.ID, func(n string) bool {
+		alive, err := ctl.HasSession(ctx, n)
+		return err == nil && alive
+	})
+	st := tmuxState{
+		Session: name, TaskID: task.ID, IssueID: task.IssueID, Folder: assignment.AbsPath,
+		WorkDir: env.WorkDir, EnvRoot: env.RootDir, TranscriptPath: transcript, ExitCodePath: exitPath,
+		StartedAt: time.Now().UTC(),
+	}
+	if err := writeTmuxState(dir, st); err != nil {
+		cleanup()
+		return TaskResult{}, fmt.Errorf("write tmux state: %w", err)
+	}
+	if err := ctl.NewSession(ctx, name, assignment.AbsPath, []string{"sh", scriptPath}); err != nil {
+		cleanup()
+		return TaskResult{}, err
+	}
+	// Non-fatal: without the pipe the session still runs; only the final
+	// transcript tail is lost, and the log says so.
+	if err := ctl.PipePane(ctx, name, transcript); err != nil {
+		taskLog.Warn("tmux: pipe-pane failed; run output will not be captured", "session", name, "error", err)
+	}
+	taskLog.Info("tmux: interactive session started", "session", name, "folder", assignment.AbsPath)
+	d.announceTmuxSession(ctx, task.ID, name)
+	return d.watchTmuxSession(ctx, ctl, st, taskLog)
+}
+
+// announceTmuxSession tells the issue where to attach. Nil client in tests.
+func (d *Daemon) announceTmuxSession(ctx context.Context, taskID, session string) {
+	if d.client == nil {
+		return
+	}
+	text := fmt.Sprintf("Interactive session on %s: `tmux attach -t %s`", d.cfg.DeviceName, session)
+	_ = d.client.ReportProgress(ctx, taskID, text, 1, 2)
+	_ = d.client.ReportTaskMessages(ctx, taskID, []TaskMessageData{{Seq: 1, Type: "text", Content: text}})
+}
+
+// watchTmuxSession polls until the session is gone, then maps the recorded
+// exit code to a result. On cancellation it distinguishes a cancelled TASK
+// (kill the session) from a daemon shutdown (leave it; adoptTmuxSessions picks
+// it up on the next start): if the daemon's root context is done, so is every
+// task context, and killing then would destroy the user's live terminal.
+func (d *Daemon) watchTmuxSession(ctx context.Context, ctl tmuxController, st tmuxState, taskLog *slog.Logger) (TaskResult, error) {
+	ticker := time.NewTicker(tmuxPollInterval)
+	defer ticker.Stop()
+	for {
+		alive, err := ctl.HasSession(ctx, st.Session)
+		if err != nil {
+			taskLog.Warn("tmux: has-session failed; retrying", "session", st.Session, "error", err)
+		} else if !alive {
+			return tmuxOutcome(st)
+		}
+		select {
+		case <-ctx.Done():
+			if d.rootCtx != nil && d.rootCtx.Err() != nil {
+				taskLog.Info("tmux: daemon shutting down; leaving session for adoption", "session", st.Session)
+			} else if killErr := ctl.KillSession(context.Background(), st.Session); killErr != nil {
+				taskLog.Warn("tmux: kill-session after task cancel failed", "session", st.Session, "error", killErr)
+			}
+			return TaskResult{}, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// tmuxOutcome turns an ended session into the task's result and removes the
+// task dir. The user's folder is never touched here.
+func tmuxOutcome(st tmuxState) (TaskResult, error) {
+	dir := filepath.Dir(st.ExitCodePath)
+	defer os.RemoveAll(dir)
+	tail := transcriptTail(st.TranscriptPath, tmuxTranscriptTailLines)
+	code, found, err := readTmuxExitCode(st.ExitCodePath)
+	switch {
+	case err != nil:
+		return TaskResult{}, fmt.Errorf("interactive session %s: %w", st.Session, err)
+	case !found:
+		return TaskResult{}, fmt.Errorf("interactive session %s ended without an exit code (session lost)\n\n%s", st.Session, tail)
+	case code != 0:
+		return TaskResult{}, fmt.Errorf("interactive session %s exited with code %d\n\n%s", st.Session, code, tail)
+	}
+	return TaskResult{
+		Status:  "completed",
+		Comment: fmt.Sprintf("Interactive session %s finished.\n\n%s", st.Session, tail),
+		WorkDir: st.WorkDir,
+		EnvRoot: st.EnvRoot,
+	}, nil
 }

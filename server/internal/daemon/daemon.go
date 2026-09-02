@@ -592,6 +592,12 @@ type Daemon struct {
 	// surfaced via the server-side waiting_local_directory status while it
 	// waits. See MUL-2663.
 	localPathLocks *LocalPathLocker
+	// tmux is the controller tmux-mode tasks use (ContextPRO fork). nil means
+	// "build the real one from PATH on first use"; tests inject a fake.
+	tmux tmuxController
+	// tmuxAdoptionReport is how adopted sessions report their outcome. nil
+	// means "through the server client"; tests capture it instead.
+	tmuxAdoptionReport func(st tmuxState, result TaskResult, err error)
 
 	// bgSyncs tracks background goroutines started by registerTaskRepos so
 	// callers (notably tests using t.TempDir-backed cache roots) can wait for
@@ -7714,6 +7720,12 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 		WorkDir:     env.WorkDir,
 	})
 	defer d.clearActiveRepoCheckoutTask(agentToken)
+	// Fork (ContextPRO): tmux mode replaces the headless backend run with an
+	// interactive session in the prepared folder. Everything above (folder
+	// validation, execenv.Prepare, prompt, MCP config, model) is shared.
+	if localAssignment != nil && localAssignment.UsesTmux() {
+		return d.runTmuxTask(ctx, task, env, localAssignment, entry.Path, execOpts, prompt, taskLog)
+	}
 
 	taskLog.Debug("invoking backend",
 		"provider", provider,

@@ -1,11 +1,18 @@
 package daemon
 
 import (
+	"context"
+	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/multica-ai/multica/server/internal/daemon/execenv"
+	"github.com/multica-ai/multica/server/pkg/agent"
 )
 
 func TestTmuxSessionNameIsSafeAndUnique(t *testing.T) {
@@ -113,5 +120,184 @@ func TestTranscriptTailStripsAnsiAndKeepsLastLines(t *testing.T) {
 	}
 	if got := transcriptTail(filepath.Join(t.TempDir(), "missing"), 200); got != "" {
 		t.Fatalf("missing transcript should give empty tail, got %q", got)
+	}
+}
+
+// fakeTmux is an in-memory controller: sessions are alive until end() is
+// called, and every call is recorded for assertions.
+type fakeTmux struct {
+	mu      sync.Mutex
+	alive   map[string]bool
+	newArgs [][]string
+	piped   map[string]string
+	killed  []string
+}
+
+func newFakeTmux() *fakeTmux { return &fakeTmux{alive: map[string]bool{}, piped: map[string]string{}} }
+func (f *fakeTmux) NewSession(_ context.Context, name, folder string, command []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.alive[name] = true
+	f.newArgs = append(f.newArgs, append([]string{name, folder}, command...))
+	return nil
+}
+func (f *fakeTmux) PipePane(_ context.Context, name, transcript string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.piped[name] = transcript
+	return nil
+}
+func (f *fakeTmux) HasSession(_ context.Context, name string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.alive[name], nil
+}
+func (f *fakeTmux) KillSession(_ context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.alive, name)
+	f.killed = append(f.killed, name)
+	return nil
+}
+func (f *fakeTmux) end(name string) { f.mu.Lock(); defer f.mu.Unlock(); delete(f.alive, name) }
+func (f *fakeTmux) firstAlive() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for n := range f.alive {
+		return n
+	}
+	return ""
+}
+
+func newTmuxTestDaemon(t *testing.T, ctl tmuxController) *Daemon {
+	t.Helper()
+	d := &Daemon{cfg: Config{DaemonID: "d-tmux", WorkspacesRoot: t.TempDir(), DeviceName: "Mac mini (Test)"}, logger: slog.Default(), tmux: ctl}
+	d.rootCtx = context.Background()
+	return d
+}
+
+func TestRunTmuxTaskSpawnsSessionAndCompletesOnExitZero(t *testing.T) {
+	orig := tmuxPollInterval
+	tmuxPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { tmuxPollInterval = orig })
+
+	ctl := newFakeTmux()
+	d := newTmuxTestDaemon(t, ctl)
+	folder := t.TempDir()
+	task := Task{ID: "abcd1234-task", IssueID: "issue-1", IssueIdentifier: "CTX-7"}
+	assignment := &localDirectoryAssignment{Ref: localDirectoryRef{LocalPath: folder, DaemonID: "d-tmux", ExecutionMode: "tmux"}, AbsPath: folder, RealPath: folder}
+	env := &execenv.Environment{WorkDir: folder, RootDir: filepath.Join(d.cfg.WorkspacesRoot, "env-1")}
+
+	done := make(chan struct{})
+	var result TaskResult
+	var runErr error
+	go func() {
+		defer close(done)
+		result, runErr = d.runTmuxTask(context.Background(), task, env, assignment, "/opt/fake/claude", agent.ExecOptions{Model: "claude-opus-5"}, "Do the thing", slog.Default())
+	}()
+
+	// Wait for the session to exist, then simulate Claude finishing.
+	var name string
+	for i := 0; i < 200 && name == ""; i++ {
+		name = ctl.firstAlive()
+		time.Sleep(5 * time.Millisecond)
+	}
+	if name != "ctx-ctx-7-abcd" {
+		t.Fatalf("session name = %q", name)
+	}
+	taskDir := tmuxTaskDir(d.cfg.WorkspacesRoot, task.ID)
+	if prompt, _ := os.ReadFile(filepath.Join(taskDir, "prompt.md")); string(prompt) != "Do the thing" {
+		t.Fatalf("prompt file = %q", prompt)
+	}
+	script, _ := os.ReadFile(filepath.Join(taskDir, "run.sh"))
+	if !strings.Contains(string(script), "'/opt/fake/claude' '--model' 'claude-opus-5'") {
+		t.Fatalf("run.sh does not launch claude interactively:\n%s", script)
+	}
+	ctl.mu.Lock()
+	piped := ctl.piped[name]
+	ctl.mu.Unlock()
+	if piped != filepath.Join(taskDir, "transcript.log") {
+		t.Fatalf("pipe-pane transcript = %q", piped)
+	}
+	os.WriteFile(filepath.Join(taskDir, "transcript.log"), []byte("\x1b[1mhello\x1b[0m\nbye\n"), 0o600)
+	os.WriteFile(filepath.Join(taskDir, "exit-code"), []byte("0\n"), 0o600)
+	ctl.end(name)
+	<-done
+
+	if runErr != nil {
+		t.Fatalf("runTmuxTask: %v", runErr)
+	}
+	if result.Status != "completed" || !strings.Contains(result.Comment, "hello\nbye") || result.WorkDir != folder {
+		t.Fatalf("result = %+v", result)
+	}
+	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
+		t.Fatal("task dir was not cleaned up after completion")
+	}
+}
+
+func TestWatchTmuxSessionMapsExitCodes(t *testing.T) {
+	orig := tmuxPollInterval
+	tmuxPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { tmuxPollInterval = orig })
+	ctl := newFakeTmux()
+	d := newTmuxTestDaemon(t, ctl)
+
+	mk := func(name string, exit string) tmuxState {
+		dir := tmuxTaskDir(d.cfg.WorkspacesRoot, name)
+		os.MkdirAll(dir, 0o700)
+		if exit != "" {
+			os.WriteFile(filepath.Join(dir, "exit-code"), []byte(exit), 0o600)
+		}
+		os.WriteFile(filepath.Join(dir, "transcript.log"), []byte("tail line\n"), 0o600)
+		return tmuxState{Session: name, TaskID: name, TranscriptPath: filepath.Join(dir, "transcript.log"), ExitCodePath: filepath.Join(dir, "exit-code"), WorkDir: "/w", EnvRoot: "/e"}
+	}
+	if _, err := d.watchTmuxSession(context.Background(), ctl, mk("gone-nonzero", "2"), slog.Default()); err == nil || !strings.Contains(err.Error(), "exited with code 2") || !strings.Contains(err.Error(), "tail line") {
+		t.Fatalf("non-zero exit: %v", err)
+	}
+	if _, err := d.watchTmuxSession(context.Background(), ctl, mk("gone-lost", ""), slog.Default()); err == nil || !strings.Contains(err.Error(), "session lost") {
+		t.Fatalf("lost session: %v", err)
+	}
+	if res, err := d.watchTmuxSession(context.Background(), ctl, mk("gone-ok", "0"), slog.Default()); err != nil || res.Status != "completed" {
+		t.Fatalf("clean exit: %+v %v", res, err)
+	}
+}
+
+func TestWatchTmuxSessionKillsOnTaskCancelButNotOnDaemonShutdown(t *testing.T) {
+	orig := tmuxPollInterval
+	tmuxPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { tmuxPollInterval = orig })
+
+	// Task cancelled while the daemon keeps running: the session is killed.
+	ctl := newFakeTmux()
+	d := newTmuxTestDaemon(t, ctl)
+	ctl.alive["ctx-a-1"] = true
+	st := tmuxState{Session: "ctx-a-1", TaskID: "a", ExitCodePath: filepath.Join(t.TempDir(), "exit-code"), TranscriptPath: filepath.Join(t.TempDir(), "t.log")}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(30 * time.Millisecond); cancel() }()
+	if _, err := d.watchTmuxSession(ctx, ctl, st, slog.Default()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	ctl.mu.Lock()
+	killed := append([]string(nil), ctl.killed...)
+	ctl.mu.Unlock()
+	if len(killed) != 1 || killed[0] != "ctx-a-1" {
+		t.Fatalf("cancelled task should kill its session, killed=%v", killed)
+	}
+
+	// Daemon shutting down: the session must survive so it can be adopted.
+	ctl2 := newFakeTmux()
+	d2 := newTmuxTestDaemon(t, ctl2)
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	d2.rootCtx = rootCtx
+	ctl2.alive["ctx-b-1"] = true
+	st2 := tmuxState{Session: "ctx-b-1", TaskID: "b", ExitCodePath: filepath.Join(t.TempDir(), "exit-code"), TranscriptPath: filepath.Join(t.TempDir(), "t.log")}
+	go func() { time.Sleep(30 * time.Millisecond); rootCancel() }()
+	if _, err := d2.watchTmuxSession(rootCtx, ctl2, st2, slog.Default()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+	ctl2.mu.Lock()
+	defer ctl2.mu.Unlock()
+	if len(ctl2.killed) != 0 || !ctl2.alive["ctx-b-1"] {
+		t.Fatalf("daemon shutdown must leave the session alive, killed=%v alive=%v", ctl2.killed, ctl2.alive)
 	}
 }
