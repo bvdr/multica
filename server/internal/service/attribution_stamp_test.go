@@ -407,8 +407,10 @@ func TestTriggerOwnerAttribution_ScheduleTriggerCreator(t *testing.T) {
 	if got.Source != attribution.SourceTriggerOwner {
 		t.Fatalf("source = %q, want trigger_owner", got.Source)
 	}
-	if got.UserID.Valid {
-		t.Errorf("trigger_owner is audit-only; originator must stay NULL, got %s", util.UUIDToString(got.UserID))
+	// MUL-6951: the trigger owner is the ORIGINATOR, not an audit-only accountable —
+	// arming a trigger authorizes its runs the same way clicking "run now" does.
+	if !got.UserID.Valid || got.UserID.Bytes != util.MustParseUUID(creatorID).Bytes {
+		t.Errorf("originator = %s, want trigger creator %s", util.UUIDToString(got.UserID), creatorID)
 	}
 	if !got.AccountableUserID.Valid || got.AccountableUserID.Bytes != util.MustParseUUID(creatorID).Bytes {
 		t.Errorf("accountable = %s, want trigger creator %s", util.UUIDToString(got.AccountableUserID), creatorID)
@@ -524,8 +526,11 @@ func TestTriggerOwnerAttribution_TransfersToSubstantiveEditor(t *testing.T) {
 		if got.Source != attribution.SourceTriggerOwner {
 			t.Fatalf("trigger %s: source = %q, want trigger_owner", triggerID, got.Source)
 		}
-		if got.UserID.Valid {
-			t.Fatalf("trigger_owner is audit-only; originator must stay NULL, got %s", util.UUIDToString(got.UserID))
+		// MUL-6951: originator and accountable are the same human here, so the
+		// transfer this test tracks moves BOTH. Assert the pair stays coupled.
+		if got.UserID != got.AccountableUserID {
+			t.Fatalf("trigger %s: originator %s and accountable %s must be the same human",
+				triggerID, util.UUIDToString(got.UserID), util.UUIDToString(got.AccountableUserID))
 		}
 		return util.UUIDToString(got.AccountableUserID)
 	}
@@ -631,8 +636,10 @@ func TestEnqueueTaskForIssueAutopilotOriginStampsRuleOwner(t *testing.T) {
 	if source.String != string(attribution.SourceRuleOwner) {
 		t.Errorf("originator_source = %q, want rule_owner", source.String)
 	}
-	if originator.Valid {
-		t.Errorf("autopilot run must NOT set originator (authorization stays NULL), got %s", util.UUIDToString(originator))
+	// MUL-6951: the rule publisher is the run's originator too, so a create_issue
+	// autopilot task carries that human's authorization.
+	if !originator.Valid || originator.Bytes != util.MustParseUUID(publisherID).Bytes {
+		t.Errorf("originator_user_id = %s, want rule publisher %s", util.UUIDToString(originator), publisherID)
 	}
 	if !accountable.Valid || accountable.Bytes != util.MustParseUUID(publisherID).Bytes {
 		t.Errorf("accountable_user_id = %s, want rule publisher %s", util.UUIDToString(accountable), publisherID)
@@ -809,8 +816,9 @@ func TestDispatchRunOnlyScheduleStampsRuleOwnerRow(t *testing.T) {
 	if source.String != string(attribution.SourceRuleOwner) {
 		t.Errorf("originator_source = %q, want rule_owner", source.String)
 	}
-	if originator.Valid {
-		t.Errorf("run_only autopilot must NOT set originator, got %s", util.UUIDToString(originator))
+	// MUL-6951: a scheduled run_only dispatch carries the publisher's authorization.
+	if !originator.Valid || originator.Bytes != util.MustParseUUID(publisherID).Bytes {
+		t.Errorf("originator_user_id = %s, want publisher %s", util.UUIDToString(originator), publisherID)
 	}
 	if !accountable.Valid || accountable.Bytes != util.MustParseUUID(publisherID).Bytes {
 		t.Errorf("accountable_user_id = %s, want publisher %s", util.UUIDToString(accountable), publisherID)
@@ -956,8 +964,11 @@ func TestDispatchRunOnlyScheduleTransfersToEditor(t *testing.T) {
 	if source.String != string(attribution.SourceTriggerOwner) {
 		t.Errorf("originator_source = %q, want trigger_owner", source.String)
 	}
-	if originator.Valid {
-		t.Errorf("schedule dispatch must NOT set originator, got %s", util.UUIDToString(originator))
+	// MUL-6951: the transfer moves the AUTHORIZATION too — after a substantive edit
+	// the automation runs with the editor's rights, not the original creator's.
+	if !originator.Valid || originator.Bytes != util.MustParseUUID(editorB).Bytes {
+		t.Errorf("originator_user_id = %s, want editor %s (not creator %s)",
+			util.UUIDToString(originator), editorB, creatorA)
 	}
 	if !accountable.Valid || accountable.Bytes != util.MustParseUUID(editorB).Bytes {
 		t.Errorf("accountable_user_id = %s, want editor %s (dispatch must follow the transferred publisher, not creator %s)",

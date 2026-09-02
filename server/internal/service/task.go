@@ -541,14 +541,16 @@ func (s *TaskService) attributionForIssueTask(ctx context.Context, issue db.Issu
 		}
 	}
 	// Autopilot-origin issues (origin_id is the autopilot id) from a schedule /
-	// webhook trigger: no human authorized the run, so originator stays NULL, but it
-	// is accountable to the human currently RESPONSIBLE for the firing trigger's
-	// effective config (creator, then last substantive editor) — trigger_owner
-	// (MUL-4302; Elon must-fix), degrading to the rule publisher when no such member
-	// is recoverable. Resolved the same way run_only dispatch resolves
-	// it, so both autopilot execution modes attribute identically. (A manual trigger
-	// carries an actor and is already handled above.) The issue only stores the
-	// autopilot id, so bridge issue → active run → trigger_id to find the trigger.
+	// webhook trigger attribute to the human currently RESPONSIBLE for the firing
+	// trigger's effective config (creator, then last substantive editor) —
+	// trigger_owner (MUL-4302; Elon must-fix), degrading to the rule publisher when
+	// no such member is recoverable. Since MUL-6951 that human is the originator as
+	// well as the accountable, so a create_issue-mode run carries the same
+	// authorization a manual "run now" by that member would. Resolved the same way
+	// run_only dispatch resolves it, so both autopilot execution modes attribute
+	// identically. (A manual trigger carries an actor and is already handled above.)
+	// The issue only stores the autopilot id, so bridge issue → active run →
+	// trigger_id to find the trigger.
 	if s != nil && s.Queries != nil && issue.OriginType.Valid &&
 		issue.OriginType.String == "autopilot" && issue.OriginID.Valid {
 		var triggerID pgtype.UUID

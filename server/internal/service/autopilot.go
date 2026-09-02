@@ -963,16 +963,19 @@ func (s *AutopilotService) dispatchRunOnly(ctx context.Context, ap db.Autopilot,
 		return &errDispatchSkipped{reason: formatAdmissionReason(ap, "not allowed to invoke private squad leader"), code: dispatch.ReasonInvocationNotAllowed}
 	}
 
-	// Attribution splits on the trigger. A MANUAL trigger is a direct human action:
-	// the triggering member is direct_human and becomes BOTH originator (so the run
-	// carries their authorization context) and accountable (MUL-4302 §4). A
-	// schedule / webhook trigger has no human — originator_user_id stays NULL and
-	// the audit-accountable human is the member currently RESPONSIBLE for the firing
-	// trigger's effective config (its creator, then whoever last substantively edited
-	// it) — trigger_owner, resolved from run.TriggerID (MUL-4302; Elon must-fix) —
-	// degrading to the rule version publisher (rule_owner) when no such member is
-	// recoverable, then to unattributed. Either way evidence points at the autopilot
-	// run and the row is never a NULL-source bypass.
+	// Attribution splits on the trigger only to pick WHICH human and which source
+	// label; both branches now produce a real originator. A MANUAL trigger is a
+	// direct human action: the triggering member is direct_human (MUL-4302 §4). A
+	// schedule / webhook trigger resolves the member currently RESPONSIBLE for the
+	// firing trigger's effective config (its creator, then whoever last substantively
+	// edited it) — trigger_owner, resolved from run.TriggerID (MUL-4302; Elon
+	// must-fix) — degrading to the rule version publisher (rule_owner) when no such
+	// member is recoverable, then to unattributed. Since MUL-6951 that human is the
+	// originator too, so an armed autopilot runs with its owner's authorization
+	// instead of borrowing narrowly-scoped capabilities per surface; the source label
+	// is what keeps "fired on a schedule" distinguishable from "a human clicked run".
+	// Either way evidence points at the autopilot run and the row is never a
+	// NULL-source bypass.
 	var autopilotAttr attribution.Result
 	if actorUserID.Valid {
 		autopilotAttr = attribution.DirectHumanRun(actorUserID, attribution.EvidenceAutopilotRun, run.ID)
