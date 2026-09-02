@@ -208,7 +208,7 @@ git commit -m "feat(daemon): advertise local-tmux-v1 when tmux is on PATH"
 ### Task 2: Server accepts `tmux` and gates it at save and claim time
 
 **Files:**
-- Modify: `server/internal/handler/project_resource.go:116-131` (constants), `:163-235` (save gate), `:271-305` (`validateLocalDirectoryRef`), call sites `:523` and `:643`
+- Modify: `server/internal/handler/project_resource.go:116-131` (constants), `:163-235` (save gate), `:271-305` (`validateLocalDirectoryRef`), call sites `:523` and `:643`, plus the third call site in `server/internal/handler/project.go:364`
 - Modify: `server/internal/handler/daemon.go:3138-3160` (claim gate call), `:3208-3235` (add `tmuxClaimBlockReason` after `worktreeClaimBlockReason`)
 - Test: `server/internal/handler/tmux_mode_test.go`
 
@@ -549,16 +549,16 @@ git commit -m "feat(server): accept tmux execution mode and gate it on local-tmu
 // packages/core/config/local-tmux-supported.test.ts
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { useConfigStore } from "./index";
+import { configStore } from "./index";
 
 describe("localTmuxSupported", () => {
   it("defaults to false and only accepts an explicit true", () => {
-    expect(useConfigStore.getState().localTmuxSupported).toBe(false);
-    useConfigStore.getState().setLocalTmuxSupported(true);
-    expect(useConfigStore.getState().localTmuxSupported).toBe(true);
+    expect(configStore.getState().localTmuxSupported).toBe(false);
+    configStore.getState().setLocalTmuxSupported(true);
+    expect(configStore.getState().localTmuxSupported).toBe(true);
     // An absent or non-boolean value from an old server must fail closed.
-    useConfigStore.getState().setLocalTmuxSupported(undefined);
-    expect(useConfigStore.getState().localTmuxSupported).toBe(false);
+    configStore.getState().setLocalTmuxSupported(undefined);
+    expect(configStore.getState().localTmuxSupported).toBe(false);
   });
 });
 ```
@@ -566,7 +566,7 @@ describe("localTmuxSupported", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `cd packages/core && NODE_OPTIONS=--no-experimental-webstorage pnpm exec vitest run config/local-tmux-supported.test.ts`
-Expected: FAIL, `setLocalTmuxSupported is not a function`.
+Expected: FAIL, `configStore.getState(...).setLocalTmuxSupported is not a function`.
 
 - [ ] **Step 3: Server flag**
 
