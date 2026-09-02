@@ -366,19 +366,19 @@ func TestDispatchFrame_TheCommandSourceHasNoPlaceholdersInIt(t *testing.T) {
 // and it is the one that has to keep passing for both of them to stay fixed.
 //
 // A group is the only place the bot can be reached by @-mentioning it, so the
-// mention arrives glued to the front of the text run: "@Multica Bot /issue
+// mention arrives glued to the front of the text run: "@ContextPRO Bot /issue
 // 登录坏了". main strips that (stripLeadingMentions) and this PR removes the
 // placeholders, and the command source needs BOTH — drop the strip and the
-// parser sees "@Multica Bot", drop the placeholder removal and it sees
+// parser sees "@ContextPRO Bot", drop the placeholder removal and it sees
 // "[Image]". Either way the sender gets nothing.
 func TestDispatchFrame_GroupMentionedMixedCommand(t *testing.T) {
 	t.Parallel()
 	group := map[string]any{"chattype": "group", "chatid": "GROUP_1"}
 	env := mixedFrame(t, group,
 		imageRun("https://cos.example.com/a"),
-		textRun("@Multica Bot /issue 登录坏了"),
+		textRun("@ContextPRO Bot /issue 登录坏了"),
 	)
-	got, called, _ := dispatchOneAs(t, env, "Multica Bot")
+	got, called, _ := dispatchOneAs(t, env, "ContextPRO Bot")
 	if !called {
 		t.Fatal("the group message never reached the handler")
 	}
@@ -386,7 +386,7 @@ func TestDispatchFrame_GroupMentionedMixedCommand(t *testing.T) {
 		t.Fatalf("chat type = %v, want group — the mention strip is gated on it", got.Source.ChatType)
 	}
 	// The transcript keeps what was said, including who was addressed.
-	if want := "[Image]\n@Multica Bot /issue 登录坏了"; got.Text != want {
+	if want := "[Image]\n@ContextPRO Bot /issue 登录坏了"; got.Text != want {
 		t.Errorf("stored body = %q, want %q", got.Text, want)
 	}
 	if want := "/issue 登录坏了"; got.CommandText != want {
@@ -438,8 +438,8 @@ func TestDispatchFrame_GroupMentionedMixedChatStripsAddressingAndDirective(t *te
 	group := map[string]any{"chattype": "group", "chatid": "GROUP_1"}
 	got, called, _ := dispatchOneAs(t, mixedFrame(t, group,
 		imageRun("https://cos.example.com/a"),
-		textRun("@Multica Bot /new 点评一下"),
-	), "Multica Bot")
+		textRun("@ContextPRO Bot /new 点评一下"),
+	), "ContextPRO Bot")
 	if !called {
 		t.Fatal("the group message never reached the handler")
 	}
@@ -453,7 +453,7 @@ func TestDispatchFrame_GroupMentionedMixedChatStripsAddressingAndDirective(t *te
 // holds them together.
 //
 // Someone in a group photographs the broken screen, holds the mic and says
-// "@Multica Bot /issue 登录坏了". WeCom delivers one 图文混排 with an image run
+// "@ContextPRO Bot /issue 登录坏了". WeCom delivers one 图文混排 with an image run
 // and a voice run, and the command has to survive three separate strips:
 //
 //   - the placeholder — the image run is first, and the parser reads the first
@@ -481,20 +481,20 @@ func TestDispatchFrame_GroupMentionedSpokenIssueWithAnImage(t *testing.T) {
 			// Everything spoken: the mention rides in front of the transcript,
 			// which is how it arrives when the whole message is said out loud.
 			name:     "the mention and the command are both in the voice run",
-			items:    []map[string]any{imageRun("https://cos.example.com/a"), voiceRun("@Multica Bot /issue 登录坏了")},
-			wantBody: "[Image]\n@Multica Bot /issue 登录坏了",
+			items:    []map[string]any{imageRun("https://cos.example.com/a"), voiceRun("@ContextPRO Bot /issue 登录坏了")},
+			wantBody: "[Image]\n@ContextPRO Bot /issue 登录坏了",
 		},
 		{
 			// Mention typed, command spoken — the composer's own order when
 			// someone picks the bot from the @ menu and then talks.
 			name:     "the mention is typed and the command is spoken",
-			items:    []map[string]any{textRun("@Multica Bot"), imageRun("https://cos.example.com/a"), voiceRun("/issue 登录坏了")},
-			wantBody: "@Multica Bot\n[Image]\n/issue 登录坏了",
+			items:    []map[string]any{textRun("@ContextPRO Bot"), imageRun("https://cos.example.com/a"), voiceRun("/issue 登录坏了")},
+			wantBody: "@ContextPRO Bot\n[Image]\n/issue 登录坏了",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got, called, _ := dispatchOneAs(t, mixedFrame(t, group, tc.items...), "Multica Bot")
+			got, called, _ := dispatchOneAs(t, mixedFrame(t, group, tc.items...), "ContextPRO Bot")
 			if !called {
 				t.Fatal("the group message never reached the handler")
 			}

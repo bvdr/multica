@@ -222,7 +222,7 @@ var probeAgentCLIs = func() map[string]AgentEntry {
 	if e, ok := probe("MULTICA_REASONIX_PATH", "reasonix", "MULTICA_REASONIX_MODEL"); ok {
 		agents["reasonix"] = e
 	}
-	// DSH is registered only when its Multica runtime profile is installed.
+	// DSH is registered only when its ContextPRO runtime profile is installed.
 	// A bare dsh binary is not enough: without the bundle it has no --stdio
 	// protocol and every task would fail after being advertised as healthy.
 	if e, ok := probe("MULTICA_DSH_PATH", "dsh", "MULTICA_DSH_MODEL"); ok && probeDshMulticaProfile(e.Path) {

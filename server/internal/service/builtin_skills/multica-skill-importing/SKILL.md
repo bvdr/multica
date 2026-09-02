@@ -1,14 +1,14 @@
 ---
 name: multica-skill-importing
-description: "Use when asked to import or install a specific skill into this Multica workspace from a URL or slug. Not for choosing which skill the user needs; never treat a local installer such as `npx skills add` as the final install."
+description: "Use when asked to import or install a specific skill into this ContextPRO workspace from a URL or slug. Not for choosing which skill the user needs; never treat a local installer such as `npx skills add` as the final install."
 user-invocable: false
 allowed-tools: Bash(multica *)
 ---
 
-# Importing skills into Multica
+# Importing skills into ContextPRO
 
 Use this skill when the user already provided a skill URL, slug, or a clear intent
-to import a specific skill into the current Multica workspace.
+to import a specific skill into the current ContextPRO workspace.
 
 Do not use this skill to decide which skill the user needs. If the user only
 describes a capability and no URL is known, external search may produce candidate
@@ -20,7 +20,7 @@ Every claim below is traced to source in
 
 ## The invariant
 
-A skill is installed for Multica only when it exists in the current workspace's
+A skill is installed for ContextPRO only when it exists in the current workspace's
 skill database. The single supported path that puts it there is the workspace
 import endpoint. It accepts either a hosted URL or an uploaded local archive
 (`.skill` / `.zip`), driven by this CLI:
@@ -43,7 +43,7 @@ part (the `.skill` / `.zip` bytes) and an `on_conflict` field. `--url` and
 `--file` are mutually exclusive; exactly one is required.
 
 Do not finish with `npx skills add`. That installs into an external/local skill
-environment, not the Multica workspace DB, so Multica cannot manage or bind it.
+environment, not the ContextPRO workspace DB, so ContextPRO cannot manage or bind it.
 
 ## Supported URL source families
 
@@ -287,13 +287,13 @@ column names the file.
 
 ## Incorrect → correct
 
-Incorrect (bypasses Multica):
+Incorrect (bypasses ContextPRO):
 
 ```bash
 npx skills add https://skills.sh/owner/repo/skill
 ```
 
-The skill may exist locally, but Multica cannot manage it as a workspace skill.
+The skill may exist locally, but ContextPRO cannot manage it as a workspace skill.
 
 Incorrect agent binding for a normal add (replaces every existing assignment):
 

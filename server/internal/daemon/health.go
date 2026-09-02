@@ -289,7 +289,7 @@ func authorizeRepoCheckoutWorkDir(activeRoot, requested string) (string, error) 
 const (
 	repoCheckoutLockWaitTimeout = 10 * time.Second
 	repoCheckoutRetryAfter      = 2 * time.Second
-	repoCheckoutRetryHeader     = "X-Multica-Retryable"
+	repoCheckoutRetryHeader     = "X-ContextPRO-Retryable"
 	repoCheckoutRetryValueBusy  = "repo-busy"
 )
 

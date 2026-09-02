@@ -42,8 +42,8 @@ func newHookTestServer(t *testing.T) *hookTestServer {
 		body, _ := io.ReadAll(r.Body)
 		harness.received <- hookReceivedRequest{
 			Body:      body,
-			Signature: r.Header.Get("X-Multica-Signature"),
-			Timestamp: r.Header.Get("X-Multica-Timestamp"),
+			Signature: r.Header.Get("X-ContextPRO-Signature"),
+			Timestamp: r.Header.Get("X-ContextPRO-Timestamp"),
 			Header:    r.Header.Clone(),
 		}
 		if harness.respond != nil {

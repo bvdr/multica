@@ -70,7 +70,7 @@ type AgentResponse struct {
 	ConversationStarters []AgentConversationStarter `json:"conversation_starters"`
 	// SystemKey identifies a product-defined agent (e.g. "mika"). Empty for
 	// every user- or template-created agent. The UI keys "this is maintained
-	// by Multica" off this rather than off the display name, which owners may
+	// by ContextPRO" off this rather than off the display name, which owners may
 	// change.
 	SystemKey string `json:"system_key,omitempty"`
 	// SystemInstructions is the read-only product half of a system agent's
@@ -458,7 +458,7 @@ type AgentTaskResponse struct {
 	NewCommentCount          int                    `json:"new_comment_count,omitempty"`           // trigger-thread comments since last run; excludes injected trigger + own comments; omitempty so old daemons ignore it
 	NewCommentsSince         string                 `json:"new_comments_since,omitempty"`          // RFC3339 anchor (last run's started_at) the count is measured from; omitempty so old daemons ignore it
 	ChatSessionID            string                 `json:"chat_session_id,omitempty"`             // non-empty for chat tasks
-	ChatChannelType          string                 `json:"chat_channel_type,omitempty"`           // "slack" when the chat session is backed by an IM channel; empty for a web-only chat. Makes the agent channel-aware (read history from the channel, not Multica)
+	ChatChannelType          string                 `json:"chat_channel_type,omitempty"`           // "slack" when the chat session is backed by an IM channel; empty for a web-only chat. Makes the agent channel-aware (read history from the channel, not ContextPRO)
 	ChatChannelDeliversFiles bool                   `json:"chat_channel_delivers_files,omitempty"` // server capability: THIS deployment can put a file the agent produced into THIS conversation — the adapter goes back for the bound attachment AND object storage exists to go back to. Absent/false on a server predating it, which is the safe reading: the agent is told to describe its file in words. Never inferred daemon-side from chat_channel_type; see handler.Handler.channelDeliversFiles
 	ChatType                 string                 `json:"chat_type,omitempty"`                   // channel_chat_session_binding.chat_type — "group" for a shared room, "p2p" for a 1:1 with the bot. Lets the per-turn prompt tell the agent who else can read its replies; empty for a web-only chat
 	ChatInThread             bool                   `json:"chat_in_thread,omitempty"`              // true when the latest @mention was a thread reply; tells the agent to start with `multica chat thread` vs `multica chat history`
@@ -500,7 +500,7 @@ type AgentTaskResponse struct {
 	// daemon emits these into the brief under `## Task Initiator` so a
 	// workspace-visible, multi-user agent can attribute the request and apply
 	// per-person privacy / access rules instead of seeing every requester as
-	// the owner. The agent's effective Multica credentials stay owner-scoped —
+	// the owner. The agent's effective ContextPRO credentials stay owner-scoped —
 	// this is an attested identity, not a credential. See MUL-2645.
 	InitiatorType  string `json:"initiator_type,omitempty"`  // "member" or "agent"
 	InitiatorID    string `json:"initiator_id,omitempty"`    // user UUID (member) or agent UUID
@@ -2337,7 +2337,7 @@ func (h *Handler) ArchiveAgent(w http.ResponseWriter, r *http.Request) {
 	// the bootstrap endpoint, since its lookup skips archived rows but the
 	// unique index does not.
 	if agent.SystemKey.Valid && agent.SystemKey.String != "" {
-		writeError(w, http.StatusBadRequest, "this agent is built into Multica and cannot be archived")
+		writeError(w, http.StatusBadRequest, "this agent is built into ContextPRO and cannot be archived")
 		return
 	}
 

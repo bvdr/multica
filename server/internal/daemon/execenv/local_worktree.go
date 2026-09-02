@@ -522,7 +522,7 @@ func commitIdentityArgs(dir string) []string {
 		return nil
 	}
 	return []string{
-		"-c", "user.name=Multica Agent",
+		"-c", "user.name=ContextPRO Agent",
 		"-c", "user.email=agent@multica.local",
 	}
 }
@@ -609,7 +609,7 @@ func resolveGitRoot(dir string) (string, error) {
 // captureDirtyState builds the commit object that carries the user's tracked
 // edits, retrying a lost index-lock race instead of failing the task over it.
 //
-// lockGitRoot already excludes Multica's own tasks, but the repository belongs
+// lockGitRoot already excludes ContextPRO's own tasks, but the repository belongs
 // to the user: an editor's auto-fetch, a git hook, a `git status` in another
 // terminal or a background `git gc` can hold .git/index.lock at any moment,
 // and the window is milliseconds. That is a transient condition worth waiting
@@ -711,7 +711,7 @@ func copyUntrackedFiles(gitRoot, worktreePath string, logger *slog.Logger) (copi
 		if rel == "" {
 			continue
 		}
-		// Never replay Multica's own sidecars. They are untracked files in the
+		// Never replay ContextPRO's own sidecars. They are untracked files in the
 		// user's directory whenever an in_place task is mid-flight on the same
 		// path, or was killed before its cleanup ran. Copying them would put
 		// another issue's brief inside this task's worktree — where the agent

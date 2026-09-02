@@ -282,7 +282,7 @@ func TestBootstrapOnboardingRuntimeCreatesSingleGuideIssue(t *testing.T) {
 		t.Fatalf("assistant instructions were not seeded with the new identity: %q", instructions)
 	}
 	if avatarURL == nil || *avatarURL != onboardingAssistantAvatarURL {
-		t.Fatalf("agent avatar_url = %v, want seeded Multica Helper avatar", avatarURL)
+		t.Fatalf("agent avatar_url = %v, want seeded ContextPRO Helper avatar", avatarURL)
 	}
 
 	var (
@@ -393,7 +393,7 @@ func TestBootstrapOnboardingRuntime_WithStarterPrompt(t *testing.T) {
 		testUserID,
 	)
 
-	const wantPrompt = "Introduce Multica to me, please."
+	const wantPrompt = "Introduce ContextPRO to me, please."
 	body := map[string]string{
 		"workspace_id":   testWorkspaceID,
 		"runtime_id":     testRuntimeID,
@@ -552,7 +552,7 @@ func TestBootstrapOnboardingNoRuntimeCreatesSingleGuideIssue(t *testing.T) {
 		t.Fatalf("issue status/priority = %s/%s, want todo/high", issueStatus, issuePriority)
 	}
 	for _, want := range []string{
-		"Try Multica first",
+		"Try ContextPRO first",
 		"https://multica.ai/docs/install-agent-runtime",
 		"npm i -g @openai/codex",
 	} {

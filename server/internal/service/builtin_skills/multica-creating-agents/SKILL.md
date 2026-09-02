@@ -1,13 +1,13 @@
 ---
 name: multica-creating-agents
-description: "Use when creating, inspecting, or debugging a Multica agent definition via the `multica agent` CLI or POST /api/agents. Not for assigning issues to agents that already exist, and not for runtime task prompts."
+description: "Use when creating, inspecting, or debugging a ContextPRO agent definition via the `multica agent` CLI or POST /api/agents. Not for assigning issues to agents that already exist, and not for runtime task prompts."
 user-invocable: false
 allowed-tools: Bash(multica *)
 ---
 
-# Creating Multica agents
+# Creating ContextPRO agents
 
-This is the contract for Multica's agent-creation path: what the create entry
+This is the contract for ContextPRO's agent-creation path: what the create entry
 points accept, what the server validates and rejects, how each field is
 persisted, and which fields the daemon actually reads at claim time. It is
 not a parameter manual — it states source-traced facts, and every claim is

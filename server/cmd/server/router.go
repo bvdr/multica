@@ -80,7 +80,7 @@ var corsAllowedHeaders = []string{
 	"X-Client-OS",
 	"X-Client-Capabilities",
 	// Sent by the host page when it relays a plugin surface's Action API call.
-	"X-Multica-Plugin-Installation",
+	"X-ContextPRO-Plugin-Installation",
 }
 
 // corsExposedHeaders lists response headers browser clients are allowed to read.
@@ -453,7 +453,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		Observer: opts.BusinessMetrics,
 	})
 	if entitlementErr != nil {
-		slog.Error("entitlement policy client disabled by malformed Multica Cloud URL", "error", entitlementErr)
+		slog.Error("entitlement policy client disabled by malformed ContextPRO Cloud URL", "error", entitlementErr)
 		opts.BusinessMetrics.RecordEntitlementConfigError()
 	} else if entitlementClient.Enabled() {
 		h.Entitlements = entitlementClient
@@ -729,7 +729,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		slog.Info("lark integration disabled (MULTICA_LARK_SECRET_KEY not set)")
 	}
 
-	// Slack integration. Multi-tenant B2 model (MUL-3666): Multica hosts ONE
+	// Slack integration. Multi-tenant B2 model (MUL-3666): ContextPRO hosts ONE
 	// Slack app, workspaces self-install via OAuth, and inbound runs on a single
 	// deployment-level Socket Mode connection routed by team_id — replacing the
 	// stage-3 per-installation connection model (MUL-3516).
@@ -760,7 +760,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 			// AgentOffline / AgentArchived / issue-created notices. The binding
 			// token service mints the single-use token embedded in the prompt's
 			// redeem link; the redeem endpoint (registered below, public) binds
-			// the Slack user to their Multica account.
+			// the Slack user to their ContextPRO account.
 			slackBindingSvc := slack.NewBindingTokenService(queries, pool)
 			h.SlackBindingTokens = slackBindingSvc
 			slackReplier := slack.NewOutboundReplier(slack.OutboundReplierConfig{
@@ -909,7 +909,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				h.WecomStore = wecomStore
 				h.WecomCredentials = credsResolver
 
-				// Binding tokens back the per-user "link your Multica account"
+				// Binding tokens back the per-user "link your ContextPRO account"
 				// prompt sent to first-time WeCom senders. aibot userids are
 				// anonymized T-prefixed ids with no relation to real userids
 				// or emails, so an explicit binding table is the only correct
@@ -974,7 +974,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 				// EventChatDone subscriber: pushes the agent's chat reply
 				// back over the same aibot WebSocket the inbound loop owns.
 				// Mirrors slack.NewOutbound(...).Register(bus). Without it
-				// the agent's reply lands only in Multica's web UI — the
+				// the agent's reply lands only in ContextPRO's web UI — the
 				// user in WeCom sees no response.
 				//
 				// WithAttachments adds the second hop: the files the agent
@@ -1246,7 +1246,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	h.DaemonTokenCache = daemonTokenCache
 	h.MembershipCache = auth.NewMembershipCache(rdb)
 
-	// Cloud PAT verifier: validates mcn_ tokens against Multica Cloud
+	// Cloud PAT verifier: validates mcn_ tokens against ContextPRO Cloud
 	// Fleet. Returns nil when no Cloud URL is configured — the Auth /
 	// DaemonAuth middlewares treat nil as "mcn_ not supported" and
 	// reject with 401, instead of falling through to mul_/JWT paths.
@@ -1395,20 +1395,20 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 	// purpose: the bearer token in the URL path IS the credential. Workspace
 	// context is derived from the trigger row, never from request headers.
 	r.Post("/api/webhooks/autopilots/{token}", h.HandleAutopilotWebhook)
-	// GitHub App webhook (no Multica auth — requests are authenticated via
+	// GitHub App webhook (no ContextPRO auth — requests are authenticated via
 	// HMAC-SHA256 signature in the handler) and post-install setup callback.
 	r.Post("/api/webhooks/github", h.HandleGitHubWebhook)
 	r.Get("/api/github/setup", h.GitHubSetupCallback)
-	// Slack OAuth callback (no Multica auth in the path — it is hit by Slack's
+	// Slack OAuth callback (no ContextPRO auth in the path — it is hit by Slack's
 	// browser redirect; the workspace/agent/initiator are recovered from the
 	// sealed state). It exchanges the code, upserts the install, then bounces
 	// the browser back to Settings → Integrations.
-	// VCS webhook for token-based providers (Forgejo / Gitea / GitLab). No Multica
+	// VCS webhook for token-based providers (Forgejo / Gitea / GitLab). No ContextPRO
 	// auth — authenticated per-connection by the provider's signature scheme;
 	// the connection id in the path selects the workspace, provider, and
 	// decryption secret.
 	r.Post("/api/webhooks/vcs/{connectionId}", h.HandleVCSWebhook)
-	// Stripe webhook (no Multica auth — Stripe signs the raw body
+	// Stripe webhook (no ContextPRO auth — Stripe signs the raw body
 	// with a shared secret, the multica-cloud upstream verifies. We
 	// only forward the bytes + the Stripe-Signature header; see
 	// HandleCloudBillingStripeWebhook for the rationale).
@@ -1756,7 +1756,7 @@ func NewRouterWithOptions(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus
 		r.Post("/api/dingtalk/binding/redeem", h.RedeemDingTalkBindingToken)
 		// WeCom smart-bot binding-token redemption. Same rationale as
 		// Lark/Slack: the session is the source of truth for the redeemer's
-		// Multica identity; the token only carries the WeCom userid to bind.
+		// ContextPRO identity; the token only carries the WeCom userid to bind.
 		r.Post("/api/wecom/binding/redeem", h.RedeemWecomBindingToken)
 		// Telegram binding-token redemption. Same rationale: not
 		// workspace-scoped, identity from the session, token proves only

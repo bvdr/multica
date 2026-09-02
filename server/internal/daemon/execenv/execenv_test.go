@@ -1332,7 +1332,7 @@ func TestInjectRuntimeConfigClaude(t *testing.T) {
 
 	s := string(content)
 	for _, want := range []string{
-		"Multica Agent Runtime",
+		"ContextPRO Agent Runtime",
 		"multica issue get",
 		"multica issue comment list",
 		// Skills are listed by on-disk slug: that is the directory
@@ -1555,7 +1555,7 @@ func TestInjectRuntimeConfigCodex(t *testing.T) {
 	}
 
 	s := string(content)
-	if !strings.Contains(s, "Multica Agent Runtime") {
+	if !strings.Contains(s, "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 	// Listed by on-disk slug rather than the display name (MUL-5529).
@@ -1751,7 +1751,7 @@ func TestWriteContextFilesForcesSkillFrontmatterNameToSlug(t *testing.T) {
 
 // The directory-name == frontmatter-name invariant must survive collision
 // fallback, where the allocated slug is NOT sanitizeSkillName(Name). A
-// user-installed skill already sitting at the natural slug pushes Multica's
+// user-installed skill already sitting at the natural slug pushes ContextPRO's
 // copy to `<slug>-multica`; the frontmatter has to follow it there, or the
 // skill answers to the user's slug on Claude and to its own stale name on
 // OpenCode.
@@ -1789,7 +1789,7 @@ func TestWriteContextFilesFrontmatterNameFollowsCollisionSlug(t *testing.T) {
 		t.Errorf("user skill was overwritten; got:\n%s", got)
 	}
 
-	// Multica's copy landed at the fallback slug and names itself after it.
+	// ContextPRO's copy landed at the fallback slug and names itself after it.
 	moved, err := os.ReadFile(filepath.Join(dir, ".opencode", "skills", "review-multica", "SKILL.md"))
 	if err != nil {
 		t.Fatalf("read relocated SKILL.md: %v", err)
@@ -2052,7 +2052,7 @@ func TestInjectRuntimeConfigOpencode(t *testing.T) {
 	}
 
 	s := string(content)
-	if !strings.Contains(s, "Multica Agent Runtime") {
+	if !strings.Contains(s, "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 	// Listed by on-disk slug rather than the display name (MUL-5529).
@@ -2088,7 +2088,7 @@ func TestInjectRuntimeConfigKiro(t *testing.T) {
 	}
 
 	s := string(content)
-	if !strings.Contains(s, "Multica Agent Runtime") {
+	if !strings.Contains(s, "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 	// Listed by on-disk slug rather than the display name (MUL-5529).
@@ -2119,7 +2119,7 @@ func TestInjectRuntimeConfigQoder(t *testing.T) {
 	}
 
 	s := string(content)
-	if !strings.Contains(s, "Multica Agent Runtime") {
+	if !strings.Contains(s, "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 	// Listed by on-disk slug rather than the display name (MUL-5529).
@@ -2148,7 +2148,7 @@ func TestInjectRuntimeConfigQoderCN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read AGENTS.md: %v", err)
 	}
-	if !strings.Contains(string(content), "Multica Agent Runtime") {
+	if !strings.Contains(string(content), "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 }
@@ -2175,7 +2175,7 @@ func TestInjectRuntimeConfigAntigravity(t *testing.T) {
 	}
 
 	s := string(content)
-	if !strings.Contains(s, "Multica Agent Runtime") {
+	if !strings.Contains(s, "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 	// Listed by on-disk slug rather than the display name (MUL-5529).
@@ -2212,7 +2212,7 @@ func TestInjectRuntimeConfigDim(t *testing.T) {
 	}
 
 	s := string(content)
-	if !strings.Contains(s, "Multica Agent Runtime") {
+	if !strings.Contains(s, "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 	if !strings.Contains(s, "coding") {
@@ -2675,7 +2675,7 @@ func TestInjectRuntimeConfigHermes(t *testing.T) {
 	}
 
 	s := string(content)
-	if !strings.Contains(s, "Multica Agent Runtime") {
+	if !strings.Contains(s, "ContextPRO Agent Runtime") {
 		t.Error("AGENTS.md missing meta skill header")
 	}
 	// Listed by on-disk slug rather than the display name (MUL-5529).
@@ -4861,7 +4861,7 @@ func TestReuseUpdatesCodexWorkspaceSkills(t *testing.T) {
 
 // TestPrepareCodexSeedsUserSkills covers the fix for #1922: skills the user
 // installs under ~/.codex/skills/ must be discoverable by the codex CLI
-// inside a Multica task, despite the daemon redirecting CODEX_HOME to a
+// inside a ContextPRO task, despite the daemon redirecting CODEX_HOME to a
 // per-task directory.
 func TestPrepareCodexSeedsUserSkills(t *testing.T) {
 	// Cannot use t.Parallel() with t.Setenv.

@@ -1,6 +1,6 @@
 # Entitlement policy consumer
 
-This package is the mechanical Multica-side consumer of the private Cloud
+This package is the mechanical ContextPRO-side consumer of the private Cloud
 enforcement-policy endpoint. Commercial inputs stay in Cloud: this package does
 not contain plan names, subscription-state mapping, limit values, or policy
 switches.
@@ -30,7 +30,7 @@ The client reads:
 - `valid_until`: diagnostic Cloud wall-clock time only; it is never used to
   extend enforcement.
 - `gates`: effective `off` or `enforce` instructions and parameters. Cloud does
-  not expose an `observe` rollout mode; `observe` exists only as Multica's local
+  not expose an `observe` rollout mode; `observe` exists only as ContextPRO's local
   downgrade of an expired cached `enforce` instruction.
 
 Responses tolerate unknown JSON fields for additive compatibility. Unknown

@@ -1341,7 +1341,7 @@ func TestPrepareOpenclawConfigFailsClosedOnMalformedMcpConfig(t *testing.T) {
 }
 
 // TestPrepareOpenclawSkillWriteMatchesScanPath is the regression test the
-// MUL-2219 DoD calls out: the directory Multica writes skills into MUST be
+// MUL-2219 DoD calls out: the directory ContextPRO writes skills into MUST be
 // the same directory the OpenClaw scanner reads from. We assert this by
 // resolving the workspaceDir the way OpenClaw does (agents.defaults.workspace
 // from the synthesized config) and proving {workspaceDir}/skills/ holds the
@@ -1385,7 +1385,7 @@ func TestPrepareOpenclawSkillWriteMatchesScanPath(t *testing.T) {
 	for _, s := range skills {
 		want := filepath.Join(wsDir, "skills", sanitizeSkillName(s.Name), "SKILL.md")
 		if _, err := os.Stat(want); err != nil {
-			t.Errorf("openclaw scan target %s missing — Multica's write path and the openclaw scanner are out of sync: %v", want, err)
+			t.Errorf("openclaw scan target %s missing — ContextPRO's write path and the openclaw scanner are out of sync: %v", want, err)
 		}
 	}
 }

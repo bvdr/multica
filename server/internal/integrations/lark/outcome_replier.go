@@ -96,7 +96,7 @@ type LarkOutcomeReplier struct {
 	log          *slog.Logger
 }
 
-// OutcomeReplierConfig wires the production replier. AppURL is the Multica web
+// OutcomeReplierConfig wires the production replier. AppURL is the ContextPRO web
 // app host the user clicks into to redeem the binding token or open an issue
 // (e.g. https://multica.example). It comes from MULTICA_APP_URL and is
 // intentionally separate from MULTICA_PUBLIC_URL, which is the backend/API
@@ -145,7 +145,7 @@ func NewLarkOutcomeReplier(cfg OutcomeReplierConfig) OutcomeReplier {
 		queries:      cfg.Queries,
 		appURL:       strings.TrimRight(cfg.AppURL, "/"),
 		bindingPath:  bindingPath,
-		noticeHeader: "Multica",
+		noticeHeader: "ContextPRO",
 		log:          log,
 	}
 }
@@ -414,7 +414,7 @@ const (
 	agentOfflineCopy        = "Agent 当前离线，消息已记录。下次 daemon 上线后会自动继续处理。"
 	agentArchivedCopy       = "这个 Agent 已被归档，无法继续处理消息。请联系工作区管理员恢复或重新绑定。"
 	freshPendingCopy        = "✅ 已准备从空上下文运行。你的下一条聊天消息仍会进入当前对话，但不会带上之前的上下文。"
-	chatStartedCopy         = "✅ 已新建 Multica 对话。你的下一条消息会进入该对话。"
+	chatStartedCopy         = "✅ 已新建 ContextPRO 对话。你的下一条消息会进入该对话。"
 	issueUsageCopy          = "请填写任务标题，格式如下：\n\n`/issue <标题>`\n`[描述]`（可选）"
 	issueUsageWithMediaCopy = "请添加标题，并与图片或视频一起重新发送（*图片或视频可以位于命令之前或之后*）：\n\n`/issue <标题>`\n`[描述]`（可选）"
 )

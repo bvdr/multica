@@ -317,7 +317,7 @@ func mikaOnboardingProfileBlock(
 	}
 	if len(useCases) > 0 {
 		// Joined with "; " because several labels contain their own commas.
-		fmt.Fprintf(&b, "- Wants to use Multica to: %s\n", strings.Join(useCases, "; "))
+		fmt.Fprintf(&b, "- Wants to use ContextPRO to: %s\n", strings.Join(useCases, "; "))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

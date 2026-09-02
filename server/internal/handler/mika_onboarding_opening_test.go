@@ -23,7 +23,7 @@ func TestMikaOnboardingOpeningCoversEveryAcceptedLanguage(t *testing.T) {
 		if !strings.Contains(opening, "Mika") {
 			t.Errorf("language %q dropped the agent name: %s", language, opening)
 		}
-		if !strings.Contains(opening, "Multica") {
+		if !strings.Contains(opening, "ContextPRO") {
 			t.Errorf("language %q never names the product: %s", language, opening)
 		}
 	}
@@ -78,16 +78,16 @@ func TestEscapeMarkdownInlineHandlesBackslashesFirst(t *testing.T) {
 }
 
 // The opening is the member's introduction to the working model, so all four
-// beats have to survive a copy edit: what Multica is, who Mika is, what happens
+// beats have to survive a copy edit: what ContextPRO is, who Mika is, what happens
 // next, and the handoff to the starter cards below.
 func TestMikaOnboardingOpeningKeepsItsFourBeats(t *testing.T) {
 	opening := buildMikaOnboardingOpening("en", "Mika", "Venus")
 
 	for _, beat := range []string{
-		"Multica is a workspace", // what the product is
-		"Chief of Staff",         // who is speaking
-		"turn it into an issue",  // what happens next
-		"Pick one below",         // the bridge to the cards
+		"ContextPRO is a workspace", // what the product is
+		"Chief of Staff",            // who is speaking
+		"turn it into an issue",     // what happens next
+		"Pick one below",            // the bridge to the cards
 	} {
 		if !strings.Contains(opening, beat) {
 			t.Errorf("opening lost a required beat (%q):\n%s", beat, opening)

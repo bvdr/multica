@@ -83,7 +83,7 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 	delivery, err := o.q.GetChannelTaskDelivery(ctx, taskID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil // direct Multica task or violated snapshot invariant: fail closed
+			return nil // direct ContextPRO task or violated snapshot invariant: fail closed
 		}
 		return fmt.Errorf("lookup dingtalk task delivery: %w", err)
 	}

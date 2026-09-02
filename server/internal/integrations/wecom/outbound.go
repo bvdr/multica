@@ -177,8 +177,8 @@ func (o *Outbound) processEvent(ctx context.Context, e events.Event) error {
 	}
 	// Only bound, non-empty completions reach here, so classify the task
 	// origin before loading credentials or sending. A question asked in the
-	// Multica web UI can reuse a session that originated in WeCom — and its
-	// answer belongs only in Multica. Without this gate that answer is pushed
+	// ContextPRO web UI can reuse a session that originated in WeCom — and its
+	// answer belongs only in ContextPRO. Without this gate that answer is pushed
 	// into the WeCom chat, which in a group means in front of everyone in the
 	// room. slack/outbound.go:118 and the lark and dingtalk equivalents all
 	// gate here; WeCom was the one that did not.

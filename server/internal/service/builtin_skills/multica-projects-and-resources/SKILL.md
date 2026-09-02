@@ -1,11 +1,11 @@
 ---
 name: multica-projects-and-resources
-description: "Use when creating, inspecting, updating, or debugging Multica projects and their resources (github_repo, local_directory)."
+description: "Use when creating, inspecting, updating, or debugging ContextPRO projects and their resources (github_repo, local_directory)."
 user-invocable: false
 allowed-tools: Bash(multica *)
 ---
 
-# Multica Projects and Resources
+# ContextPRO Projects and Resources
 
 ## Quick start
 
@@ -62,7 +62,7 @@ least one commit; tasks fail with an explicit error otherwise. The gate is the `
 daemon advertises — not its version string — and it is checked twice: at save time, and again against the daemon that
 claims each task, so a machine whose runtime cannot do worktrees gets its tasks cancelled rather than run in place.
 Saving `worktree` is also refused (HTTP 422, code `daemon_version_unsupported`) while the daemon on that machine does
-not advertise the capability — the fix is updating the Multica app there, then retrying. Pass an empty value to clear
+not advertise the capability — the fix is updating the ContextPRO app there, then retrying. Pass an empty value to clear
 it back to the default.
 
 For `github_repo`, non-JSON `--ref` sets `resource_ref.ref`, the default checkout branch/tag/SHA for future tasks in that project. JSON `--ref '<json>'` remains the escape hatch for full payloads or resource types not covered by shortcuts.

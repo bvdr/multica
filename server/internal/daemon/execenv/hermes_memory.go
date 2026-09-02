@@ -17,7 +17,7 @@ import (
 // Background
 //
 // Hermes keeps its long-term memory (MEMORY.md / USER.md and whatever else the
-// agent writes back) in `<HERMES_HOME>/memories/`. Multica has to take over
+// agent writes back) in `<HERMES_HOME>/memories/`. ContextPRO has to take over
 // HERMES_HOME to inject an agent's bound skills — Hermes discovers skills only
 // from its own home, never from the workspace (see hermes_home.go) — so the
 // overlay inherited the decision of where memory lives and made it task-local.
@@ -31,7 +31,7 @@ import (
 //     user's real ~/.hermes, and therefore shared one memories/ with every
 //     other skill-less agent, task, and issue on the runtime.
 //
-// This file makes memory an agent-scoped store Multica owns:
+// This file makes memory an agent-scoped store ContextPRO owns:
 //
 //	<multica profile dir>/hermes-state/<agent>/<hermes profile>/memories
 //
@@ -61,7 +61,7 @@ import (
 // agent's concurrent tasks write the same files and Hermes rewrites them whole,
 // so concurrent memory updates are last-writer-wins.
 
-// hermesMemoryStoreRoot is the directory under the daemon's Multica profile dir
+// hermesMemoryStoreRoot is the directory under the daemon's ContextPRO profile dir
 // that holds every agent's persistent Hermes state. `hermes-state` (not
 // `hermes-memories`) because state.db joins it when the session half is solved.
 const hermesMemoryStoreRoot = "hermes-state"
@@ -72,11 +72,11 @@ const hermesMemoriesEntry = "memories"
 
 // HermesMemoryStorePath returns the persistent memory store for (daemonProfile,
 // agentID, sourceHome), or "" when memory must stay task-local — there is no
-// agent to key on, or the Multica profile dir cannot be resolved. The daemon
+// agent to key on, or the ContextPRO profile dir cannot be resolved. The daemon
 // marks the returned path in-use for the task's duration so
 // PruneHermesMemoryStores never reclaims it mid-mount.
 //
-// daemonProfile namespaces by Multica profile for free: profile dirs are already
+// daemonProfile namespaces by ContextPRO profile for free: profile dirs are already
 // disjoint, so a staging daemon's GC can never see a production daemon's stores
 // and no hashed namespace segment is needed (unlike the Codex store, which lives
 // in the shared ~/.codex).
@@ -193,7 +193,7 @@ func mountHermesMemories(hermesHome, storeDir string, logger *slog.Logger) error
 // rules follow from that:
 //
 //   - It copies rather than moves. A move is faster but fails across
-//     filesystems — the workspaces root and the Multica profile dir can be on
+//     filesystems — the workspaces root and the ContextPRO profile dir can be on
 //     different volumes — and a partial move leaves data in neither place.
 //   - It never reports success for anything it did not carry over. An I/O
 //     error reading either directory, or an entry it will not copy (symlink,
@@ -358,7 +358,7 @@ func copyHermesMemoryTree(src, dst string) error {
 
 // detachHermesMemories gives the overlay a real, task-local memories dir. It is
 // the path taken when there is no store to key on (no agent, or an unresolvable
-// Multica profile dir), so it must actively replace a link left by a previous
+// ContextPRO profile dir), so it must actively replace a link left by a previous
 // run against the persistent store: a reused overlay still carries that link,
 // and MkdirAll would follow it and silently succeed, leaving the task writing to
 // a store the daemon no longer guards from the GC. An existing real directory is

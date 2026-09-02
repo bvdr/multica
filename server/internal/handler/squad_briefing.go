@@ -38,7 +38,7 @@ Your responsibilities, in order:
    Roster below — prefer the member whose skills cover the work.
 2. **Delegate by @mention.** Post a single comment on this issue that
    @mentions the chosen member(s) and tells them what to do.
-   - **Be terse.** Every Multica agent already has full context of the
+   - **Be terse.** Every ContextPRO agent already has full context of the
      issue (title, description, all prior comments, attachments) and
      the surrounding workspace. Do NOT restate or summarise the
      issue body, prior discussion, or known facts in your delegation
@@ -298,7 +298,7 @@ func renderMemberRow(ctx context.Context, q *db.Queries, m db.SquadMember, skill
 		}
 		// Mention syntax for humans uses the user_id (matches the rest of
 		// the product — see util.MentionRe and frontend mention payloads).
-		// Humans have no Multica skills, so no skills segment is rendered.
+		// Humans have no ContextPRO skills, so no skills segment is rendered.
 		userID := util.UUIDToString(m.MemberID)
 		return formatRosterRow(user.Name, "member (human)", role, "", formatMention(user.Name, "member", userID))
 	default:

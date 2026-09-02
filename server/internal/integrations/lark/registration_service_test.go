@@ -71,15 +71,15 @@ func TestRegistrationServiceConstructorValidatesDeps(t *testing.T) {
 }
 
 // TestBotNamePreset pins the bot-name pre-fill format that rides on the
-// QR URL: "<agent> - Multica", with a blank agent name degrading to
-// plain "Multica" rather than a dangling " - Multica".
+// QR URL: "<agent> - ContextPRO", with a blank agent name degrading to
+// plain "ContextPRO" rather than a dangling " - ContextPRO".
 func TestBotNamePreset(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"Ada", "Ada - Multica"},
-		{"  Ada  ", "Ada - Multica"},
-		{"产品助手", "产品助手 - Multica"},
-		{"", "Multica"},
-		{"   ", "Multica"},
+		{"Ada", "Ada - ContextPRO"},
+		{"  Ada  ", "Ada - ContextPRO"},
+		{"产品助手", "产品助手 - ContextPRO"},
+		{"", "ContextPRO"},
+		{"   ", "ContextPRO"},
 	}
 	for _, tc := range cases {
 		if got := botNamePreset(tc.in); got != tc.want {

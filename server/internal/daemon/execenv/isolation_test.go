@@ -99,7 +99,7 @@ func TestPreparationHelperRoundTripsProjectResources(t *testing.T) {
 					ID:           "resource-helper-project-resource",
 					ResourceType: "github_repo",
 					ResourceRef:  json.RawMessage(`{"url":"https://github.com/multica-ai/multica"}`),
-					Label:        "Multica",
+					Label:        "ContextPRO",
 				},
 			},
 		},
@@ -132,7 +132,7 @@ func TestPreparationHelperRoundTripsProjectResources(t *testing.T) {
 	if resource.ID != "resource-helper-project-resource" ||
 		resource.ResourceType != "github_repo" ||
 		ref.URL != "https://github.com/multica-ai/multica" ||
-		resource.Label != "Multica" {
+		resource.Label != "ContextPRO" {
 		t.Fatalf("project resource = %#v, want all fields preserved", resource)
 	}
 }

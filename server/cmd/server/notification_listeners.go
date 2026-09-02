@@ -90,7 +90,7 @@ var delegatedAlwaysNotifTypes = map[string]bool{
 // for a delegated subscriber — someone whose agent filed this issue on their
 // behalf.
 //
-// in_review is the important one: in Multica's agent flow an agent parks
+// in_review is the important one: in ContextPRO's agent flow an agent parks
 // completed work in in_review, so that is the dominant "this needs you now"
 // transition, not done.
 //
@@ -200,7 +200,7 @@ func loadUserPrefs(
 // the issue as "the user no longer needs to triage past failures." When a
 // status change lands on one of these, any pre-existing task_failed inbox
 // rows for the issue are archived so the inbox stays a fresh-signal surface.
-// `in_review` is included because in Multica's agent flow that's the most
+// `in_review` is included because in ContextPRO's agent flow that's the most
 // reliable "work delivered" handoff — and a status flip back to in_progress
 // will simply produce new task_failed rows that surface normally.
 var terminalStatusForTaskFailedDismiss = map[string]bool{

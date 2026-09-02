@@ -1916,7 +1916,7 @@ type ChatSessionResponse struct {
 	Pinned bool `json:"pinned"`
 	// ChannelSource is present only for Chats created from an external channel.
 	// IsCurrentChannelRoute distinguishes the active route generation from an
-	// older Chat that remains readable and writable in Multica.
+	// older Chat that remains readable and writable in ContextPRO.
 	ChannelSource         *ChatSessionChannelSourceResponse `json:"channel_source,omitempty"`
 	IsCurrentChannelRoute *bool                             `json:"is_current_channel_route,omitempty"`
 	CreatedAt             string                            `json:"created_at"`

@@ -131,7 +131,7 @@ func TestBuildMetaSkillContentSlimKindMatrix(t *testing.T) {
 	}
 	issueKinds := map[taskKind]bool{kindIssue: true}
 	checks := []sectionCheck{
-		{"# Multica Agent Runtime", allKinds},
+		{"# ContextPRO Agent Runtime", allKinds},
 		{"## Background Task Safety", allKinds},
 		{"## Agent Identity", allKinds},
 		{"## Available Commands", allKinds},

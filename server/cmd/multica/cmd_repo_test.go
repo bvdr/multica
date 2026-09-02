@@ -250,7 +250,7 @@ func TestRunRepoCheckoutRetriesServiceUnavailable(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
 		if attempts == 1 {
-			w.Header().Set("X-Multica-Retryable", "repo-busy")
+			w.Header().Set("X-ContextPRO-Retryable", "repo-busy")
 			w.Header().Set("Retry-After", "0")
 			http.Error(w, "repository busy", http.StatusServiceUnavailable)
 			return

@@ -42,7 +42,7 @@ func cursorQuery(recent int, before, beforeID string) string {
 // emits when there is likely an older page to scroll to. Empty pair means
 // the server signalled "no more threads".
 func nextThreadCursor(w *httptest.ResponseRecorder) (string, string) {
-	return w.Header().Get("X-Multica-Next-Before"), w.Header().Get("X-Multica-Next-Before-Id")
+	return w.Header().Get("X-ContextPRO-Next-Before"), w.Header().Get("X-ContextPRO-Next-Before-Id")
 }
 
 // commentListFixture seeds an issue with a known comment graph for the
@@ -1028,7 +1028,7 @@ func TestListComments_ThreadWithSinceFiltersWithinThread(t *testing.T) {
 // thread. Same wire shape as the thread-cursor headers — context decides
 // which (the caller knows whether they used --recent or --tail).
 func nextReplyCursor(w *httptest.ResponseRecorder) (string, string) {
-	return w.Header().Get("X-Multica-Next-Before"), w.Header().Get("X-Multica-Next-Before-Id")
+	return w.Header().Get("X-ContextPRO-Next-Before"), w.Header().Get("X-ContextPRO-Next-Before-Id")
 }
 
 // TestListComments_ThreadTailReturnsRootPlusNewestReplies pins the core

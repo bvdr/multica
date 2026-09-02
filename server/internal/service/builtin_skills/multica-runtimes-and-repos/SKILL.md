@@ -1,11 +1,11 @@
 ---
 name: multica-runtimes-and-repos
-description: "Use when a Multica runtime or daemon misbehaves: agent not running, task not claimed, runtime offline, workdir or session reuse, repository checkout."
+description: "Use when a ContextPRO runtime or daemon misbehaves: agent not running, task not claimed, runtime offline, workdir or session reuse, repository checkout."
 user-invocable: false
 allowed-tools: Bash(multica *)
 ---
 
-# Multica Runtimes and Repos
+# ContextPRO Runtimes and Repos
 
 ## Quick start
 
@@ -51,10 +51,10 @@ multica repo checkout <url> --ref <branch-or-sha>
 
 ## Task CLI boundary
 
-The daemon injects a task-scoped `mat_` credential for Multica API commands and a private task-local Multica configuration root. Inside that managed task context:
+The daemon injects a task-scoped `mat_` credential for ContextPRO API commands and a private task-local ContextPRO configuration root. Inside that managed task context:
 
-- API commands such as `issue list`, `issue get`, and `issue runs` use the injected task identity and never fall back to the daemon Owner's saved Multica profile.
-- `config show` and `config set` operate only on task-local Multica state. A missing task config root fails closed.
+- API commands such as `issue list`, `issue get`, and `issue runs` use the injected task identity and never fall back to the daemon Owner's saved ContextPRO profile.
+- `config show` and `config set` operate only on task-local ContextPRO state. A missing task config root fails closed.
 - `auth status` may verify the task identity but omits all token material from its output.
 - `daemon status` and `daemon disk-usage` report on the runtime hosting this task: `status` probes the daemon-injected health port, and `disk-usage` scans the daemon-injected workspaces root. Both refuse `--profile`, `disk-usage` also refuses `--all-profiles` and `--workspaces-root`, and its STATUS column stays blank because filling it would spend the Owner's credential.
 - Human/local profile and daemon commands — including `login`, `logout`, `setup`, `workspace switch`, local runtime profile path mutation, `daemon start` / `stop` / `restart`, `daemon logs`, and `daemon probe-runtimes` — are unavailable. `daemon stop` in particular would terminate the daemon running this task and every sibling task on it.

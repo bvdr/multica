@@ -398,7 +398,7 @@ func runRepoCheckout(cmd *cobra.Command, args []string) error {
 		if closeErr != nil {
 			return fmt.Errorf("close daemon checkout response: %w", closeErr)
 		}
-		if resp.StatusCode == http.StatusServiceUnavailable && resp.Header.Get("X-Multica-Retryable") == "repo-busy" {
+		if resp.StatusCode == http.StatusServiceUnavailable && resp.Header.Get("X-ContextPRO-Retryable") == "repo-busy" {
 			delay := repoCheckoutRetryDelay(resp.Header.Get("Retry-After"), time.Now())
 			timer := time.NewTimer(delay)
 			select {

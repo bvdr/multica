@@ -117,7 +117,7 @@ Hidden body.`,
 		},
 	}
 
-	// The brief is now the only Multica-rendered skill listing, for every kind.
+	// The brief is now the only ContextPRO-rendered skill listing, for every kind.
 	for _, kind := range []TaskContextForEnv{
 		{IssueID: ctx.IssueID, AgentName: ctx.AgentName, AgentID: ctx.AgentID, AgentSkills: ctx.AgentSkills},
 		{QuickCreatePrompt: ctx.QuickCreatePrompt, AgentName: ctx.AgentName, AgentID: ctx.AgentID, AgentSkills: ctx.AgentSkills},

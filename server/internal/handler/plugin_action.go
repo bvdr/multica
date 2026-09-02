@@ -41,7 +41,7 @@ import (
 // session and never will. It presents a bearer token instead, and that changes
 // only WHO the call acts as — the three checks above are the same either way.
 // See pluginActor for how identity is decided.
-const pluginInstallationHeader = "X-Multica-Plugin-Installation"
+const pluginInstallationHeader = "X-ContextPRO-Plugin-Installation"
 
 // pluginActor is who a call acts as, and it is decided by how the caller
 // authenticated rather than by anything the caller asks for.

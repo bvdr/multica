@@ -5,7 +5,7 @@ package wecom
 //
 // The point is not that these branches exist; most of them are correct. It is
 // that they used to be indistinguishable from outside. One symptom — the answer
-// is in the Multica transcript, the WeCom chat stayed quiet — with five
+// is in the ContextPRO transcript, the WeCom chat stayed quiet — with five
 // different causes and no way to tell which fired, is a report that can be
 // argued about but not settled.
 

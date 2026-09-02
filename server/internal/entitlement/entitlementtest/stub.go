@@ -1,5 +1,5 @@
 // Package entitlementtest provides a deterministic Provider for tests of
-// future entitlement consumers. It never contacts Multica Cloud.
+// future entitlement consumers. It never contacts ContextPRO Cloud.
 package entitlementtest
 
 import (

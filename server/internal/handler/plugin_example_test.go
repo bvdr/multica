@@ -315,7 +315,7 @@ func TestExamplePluginHooksReachAnAgentAsTools(t *testing.T) {
 	}
 }
 
-// The whole round trip: an agent calls the tool, Multica signs the request, the
+// The whole round trip: an agent calls the tool, ContextPRO signs the request, the
 // plugin's own server sees that signature and answers, and the answer comes
 // back. Nothing is mocked except the author's business logic, which is theirs.
 func TestExamplePluginAgentHookRoundTripIsSigned(t *testing.T) {
@@ -329,8 +329,8 @@ func TestExamplePluginAgentHookRoundTripIsSigned(t *testing.T) {
 			Config  map[string]any `json:"config"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
-		seenSignature = r.Header.Get("X-Multica-Signature")
-		seenTimestamp = r.Header.Get("X-Multica-Timestamp")
+		seenSignature = r.Header.Get("X-ContextPRO-Signature")
+		seenTimestamp = r.Header.Get("X-ContextPRO-Timestamp")
 		seenHook, seenTrigger, seenConfig = payload.HookKey, payload.Trigger, payload.Config
 
 		w.Header().Set("Content-Type", "application/json")

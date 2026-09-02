@@ -33,7 +33,7 @@ type AppConfig struct {
 	WorkspaceCreationDisabled bool `json:"workspace_creation_disabled,omitempty"`
 	// Public daemon setup config consumed by the web app at runtime so
 	// self-hosted instances can show `multica setup self-host` commands
-	// with the operator's own domains instead of Multica Cloud defaults.
+	// with the operator's own domains instead of ContextPRO Cloud defaults.
 	DaemonServerURL string `json:"daemon_server_url,omitempty"`
 	DaemonAppURL    string `json:"daemon_app_url,omitempty"`
 
@@ -167,7 +167,7 @@ func normalizePublicURL(raw string) string {
 }
 
 // isOfficialCloudDaemonConfig reports whether this deployment is the official
-// Multica Cloud, identified by its frontend host alone (multica.ai). The
+// ContextPRO Cloud, identified by its frontend host alone (multica.ai). The
 // daemon setup for the managed cloud is always
 // `multica setup` (which hardcodes api.multica.ai), so the per-deployment URLs
 // must be omitted from /api/config even when MULTICA_PUBLIC_URL is unset or
@@ -179,7 +179,7 @@ func isOfficialCloudDaemonConfig(appURL string) bool {
 	return urlHostEquals(appURL, "multica.ai")
 }
 
-// isOfficialCloudDeployment reports whether this server is the official Multica
+// isOfficialCloudDeployment reports whether this server is the official ContextPRO
 // Cloud, reusing the same frontend-host signal as the daemon setup (multica.ai).
 // Managed-cloud-only behavior — such as suppressing the Help popover's
 // server-version row, which only matters to self-hosted operators — is gated on

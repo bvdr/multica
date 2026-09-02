@@ -1,11 +1,11 @@
 ---
 name: multica-squads
-description: "Use when creating, inspecting, updating, assigning to, or debugging a Multica squad, including how leader routing picks who runs."
+description: "Use when creating, inspecting, updating, assigning to, or debugging a ContextPRO squad, including how leader routing picks who runs."
 user-invocable: false
 allowed-tools: Bash(multica *)
 ---
 
-# Multica Squads
+# ContextPRO Squads
 
 ## Quick start
 
@@ -35,7 +35,7 @@ to test. These can mutate workspace state or trigger agent runs.
 
 ## Core model
 
-A Multica squad is a workspace routing and coordination object.
+A ContextPRO squad is a workspace routing and coordination object.
 
 A squad is not an agent. It does not run work by itself. Current behavior:
 squad-routed work runs through the squad's `leader_id` agent.
@@ -150,7 +150,7 @@ the backend adds the new leader as a squad member with role `leader`.
 
 ## Leader briefing
 
-For squad leader tasks, Multica appends a squad leader briefing to the leader
+For squad leader tasks, ContextPRO appends a squad leader briefing to the leader
 agent instructions. The briefing includes:
 
 - Squad Operating Protocol;

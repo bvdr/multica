@@ -646,7 +646,7 @@ func TestPrepareWorktreeModeUsesPerIssueCodexSessionStore(t *testing.T) {
 }
 
 // The daemon runs its sidecar cleanup before Finalize commits. If that cleanup
-// fails, committing anyway would deliver a branch whose content is Multica's
+// fails, committing anyway would deliver a branch whose content is ContextPRO's
 // own runtime files — the exact leak this mode promises to prevent. The abort
 // must therefore stop the commit AND keep the worktree, since the agent's work
 // is still in it.

@@ -1,4 +1,4 @@
-// Package seatcapacity is the product-side executor for Multica Cloud's
+// Package seatcapacity is the product-side executor for ContextPRO Cloud's
 // pre-purchased workspace-seat protocol.
 package seatcapacity
 
@@ -21,7 +21,7 @@ import (
 const (
 	defaultTimeout       = 3 * time.Second
 	maxResponseBodySize  = 64 << 10
-	rateLimitScopeHeader = "X-Multica-RateLimit-Scope"
+	rateLimitScopeHeader = "X-ContextPRO-RateLimit-Scope"
 
 	RateLimitScopeGlobal    = "global"
 	RateLimitScopeWorkspace = "workspace"

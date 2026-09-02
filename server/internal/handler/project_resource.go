@@ -189,7 +189,7 @@ func (h *Handler) requireWorktreeCapableDaemon(w http.ResponseWriter, r *http.Re
 	// never dispatch correctly is worse than a save-time error.
 	writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 		"error": fmt.Sprintf(
-			"local_directory: %q is set to parallel (worktree) mode, but the Multica runtime on that machine does not support it. Update the Multica app on that machine to the latest version, or keep the resource on in_place.",
+			"local_directory: %q is set to parallel (worktree) mode, but the ContextPRO runtime on that machine does not support it. Update the ContextPRO app on that machine to the latest version, or keep the resource on in_place.",
 			ref.LocalPath),
 		"code":            "daemon_version_unsupported",
 		"current_version": latestDaemonCLIVersion(runtimes, ref.DaemonID),

@@ -22,7 +22,7 @@ const noneMarker = "(none)"
 
 // headerTimelineTruncated mirrors handler.HeaderTimelineTruncated. Declared as
 // a literal rather than imported because the CLI does not depend on the
-// handler package (same convention as the X-Multica-Next-Before cursors in
+// handler package (same convention as the X-ContextPRO-Next-Before cursors in
 // `issue comment list`). Value is a comma-separated kind list: "activity",
 // "comment", or "activity,comment".
 const headerTimelineTruncated = "X-Timeline-Truncated"

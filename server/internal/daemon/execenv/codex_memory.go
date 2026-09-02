@@ -14,9 +14,9 @@ import (
 // summaries of agent turns to `$CODEX_HOME/memories/raw_memories.md`
 // plus `state_*.sqlite`, and reads them back into the model context on
 // the next turn. The decision of what gets written is internal to Codex
-// — users cannot audit or edit the contents from any Multica UI.
+// — users cannot audit or edit the contents from any ContextPRO UI.
 //
-// This conflicts with the Multica daemon's context model. Multica
+// This conflicts with the ContextPRO daemon's context model. ContextPRO
 // already keeps per-(agent, issue) state via PriorSessionID, the issue
 // description / comments, issue metadata, and CLAUDE.md skill memory —
 // each channel is explicit, user-visible, and editable. Layering Codex
@@ -28,10 +28,10 @@ import (
 //     from a prior turn on the same (agent, issue) feed into the next.
 //   - Codex CLI may also read user-level state from `~/.codex/memories/`
 //     entirely outside the daemon's per-task isolation, dragging
-//     unrelated host-project context into Multica tasks. The reproduction
+//     unrelated host-project context into ContextPRO tasks. The reproduction
 //     in github.com/multica-ai/multica#3130 saw Raw Memories from
 //     `D:\Project\MoHaYu\WowChat` (a host-local project) injected into a
-//     brand-new Multica issue's first Codex turn.
+//     brand-new ContextPRO issue's first Codex turn.
 //
 // Mitigation: write a managed block into the per-task `config.toml` that
 // disables both the `features.memories` flag and the `memories.*`
@@ -40,10 +40,10 @@ import (
 // where the residual files sit on disk. The user's global
 // `~/.codex/config.toml` is never modified.
 //
-// Users who explicitly want Codex native memory inside a Multica task
+// Users who explicitly want Codex native memory inside a ContextPRO task
 // (and accept the leak risk) can keep the feature enabled by setting
 // `MULTICA_CODEX_MEMORY=1` in the daemon environment. The long-term
-// answer for durable agent context is a Multica-owned, user-visible,
+// answer for durable agent context is a ContextPRO-owned, user-visible,
 // project- or issue-scoped memory store — not re-enabling Codex's
 // hidden auto-memory.
 //

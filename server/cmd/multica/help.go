@@ -107,7 +107,7 @@ func init() {
 	})
 }
 
-var rootHelpTemplate = `Work seamlessly with Multica from the command line.
+var rootHelpTemplate = `Work seamlessly with ContextPRO from the command line.
 
 USAGE
   multica <command> <subcommand> [flags]

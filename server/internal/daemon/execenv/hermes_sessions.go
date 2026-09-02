@@ -15,7 +15,7 @@ import (
 //
 // Hermes persists every ACP session — the actual conversation transcript — in
 // the SQLite database at `<HERMES_HOME>/state.db` (acp_adapter/session.py).
-// Because Multica has to take over HERMES_HOME to inject bound skills, that
+// Because ContextPRO has to take over HERMES_HOME to inject bound skills, that
 // database landed inside the per-task overlay, which made a Hermes agent's
 // conversation last exactly one task.
 //
@@ -55,7 +55,7 @@ import (
 // database rather than in the task directory, and a task teardown can never
 // take the write-ahead log with it.
 
-// hermesSessionStoreRoot is the directory under the daemon's Multica profile
+// hermesSessionStoreRoot is the directory under the daemon's ContextPRO profile
 // dir that holds every agent's persistent Hermes conversation shards.
 const hermesSessionStoreRoot = "hermes-sessions"
 
@@ -66,7 +66,7 @@ const hermesSessionDBEntry = "state.db"
 // HermesSessionStorePath returns the persistent session store for
 // (daemonProfile, agentID, sourceHome, conversation), or "" when the session
 // database must stay task-local — no agent to key on, no conversation to key
-// on (neither an issue nor a chat session), or an unresolvable Multica profile
+// on (neither an issue nor a chat session), or an unresolvable ContextPRO profile
 // dir. The daemon marks the returned path in-use for the task's duration so
 // PruneHermesSessionStores never reclaims it mid-mount.
 func HermesSessionStorePath(daemonProfile, agentID, sourceHome string, task TaskContextForEnv) string {

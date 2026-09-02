@@ -1,11 +1,11 @@
 ---
 name: multica-autopilots
-description: "Use when creating, updating, inspecting, triggering, or debugging a Multica autopilot (scheduled, webhook, or manual)."
+description: "Use when creating, updating, inspecting, triggering, or debugging a ContextPRO autopilot (scheduled, webhook, or manual)."
 user-invocable: false
 allowed-tools: Bash(multica *)
 ---
 
-# Multica Autopilots
+# ContextPRO Autopilots
 
 ## Quick start
 
@@ -27,7 +27,7 @@ The chain is: trigger fires (`schedule`, `webhook`, or `manual`) -> `autopilot_r
 
 Execution modes:
 
-- `create_issue` creates a Multica issue, making the run visible as issue state.
+- `create_issue` creates a ContextPRO issue, making the run visible as issue state.
 - `run_only` creates an agent task directly. No issue is created; any durable
   report location has to come from other task context or instructions.
 

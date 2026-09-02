@@ -1,11 +1,11 @@
 ---
 name: multica-working-on-issues
-description: "Use when acting on a Multica issue beyond what the brief covers: PR linking vs close intent, reading a linked PR's real state, metadata keys, status-change side effects, sub-issue todo vs backlog."
+description: "Use when acting on a ContextPRO issue beyond what the brief covers: PR linking vs close intent, reading a linked PR's real state, metadata keys, status-change side effects, sub-issue todo vs backlog."
 user-invocable: false
 allowed-tools: Bash(multica *), Bash(git *), Bash(gh *)
 ---
 
-# Working on Multica issues
+# Working on ContextPRO issues
 
 Product contracts the runtime brief does not fully encode: PR linking vs close
 intent, reading linked-PR state, metadata keys, status side effects, and
@@ -67,7 +67,7 @@ Related to MUL-2759 in the body (no title/branch)  # links but reference_only �
 ### Default for code-changing issue work
 
 When an issue run changes code in a checked-out GitHub repo, the default handoff
-is to open or update a PR before posting the final Multica issue comment, unless
+is to open or update a PR before posting the final ContextPRO issue comment, unless
 the user explicitly asked for a local-only change or no PR. This is a default, not
 an unconditional command: if no code changed, say no PR is needed; if PR creation
 is blocked by auth, failing tests, or missing remote state, report that blocker
@@ -88,7 +88,7 @@ that explicitly.
 
 ## Reading a linked PR's real state
 
-When a step depends on PR state, query Multica's link table — do not infer it
+When a step depends on PR state, query ContextPRO's link table — do not infer it
 from branch names, GitHub search, memory, or `pr_url` metadata (which can be
 stale).
 

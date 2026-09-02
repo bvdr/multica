@@ -27,7 +27,7 @@ const (
 	// defaultMarkdownTitle is the chat-list notification preview used when the
 	// body carries no leading heading. DingTalk shows the title only in the push
 	// preview, not in the message body.
-	defaultMarkdownTitle = "Multica has replied."
+	defaultMarkdownTitle = "ContextPRO has replied."
 )
 
 // markdownTitle derives the sampleMarkdown title (the notification preview) from

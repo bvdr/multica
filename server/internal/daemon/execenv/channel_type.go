@@ -20,7 +20,7 @@ const (
 )
 
 // SurfacePersistsTranscript reports whether a chat surface stores its
-// conversation in Multica's chat_message table, readable back via `multica chat
+// conversation in ContextPRO's chat_message table, readable back via `multica chat
 // history` (handler/chat_history.go's non-Slack fallback). Web chat (empty
 // discriminator), Feishu, WeCom and DingTalk all persist via the shared
 // AppendUserMessage path; Slack reads the live channel instead. It is the single

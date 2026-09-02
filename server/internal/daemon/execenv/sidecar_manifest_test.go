@@ -168,8 +168,8 @@ var allFileBasedProviders = []string{
 
 // TestPrepareThenCleanupSidecarsRoundTripEmptyWorkdir is the headline
 // invariant the issue (MUL-2784) calls out: a user repo that contained
-// nothing related to Multica before a task ran must contain nothing
-// related to Multica after the task finishes — no .agent_context/,
+// nothing related to ContextPRO before a task ran must contain nothing
+// related to ContextPRO after the task finishes — no .agent_context/,
 // no .claude/skills/, no .multica/, no stub directories. The test
 // runs the full Prepare → Inject → Cleanup cycle for every file-based
 // provider against a fresh empty workdir and asserts the directory is
@@ -217,7 +217,7 @@ func TestPrepareThenCleanupSidecarsRoundTripEmptyWorkdir(t *testing.T) {
 // hand-authored skill under the same parent directory we use, Cleanup
 // must leave it bit-for-bit intact. The user-skill payload is laid down
 // BEFORE Prepare runs and snapshotted; after Cleanup the user's skill
-// must still exist and the Multica-written sibling must be gone.
+// must still exist and the ContextPRO-written sibling must be gone.
 func TestPrepareThenCleanupSidecarsPreservesUserSkillSibling(t *testing.T) {
 	t.Parallel()
 	// One representative case per provider that writes into a
@@ -650,11 +650,11 @@ var sameSlugSkillProviderCases = []struct {
 
 // TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider is the
 // must-fix byte-exact matrix the PR #3444 review required: per
-// provider, seed a user skill at the exact slug Multica would use
+// provider, seed a user skill at the exact slug ContextPRO would use
 // (`.claude/skills/issue-review/SKILL.md` etc.), run the full
-// Prepare → Inject → Cleanup cycle with a Multica skill of the same
+// Prepare → Inject → Cleanup cycle with a ContextPRO skill of the same
 // name, and assert the workdir snapshot is byte-identical to the
-// seed. The user's SKILL.md must not be touched, and the Multica
+// seed. The user's SKILL.md must not be touched, and the ContextPRO
 // sibling (which lives at `<slug>-multica`) must be fully removed by
 // CleanupSidecars.
 func TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider(t *testing.T) {
@@ -690,7 +690,7 @@ func TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider(t *testing.T) {
 				AgentSkills: []SkillContextForEnv{
 					{
 						Name:        "Issue Review",
-						Description: "Multica's version",
+						Description: "ContextPRO's version",
 						Content:     "---\nname: issue-review\n---\n\nMultica skill content.\n",
 						Files: []SkillFileContextForEnv{
 							{Path: "templates/checklist.md", Content: "- [ ] check"},
@@ -725,7 +725,7 @@ func TestPrepareThenCleanupSidecarsSameSlugCollisionPerProvider(t *testing.T) {
 
 // TestPrepareThenCleanupSidecarsIssueContextCollisionPerProvider is
 // the matching byte-exact matrix for `.agent_context/issue_context.md`
-// — a Multica-only namespace file. If the user already has a file at
+// — a ContextPRO-only namespace file. If the user already has a file at
 // that path, the writer must refuse to overwrite it (the runtime
 // brief carries the same facts anyway) and CleanupSidecars must
 // leave the user's file alone. This covers EVERY file-based provider
@@ -772,7 +772,7 @@ func TestPrepareThenCleanupSidecarsIssueContextCollisionPerProvider(t *testing.T
 
 // TestPrepareThenCleanupSidecarsProjectResourcesCollisionPerProvider
 // is the matching byte-exact matrix for `.multica/project/
-// resources.json` — the other Multica-only namespace file. Same
+// resources.json` — the other ContextPRO-only namespace file. Same
 // invariant: pre-existing user content survives the round-trip
 // untouched even when the task ships project resources of its own.
 func TestPrepareThenCleanupSidecarsProjectResourcesCollisionPerProvider(t *testing.T) {
@@ -825,7 +825,7 @@ func TestPrepareThenCleanupSidecarsProjectResourcesCollisionPerProvider(t *testi
 
 // TestAllocateCollisionFreeSkillDir pins the slug-suffix policy:
 // first try the natural slug, then `-multica`, then `-multica-2`,
-// `-multica-3`, … The PR-review concern is "Multica skill must still
+// `-multica-3`, … The PR-review concern is "ContextPRO skill must still
 // be discoverable" — this test demonstrates that we pick a sibling
 // path under the same skillsParent rather than dropping the skill or
 // nesting it under the user's directory.
@@ -879,9 +879,9 @@ func TestAllocateCollisionFreeSkillDir(t *testing.T) {
 // TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation is
 // the end-to-end coverage for the collision-free sibling: a user has
 // `.claude/skills/issue-review/SKILL.md`, the task ships an
-// `Issue Review` skill, the Multica sibling must land at a different
+// `Issue Review` skill, the ContextPRO sibling must land at a different
 // slug (so the agent still sees it), AND Cleanup must remove the
-// Multica sibling entirely without touching the user's.
+// ContextPRO sibling entirely without touching the user's.
 func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.T) {
 	t.Parallel()
 	workDir := t.TempDir()
@@ -897,14 +897,14 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 		t.Fatalf("seed file: %v", err)
 	}
 
-	// Run only the inject side first — verify the Multica skill
+	// Run only the inject side first — verify the ContextPRO skill
 	// landed at a NEW path under the same parent, AND the user's
 	// path is untouched.
 	manifest := &sidecarManifest{}
 	if err := writeContextFiles(workDir, "claude", TaskContextForEnv{
 		IssueID: "11111111-2222-3333-4444-555555555555",
 		AgentSkills: []SkillContextForEnv{
-			{Name: "Issue Review", Content: "Multica's version\n"},
+			{Name: "Issue Review", Content: "ContextPRO's version\n"},
 		},
 	}, manifest); err != nil {
 		t.Fatalf("writeContextFiles: %v", err)
@@ -912,7 +912,7 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 
 	multicaDir := filepath.Join(workDir, ".claude", "skills", "issue-review-multica")
 	if _, err := os.Stat(filepath.Join(multicaDir, "SKILL.md")); err != nil {
-		t.Errorf("Multica sibling skill should exist at %s: %v", multicaDir, err)
+		t.Errorf("ContextPRO sibling skill should exist at %s: %v", multicaDir, err)
 	}
 	got, err := os.ReadFile(userFile)
 	if err != nil {
@@ -923,7 +923,7 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 	}
 
 	// Now persist manifest + run cleanup. After cleanup the
-	// Multica sibling is gone; user's path survives.
+	// ContextPRO sibling is gone; user's path survives.
 	if err := writeSidecarManifest(envRoot, manifest); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -931,7 +931,7 @@ func TestPrepareThenCleanupSidecarsMultiSkillCollisionFreeAllocation(t *testing.
 		t.Fatalf("CleanupSidecars: %v", err)
 	}
 	if _, err := os.Stat(multicaDir); !os.IsNotExist(err) {
-		t.Errorf("Multica sibling should be removed by Cleanup; stat err=%v", err)
+		t.Errorf("ContextPRO sibling should be removed by Cleanup; stat err=%v", err)
 	}
 	got, err = os.ReadFile(userFile)
 	if err != nil {
