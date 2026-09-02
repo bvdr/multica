@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -181,13 +182,25 @@ func (c *Client) setIdentityHeaders(req *http.Request) {
 	req.Header.Set("X-Client-Capabilities", daemonClientCapabilities())
 }
 
+// tmuxLookPath resolves the tmux binary on the daemon's PATH. A package-level
+// indirection so tests can force "present" and "absent" without a real tmux.
+var tmuxLookPath = func() (string, error) { return exec.LookPath("tmux") }
+
+// tmuxAvailable reports whether this daemon can run local_directory tasks in
+// tmux mode (ContextPRO fork). Re-checked on every advertisement (one PATH
+// scan) so installing tmux and restarting the daemon is enough to unlock it.
+func tmuxAvailable() bool {
+	_, err := tmuxLookPath()
+	return err == nil
+}
+
 // daemonClientCapabilities is the X-Client-Capabilities value the daemon
 // advertises on BOTH the HTTP control-plane requests and the WS handshake, so a
 // claim built over WS gets the same capability gating (skill refs,
 // coalesced-comments) as the HTTP path. rpc-v1 advertises WS request/response
-// support (MUL-4257).
+// support (MUL-4257). local-tmux-v1 is conditional: see tmuxAvailable.
 func daemonClientCapabilities() string {
-	return strings.Join([]string{
+	caps := []string{
 		protocol.DaemonCapabilitySkillBundlesV1,
 		protocol.DaemonCapabilityCoalescedCommentsV1,
 		protocol.DaemonCapabilityExecutionManifestV1,
@@ -196,7 +209,11 @@ func daemonClientCapabilities() string {
 		protocol.DaemonCapabilityLocalWorktreeV1,
 		protocol.DaemonCapabilitySourceContextQuickCreateV1,
 		protocol.DaemonCapabilityRPCV1,
-	}, ",")
+	}
+	if tmuxAvailable() {
+		caps = append(caps, protocol.DaemonCapabilityLocalTmuxV1)
+	}
+	return strings.Join(caps, ",")
 }
 
 // SetToken sets the auth token for authenticated requests.

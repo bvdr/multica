@@ -20,6 +20,17 @@ const (
 	// unblocked, which let exactly such a daemon through (MUL-5707). A daemon
 	// that implements the mode says so; one that does not, cannot.
 	DaemonCapabilityLocalWorktreeV1 = "local-worktree-v1"
+	// DaemonCapabilityLocalTmuxV1 advertises that the daemon implements tmux
+	// mode for local_directory resources (execution_mode=tmux): it opens an
+	// interactive Claude Code session in a tmux session inside the folder and
+	// completes the task when that session ends. Fork-only (ContextPRO).
+	//
+	// A capability rather than a version check for the same reason as
+	// worktree: a daemon that lacks the implementation json-skips the mode and
+	// would run the task headlessly in place. The daemon only advertises this
+	// when a tmux binary resolves on its PATH, so a machine without tmux can
+	// never be handed the mode.
+	DaemonCapabilityLocalTmuxV1 = "local-tmux-v1"
 	// DaemonCapabilitySourceContextQuickCreateV1 advertises support for the
 	// two-section quick-create prompt that keeps a new instruction separate
 	// from immutable historical source context.
