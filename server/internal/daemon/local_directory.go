@@ -26,6 +26,9 @@ const localDirectoryResourceType = "local_directory"
 const (
 	localDirectoryModeInPlace  = "in_place"
 	localDirectoryModeWorktree = "worktree"
+	// localDirectoryModeTmux: interactive Claude Code in a tmux session in the
+	// user's folder (ContextPRO fork). Mirrors handler.localDirectoryModeTmux.
+	localDirectoryModeTmux = "tmux"
 )
 
 // localDirectoryRef mirrors the server-side ref shape for local_directory
@@ -57,6 +60,14 @@ type localDirectoryAssignment struct {
 // on this rather than on "is there a local_directory assignment at all".
 func (a *localDirectoryAssignment) UsesWorktree() bool {
 	return a != nil && strings.TrimSpace(a.Ref.ExecutionMode) == localDirectoryModeWorktree
+}
+
+// UsesTmux reports whether this assignment runs the task as an interactive
+// tmux session. Like worktree tasks, tmux tasks skip the per-path mutex — but
+// for the opposite reason: they DO share the working copy, on purpose, because
+// each one is a terminal the user watches and steers.
+func (a *localDirectoryAssignment) UsesTmux() bool {
+	return a != nil && strings.TrimSpace(a.Ref.ExecutionMode) == localDirectoryModeTmux
 }
 
 // DisplayName is the human-facing name for this directory, safe to render in
@@ -93,14 +104,14 @@ func (a *localDirectoryAssignment) ValidateExecutionMode() error {
 		return nil
 	}
 	switch strings.TrimSpace(a.Ref.ExecutionMode) {
-	case "", localDirectoryModeInPlace, localDirectoryModeWorktree:
+	case "", localDirectoryModeInPlace, localDirectoryModeWorktree, localDirectoryModeTmux:
 		return nil
 	default:
 		return fmt.Errorf(
 			"local_directory: this daemon does not support execution_mode %q for %q "+
-				"(update the daemon, or set the resource's execution mode to %q or %q); "+
+				"(update the daemon, or set the resource's execution mode to %q, %q or %q); "+
 				"refusing to run in place, since that would modify a directory the resource asked to isolate",
-			a.Ref.ExecutionMode, a.AbsPath, localDirectoryModeInPlace, localDirectoryModeWorktree)
+			a.Ref.ExecutionMode, a.AbsPath, localDirectoryModeInPlace, localDirectoryModeWorktree, localDirectoryModeTmux)
 	}
 }
 

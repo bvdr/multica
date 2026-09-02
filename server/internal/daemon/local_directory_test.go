@@ -1211,3 +1211,47 @@ func TestIssueTasksStillSerialiseOnPathMutex(t *testing.T) {
 	}
 	release()
 }
+
+func TestValidateExecutionModeAcceptsTmux(t *testing.T) {
+	t.Parallel()
+	a := &localDirectoryAssignment{Ref: localDirectoryRef{LocalPath: "/srv/app", DaemonID: "d", ExecutionMode: "tmux"}, AbsPath: "/srv/app"}
+	if err := a.ValidateExecutionMode(); err != nil {
+		t.Fatalf("tmux rejected: %v", err)
+	}
+	if !a.UsesTmux() || a.UsesWorktree() {
+		t.Fatalf("UsesTmux=%v UsesWorktree=%v, want true/false", a.UsesTmux(), a.UsesWorktree())
+	}
+	bad := &localDirectoryAssignment{Ref: localDirectoryRef{LocalPath: "/srv/app", DaemonID: "d", ExecutionMode: "screen"}, AbsPath: "/srv/app"}
+	if err := bad.ValidateExecutionMode(); err == nil || !strings.Contains(err.Error(), `"tmux"`) {
+		t.Fatalf("unknown mode error should list tmux as a valid option, got %v", err)
+	}
+}
+
+// tmux tasks run side by side in one folder by design (each is its own visible
+// terminal), so they must not queue on the per-path mutex.
+func TestAcquireLocalDirectoryLockSkipsTmuxTasks(t *testing.T) {
+	t.Parallel()
+	const daemonID = "d-tmux"
+	tmp := t.TempDir()
+	raw, err := json.Marshal(localDirectoryRef{LocalPath: tmp, DaemonID: daemonID, ExecutionMode: "tmux"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	task := Task{ID: "tmux-task", ProjectResources: []ProjectResourceData{{ID: "r1", ResourceType: localDirectoryResourceType, ResourceRef: raw}}}
+	d := &Daemon{cfg: Config{DaemonID: daemonID}, localPathLocks: NewLocalPathLocker(), logger: slog.Default()}
+
+	release, abort := d.acquireLocalDirectoryLockIfNeeded(context.Background(), task, slog.Default())
+	if abort {
+		t.Fatal("tmux task aborted at lock acquisition")
+	}
+	if release != nil {
+		t.Fatal("tmux task took the path mutex; it must run unserialised")
+	}
+	assignment, err := localDirectoryAssignmentForTask(task, daemonID)
+	if err != nil || assignment == nil {
+		t.Fatalf("assignment: %v %v", assignment, err)
+	}
+	if got := d.localPathLocks.Holder(assignment.RealPath); got != "" {
+		t.Fatalf("holder after tmux skip = %q, want empty", got)
+	}
+}

@@ -5387,6 +5387,13 @@ func (d *Daemon) acquireLocalDirectoryLockIfNeeded(ctx context.Context, task Tas
 		taskLog.Info("local_directory: worktree mode, skipping path mutex")
 		return nil, false
 	}
+	if assignment.UsesTmux() {
+		// Deliberate (design 2026-09-02): tmux tasks in one folder run side by
+		// side, each in its own visible session. Serialising them would only
+		// queue terminals the user is waiting to attach to.
+		taskLog.Info("local_directory: tmux mode, skipping path mutex")
+		return nil, false
+	}
 
 	// A conversation is not a second writer. Everything above still applied —
 	// the mode was checked, the path was validated, and the assignment stands,
