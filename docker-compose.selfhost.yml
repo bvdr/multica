@@ -95,6 +95,10 @@ services:
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       APP_ENV: ${APP_ENV:-production}
       MULTICA_DEV_VERIFICATION_CODE: ${MULTICA_DEV_VERIFICATION_CODE:-}
+      # Fork-only opt-in (see .env.example): honors the fixed code even though
+      # this stack pins APP_ENV=production. The backend only sees variables
+      # listed here, so it must be forwarded explicitly like the code itself.
+      MULTICA_ALLOW_FIXED_CODE_IN_PRODUCTION: ${MULTICA_ALLOW_FIXED_CODE_IN_PRODUCTION:-}
       MULTICA_APP_URL: ${MULTICA_APP_URL:-http://localhost:3000}
       MULTICA_DATABASE_STARTUP_TIMEOUT: ${MULTICA_DATABASE_STARTUP_TIMEOUT:-3m}
       MULTICA_DATABASE_CONNECT_TIMEOUT: ${MULTICA_DATABASE_CONNECT_TIMEOUT:-5s}
