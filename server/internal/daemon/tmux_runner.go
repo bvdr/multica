@@ -302,3 +302,61 @@ func tmuxOutcome(st tmuxState) (TaskResult, error) {
 		EnvRoot: st.EnvRoot,
 	}, nil
 }
+
+// adoptTmuxSessions re-attaches to tmux-mode tasks that were running when the
+// previous daemon process stopped. The tmux sessions themselves survive a
+// daemon restart; only the watcher died. For each recorded task: a live session
+// is watched again; a finished one is settled from its exit-code file; one with
+// no session and no exit code is failed as lost. Runs once at startup.
+func (d *Daemon) adoptTmuxSessions(ctx context.Context) {
+	root := filepath.Join(d.cfg.WorkspacesRoot, tmuxTasksDirName)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return // nothing recorded (or no root yet)
+	}
+	ctl, err := d.tmuxController()
+	if err != nil {
+		d.logger.Warn("tmux: cannot adopt sessions, tmux unavailable", "error", err, "pending", len(entries))
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		st, err := readTmuxState(dir)
+		if err != nil {
+			d.logger.Warn("tmux: dropping unreadable task state", "dir", dir, "error", err)
+			_ = os.RemoveAll(dir)
+			continue
+		}
+		go func(st tmuxState) {
+			log := d.logger.With("task_id", st.TaskID, "tmux_session", st.Session)
+			log.Info("tmux: adopting session from a previous daemon run")
+			result, err := d.watchTmuxSession(ctx, ctl, st, log)
+			if ctx.Err() != nil {
+				return // shutting down again; the state file stays for the next start
+			}
+			d.reportAdoptedTmuxOutcome(ctx, st, result, err)
+		}(st)
+	}
+}
+
+func (d *Daemon) reportAdoptedTmuxOutcome(ctx context.Context, st tmuxState, result TaskResult, err error) {
+	if d.tmuxAdoptionReport != nil {
+		d.tmuxAdoptionReport(st, result, err)
+		return
+	}
+	if d.client == nil {
+		return
+	}
+	report := terminalTaskReport{kind: terminalTaskReportComplete, taskID: st.TaskID, output: result.Comment, workDir: st.WorkDir}
+	if err != nil {
+		report = terminalTaskReport{kind: terminalTaskReportFail, taskID: st.TaskID, errorMessage: err.Error(), workDir: st.WorkDir}
+	}
+	if rerr := d.reportTerminalTask(ctx, report); rerr != nil {
+		// A task the server already closed (cancelled while we were down) lands
+		// here; nothing more to do than say so.
+		d.logger.Warn("tmux: reporting adopted session outcome failed", "task_id", st.TaskID, "error", rerr)
+	}
+}

@@ -301,3 +301,74 @@ func TestWatchTmuxSessionKillsOnTaskCancelButNotOnDaemonShutdown(t *testing.T) {
 		t.Fatalf("daemon shutdown must leave the session alive, killed=%v alive=%v", ctl2.killed, ctl2.alive)
 	}
 }
+
+func TestAdoptTmuxSessionsResumesLiveAndSettlesDead(t *testing.T) {
+	orig := tmuxPollInterval
+	tmuxPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { tmuxPollInterval = orig })
+
+	ctl := newFakeTmux()
+	d := newTmuxTestDaemon(t, ctl)
+	var mu sync.Mutex
+	settled := map[string]string{} // task id -> "completed" | "failed: ..."
+	d.tmuxAdoptionReport = func(st tmuxState, result TaskResult, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			settled[st.TaskID] = "failed: " + err.Error()
+		} else {
+			settled[st.TaskID] = result.Status
+		}
+	}
+
+	mk := func(taskID, exit string, alive bool) {
+		dir := tmuxTaskDir(d.cfg.WorkspacesRoot, taskID)
+		os.MkdirAll(dir, 0o700)
+		st := tmuxState{Session: "ctx-x-" + taskID, TaskID: taskID, TranscriptPath: filepath.Join(dir, "transcript.log"), ExitCodePath: filepath.Join(dir, "exit-code"), WorkDir: "/w"}
+		writeTmuxState(dir, st)
+		if exit != "" {
+			os.WriteFile(st.ExitCodePath, []byte(exit), 0o600)
+		}
+		if alive {
+			ctl.alive[st.Session] = true
+		}
+	}
+	mk("live", "", true)
+	mk("finished-ok", "0", false)
+	mk("finished-bad", "1", false)
+	mk("lost", "", false)
+	os.MkdirAll(filepath.Join(d.cfg.WorkspacesRoot, tmuxTasksDirName, "corrupt"), 0o700)
+	os.WriteFile(filepath.Join(d.cfg.WorkspacesRoot, tmuxTasksDirName, "corrupt", "tmux.json"), []byte("{not json"), 0o600)
+
+	d.adoptTmuxSessions(context.Background())
+
+	waitFor := func(cond func() bool, what string) {
+		deadline := time.After(2 * time.Second)
+		for !cond() {
+			select {
+			case <-deadline:
+				mu.Lock()
+				defer mu.Unlock()
+				t.Fatalf("%s; settled=%v", what, settled)
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
+	waitFor(func() bool { mu.Lock(); defer mu.Unlock(); return len(settled) == 3 }, "dead sessions not settled in time")
+	mu.Lock()
+	if settled["finished-ok"] != "completed" || !strings.HasPrefix(settled["finished-bad"], "failed: interactive session") || !strings.Contains(settled["lost"], "session lost") {
+		t.Fatalf("settled = %v", settled)
+	}
+	if _, ok := settled["live"]; ok {
+		t.Fatal("live session must keep running, not settle")
+	}
+	mu.Unlock()
+
+	// Ending the live session settles it too.
+	os.WriteFile(filepath.Join(tmuxTaskDir(d.cfg.WorkspacesRoot, "live"), "exit-code"), []byte("0"), 0o600)
+	ctl.end("ctx-x-live")
+	waitFor(func() bool { mu.Lock(); defer mu.Unlock(); return settled["live"] == "completed" }, "live session did not settle after it ended")
+	if _, err := os.Stat(filepath.Join(d.cfg.WorkspacesRoot, tmuxTasksDirName, "corrupt")); !os.IsNotExist(err) {
+		t.Fatal("corrupt state dir should be removed")
+	}
+}

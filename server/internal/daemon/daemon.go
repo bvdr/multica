@@ -1970,6 +1970,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 		logFields = append(logFields, "profile", d.cfg.Profile)
 	}
 	d.logger.Info("starting daemon", logFields...)
+	// Fork (ContextPRO): pick up interactive tmux sessions left by the
+	// previous process before claiming new work.
+	d.adoptTmuxSessions(ctx)
 	d.logger.Debug("daemon config resolved",
 		"daemon_id", d.cfg.DaemonID,
 		"device_name", d.cfg.DeviceName,
