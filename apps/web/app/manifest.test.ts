@@ -40,9 +40,8 @@ describe("web app manifest", () => {
   });
 
   it("does not launch at the root path", () => {
-    // The official marketing hosts keep "/" on the public site even for a
-    // signed-in session, so an installed app pointed there opens the landing
-    // page instead of the product.
+    // "/" is only a redirect in this fork (see proxy.ts); a launcher icon
+    // should point at a real app destination, not at a bounce.
     expect(manifest().start_url).not.toBe("/");
   });
 
@@ -56,12 +55,12 @@ describe("web app manifest", () => {
     expect(launch({})).toContain("/login");
   });
 
-  it("never launches onto the marketing site for a session with no known workspace", () => {
+  it("never launches onto the root path for a session with no known workspace", () => {
     // Reachable whenever `multica_logged_in` outlives `last_workspace_slug`:
     // a member who signed up but has not opened a workspace yet, or cleared
-    // cookies. The proxy used to bounce this state to "/", which the official
-    // marketing hosts keep on the public site — so the installed app opened
-    // the landing page with no URL bar to escape it.
+    // cookies. The proxy used to bounce this state to "/", which upstream
+    // keeps on the public marketing site — so the installed app opened the
+    // landing page with no URL bar to escape it.
     const target = launch({ multica_logged_in: "1" });
 
     expect(target).toContain("/login");

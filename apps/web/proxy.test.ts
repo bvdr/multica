@@ -90,45 +90,46 @@ describe("proxy legacy workspace route redirects", () => {
   });
 
   it("sends logged-in legacy URLs without a last workspace cookie to login", () => {
-    // Not root: the root-path rule below leaves "/" on the public site for the
-    // official marketing hosts even with a session, so bouncing there would
-    // dead-end on the landing page. /login resolves against the workspace list
-    // instead. The deep-link query is dropped because feeding a legacy path
-    // back through `next` would return here and loop.
+    // /login resolves against the workspace list. The deep-link query is
+    // dropped because feeding a legacy path back through `next` would return
+    // here and loop.
     expect(
       redirectLocation("/squads?view=members", { multica_logged_in: "1" }),
     ).toBe("https://app.multica.test/login");
   });
 
-  it.each(["multica.ai", "www.multica.ai"])(
-    "resolves a slugless session off the marketing host %s instead of stranding it",
-    (host) => {
-      expect(
-        redirectLocation("/inbox", { multica_logged_in: "1" }, host),
-      ).toBe(`https://${host}/login`);
-    },
-  );
-
   it("does not redirect workspace-scoped URLs whose first segment is already a slug", () => {
     expect(redirectLocation("/acme/squads", sessionCookies)).toBeNull();
   });
 
-  it("redirects app-host root URLs to the last workspace", () => {
+  it("redirects root URLs to the last workspace", () => {
     expect(redirectLocation("/", sessionCookies)).toBe(
       "https://app.multica.test/acme/issues",
     );
   });
 
+  // This fork has no public marketing site, so there is no host on which "/"
+  // stays public. Upstream exempts multica.ai / www.multica.ai here; the fork
+  // must treat them like any other host.
   it.each(["multica.ai", "www.multica.ai"])(
-    "does not redirect public marketing root on %s",
+    "redirects root to the last workspace on %s as well",
     (host) => {
-      expect(redirectLocation("/", sessionCookies, host)).toBeNull();
+      expect(redirectLocation("/", sessionCookies, host)).toBe(
+        `https://${host}/acme/issues`,
+      );
     },
   );
 
-  it("still redirects explicit legacy app routes on the public marketing host", () => {
-    expect(redirectLocation("/issues/ABC-123", sessionCookies, "multica.ai")).toBe(
-      "https://multica.ai/acme/issues/ABC-123",
+  it("sends logged-out root visits to login", () => {
+    expect(redirectLocation("/")).toBe("https://app.multica.test/login");
+  });
+
+  it("sends logged-in root visits without a last workspace cookie to login", () => {
+    // /login resolves an authenticated visitor against their workspace list
+    // (including pending invitations and the no-workspace case), so it is the
+    // right destination whenever the slug cookie is missing.
+    expect(redirectLocation("/", { multica_logged_in: "1" })).toBe(
+      "https://app.multica.test/login",
     );
   });
 });

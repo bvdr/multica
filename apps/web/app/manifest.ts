@@ -4,15 +4,15 @@ import type { MetadataRoute } from "next";
  * Web app manifest — what makes the mobile web app installable and lets it run
  * in its own window instead of a browser tab.
  *
- * `start_url` is deliberately NOT "/". The official marketing hosts keep the
- * root path on the public site even for a signed-in session (see
- * `isOfficialMarketingHost` in proxy.ts), so an installed app pointed at "/"
- * would open the landing page. "/inbox" is one of `LEGACY_ROUTE_SEGMENTS`,
- * which proxy.ts resolves per session: signed in with a known workspace it
- * lands on that workspace's inbox, signed in without one it lands on /login
- * (which resolves against the workspace list), and signed out it lands on
- * /login too. All three are pinned in manifest.test.ts, because a launcher
- * icon has no URL bar to recover from a wrong destination.
+ * `start_url` is deliberately NOT "/". Upstream keeps "/" on the public
+ * marketing site for the official hosts; this fork redirects "/" in proxy.ts
+ * instead, but a launcher icon should still point at a real app destination
+ * rather than a redirect. "/inbox" is one of `LEGACY_ROUTE_SEGMENTS`, which
+ * proxy.ts resolves per session: signed in with a known workspace it lands on
+ * that workspace's inbox, signed in without one it lands on /login (which
+ * resolves against the workspace list), and signed out it lands on /login
+ * too. All three are pinned in manifest.test.ts, because a launcher icon has
+ * no URL bar to recover from a wrong destination.
  *
  * The icons under /icons are generated, not hand-drawn. To regenerate after a
  * brand change, edit public/icons/icon.svg and run from public/icons:

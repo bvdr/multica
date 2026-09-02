@@ -5,7 +5,6 @@ import {
   resolveLocaleFromSignals,
 } from "./lib/locale-routing";
 import { runtimeRewriteDestination } from "./config/runtime-urls";
-import { isOfficialMarketingHost } from "./lib/public-host";
 
 // Old workspace-scoped route segments that existed before the URL refactor
 // (pre-#1131). Any URL with these as the FIRST segment is a legacy URL that
@@ -77,37 +76,34 @@ export function proxy(req: NextRequest) {
     }
 
     // Logged-in but no cookie yet (never opened a workspace, or the cookie was
-    // cleared). Root is the wrong destination: the root-path rule below leaves
-    // `/` on the public site for the official marketing hosts even with a
-    // session, so bouncing there dead-ends on the landing page instead of
-    // reaching the app. /login already resolves an authenticated visitor
-    // against their workspace list — including pending invitations and the
-    // no-workspace-yet case — and replaces to the right destination. Deep-link
-    // path and query are dropped rather than passed as `next`: they are legacy
-    // segments themselves, so feeding one back would land here again.
+    // cleared). /login resolves an authenticated visitor against their
+    // workspace list — including pending invitations and the no-workspace-yet
+    // case — and replaces to the right destination. Deep-link path and query
+    // are dropped rather than passed as `next`: they are legacy segments
+    // themselves, so feeding one back would land here again.
     url.pathname = "/login";
     url.search = "";
     return NextResponse.redirect(url);
   }
 
-  // --- Root path: redirect logged-in users to their last workspace ---
-  // The official cloud host also serves the public marketing site. Visiting
-  // https://multica.ai/ must remain a public-site navigation even when a local
-  // desktop/runtime session has fresh auth cookies; explicit app routes such
-  // as /acme/issues and legacy /issues still route to the workspace app.
-  if (
-    pathname === "/" &&
-    hasSession &&
-    lastSlug &&
-    !isOfficialMarketingHost(req.nextUrl.hostname)
-  ) {
+  // --- Root path: "/" is never a page in this fork ---
+  // Upstream Multica serves its public marketing site at "/" and exempts the
+  // official multica.ai hosts from this redirect so the landing stays public
+  // even with a session. This fork is a private, self-hosted deployment with
+  // the landing removed, so there is nothing to show at "/" and no host to
+  // exempt: every visitor is sent straight into the app. A session with a
+  // known workspace lands on that workspace; everyone else lands on /login,
+  // which shows the form to signed-out visitors and resolves a signed-in one
+  // (no slug cookie yet, pending invitations, no workspace) to the right
+  // destination. The query string is kept so `/?next=...` style links survive.
+  if (pathname === "/") {
     const url = req.nextUrl.clone();
-    url.pathname = `/${lastSlug}/issues`;
+    url.pathname = hasSession && lastSlug ? `/${lastSlug}/issues` : "/login";
     return NextResponse.redirect(url);
   }
 
   // --- Default: forward locale header to RSC, no redirect/rewrite ---
-  // Covers logged-out root path, /login, /:slug/*, and everything else.
+  // Covers /login, /:slug/*, and everything else.
   return nextWithLocale(req);
 }
 
