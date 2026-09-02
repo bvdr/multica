@@ -9,7 +9,7 @@ import { setCurrentWorkspace } from "@multica/core/platform";
 import { useAuthStore } from "@multica/core/auth";
 import { NoAccessPage } from "@multica/views/workspace/no-access-page";
 import { WelcomeAfterOnboarding } from "@multica/views/workspace/welcome-after-onboarding";
-import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
+import { BrandIcon } from "@multica/ui/components/common/brand-icon";
 import { useWorkspaceSeen } from "@multica/views/workspace/use-workspace-seen";
 import { workspaceSlugFromPathname } from "@/lib/workspace-slug-from-pathname";
 
@@ -97,7 +97,7 @@ export default function WorkspaceLayout({
 
   const loadingIndicator = (
     <div className="flex h-svh items-center justify-center">
-      <MulticaIcon className="size-6 animate-pulse" />
+      <BrandIcon className="size-6 animate-pulse" />
     </div>
   );
 

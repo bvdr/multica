@@ -9,7 +9,7 @@ import {
   type AvatarSize,
 } from "@multica/ui/lib/avatar-size";
 import { parseAvatarEmoji } from "@multica/ui/lib/avatar-emoji";
-import { MulticaIcon } from "./multica-icon";
+import { BrandIcon } from "./brand-icon";
 
 interface ActorAvatarProps {
   name: string;
@@ -73,7 +73,7 @@ function ActorAvatar({
           onError={() => setImgError(true)}
         />
       ) : isSystem ? (
-        <MulticaIcon noSpin style={{ width: px * 0.55, height: px * 0.55 }} />
+        <BrandIcon noSpin style={{ width: px * 0.55, height: px * 0.55 }} />
       ) : isAgent ? (
         <Bot style={{ width: px * 0.55, height: px * 0.55 }} />
       ) : isSquad ? (

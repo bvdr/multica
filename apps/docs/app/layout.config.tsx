@@ -1,11 +1,11 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 import { ArrowUpRight } from "lucide-react";
 
-// Docs-local stateless Multica mark — matches @multica/ui's MulticaIcon
+// Docs-local stateless Multica mark — matches @multica/ui's BrandIcon
 // visually (same 8-pointed-asterisk clip-path), but without useState/
 // useEffect so it's safe to render from Server Components such as
 // layout.config.tsx / layout.tsx. Keep in sync with
-// packages/ui/components/common/multica-icon.tsx if the mark changes.
+// packages/ui/components/common/brand-icon.tsx if the mark changes.
 const MULTICA_CLIP = `polygon(
   45% 62.1%, 45% 100%, 55% 100%, 55% 62.1%,
   81.8% 88.9%, 88.9% 81.8%, 62.1% 55%, 100% 55%,

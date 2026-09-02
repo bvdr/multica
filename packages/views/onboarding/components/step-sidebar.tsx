@@ -8,7 +8,7 @@ import {
 } from "@multica/core/onboarding";
 import { cn } from "@multica/ui/lib/utils";
 import { Button } from "@multica/ui/components/ui/button";
-import { MulticaIcon } from "@multica/ui/components/common/multica-icon";
+import { BrandIcon } from "@multica/ui/components/common/brand-icon";
 import { DotSphere } from "@multica/ui/components/ui/dot-sphere";
 import {
   Stepper,
@@ -165,7 +165,7 @@ export function StepSidebar({
         <div className="relative flex min-h-0 flex-1 flex-col pt-5">
           <header className="flex min-h-9 shrink-0 items-center justify-between gap-3">
             <span className="flex min-w-0 items-center gap-2">
-              <MulticaIcon className="size-5 shrink-0 text-foreground" noSpin />
+              <BrandIcon className="size-5 shrink-0 text-foreground" noSpin />
               <span className="truncate text-label font-medium text-foreground">
                 {t(($) => $.step_nav.wordmark)}
               </span>

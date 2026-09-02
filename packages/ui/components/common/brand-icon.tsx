@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { cn } from "../../lib/utils";
 
-interface MulticaIconProps extends React.ComponentProps<"span"> {
+interface BrandIconProps extends React.ComponentProps<"span"> {
   /**
    * If true, play a one-time entrance spin animation.
    */
@@ -27,18 +27,38 @@ const borderedSizes = {
 };
 
 /**
- * Pure CSS 8-pointed asterisk icon matching the Multica logo.
- * Uses currentColor so it adapts to light/dark themes automatically.
- * Clip-path polygon traced from the original SVG path coordinates.
+ * ContextPRO mark: an open ring framing a dot — the thing in focus inside a
+ * context window. Inline SVG in `currentColor` so it adapts to light/dark
+ * themes automatically. The geometry is the single source of truth for the
+ * mark and is mirrored in apps/web/public/favicon.svg, public/icons/icon.svg
+ * and apps/mobile/components/brand/brand-logo.tsx — keep the four in sync.
+ *
+ * Kept the props API of the previous logo component (animate / noSpin /
+ * bordered / size) so its call sites only needed the identifier rename.
  */
-export function MulticaIcon({
+function Mark() {
+  return (
+    <svg viewBox="0 0 100 100" className="block size-full" aria-hidden="true">
+      <path
+        d="M 75.5 75.5 A 36 36 0 1 1 75.5 24.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="14"
+        strokeLinecap="round"
+      />
+      <circle cx="60" cy="50" r="11" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function BrandIcon({
   className,
   animate = false,
   noSpin = false,
   bordered = false,
   size = "sm",
   ...props
-}: MulticaIconProps) {
+}: BrandIconProps) {
   const [entranceDone, setEntranceDone] = useState(!animate);
 
   useEffect(() => {
@@ -46,15 +66,6 @@ export function MulticaIcon({
     const timer = setTimeout(() => setEntranceDone(true), 600);
     return () => clearTimeout(timer);
   }, [animate]);
-
-  const clipPath = `polygon(
-    45% 62.1%, 45% 100%, 55% 100%, 55% 62.1%,
-    81.8% 88.9%, 88.9% 81.8%, 62.1% 55%, 100% 55%,
-    100% 45%, 62.1% 45%, 88.9% 18.2%, 81.8% 11.1%,
-    55% 37.9%, 55% 0%, 45% 0%, 45% 37.9%,
-    18.2% 11.1%, 11.1% 18.2%, 37.9% 45%, 0% 45%,
-    0% 55%, 37.9% 55%, 11.1% 81.8%, 18.2% 88.9%
-  )`;
 
   if (bordered) {
     const sizeConfig = borderedSizes[size];
@@ -76,10 +87,7 @@ export function MulticaIcon({
             entranceDone && !noSpin && "hover:animate-spin"
           )}
         >
-          <span
-            className="block size-full bg-current"
-            style={{ clipPath }}
-          />
+          <Mark />
         </span>
       </span>
     );
@@ -96,10 +104,7 @@ export function MulticaIcon({
       aria-hidden="true"
       {...props}
     >
-      <span
-        className="block size-full bg-current"
-        style={{ clipPath }}
-      />
+      <Mark />
     </span>
   );
 }

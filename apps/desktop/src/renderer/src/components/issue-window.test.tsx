@@ -34,8 +34,8 @@ vi.mock("@multica/core/paths", () => ({
   ),
 }));
 
-vi.mock("@multica/ui/components/common/multica-icon", () => ({
-  MulticaIcon: () => <div data-testid="workspace-loading" />,
+vi.mock("@multica/ui/components/common/brand-icon", () => ({
+  BrandIcon: () => <div data-testid="workspace-loading" />,
 }));
 
 vi.mock("@multica/views/modals/registry", () => ({
