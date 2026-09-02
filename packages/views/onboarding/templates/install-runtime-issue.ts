@@ -111,11 +111,11 @@ Kimi CLI 官方文档:https://moonshotai.github.io/kimi-cli/zh/guides/getting-st
 
 Mika 会把一个真实目标转化为任务，交给合适的智能体启动执行，并在工作流需要时建议添加可复用的 specialist。`;
 
-const ko = `Multica에 오신 것을 환영합니다.
+const ko = `ContextPRO에 오신 것을 환영합니다.
 
-agent가 작업을 실행하려면 먼저 runtime이 필요합니다. runtime을 설치하는 동안에도 Multica를 가벼운 프로젝트 관리 워크스페이스로 먼저 사용할 수 있습니다.
+agent가 작업을 실행하려면 먼저 runtime이 필요합니다. runtime을 설치하는 동안에도 ContextPRO를 가벼운 프로젝트 관리 워크스페이스로 먼저 사용할 수 있습니다.
 
-## 먼저 Multica를 사용해 보기
+## 먼저 ContextPRO를 사용해 보기
 
 runtime이 준비되기 전에는 다음을 해볼 수 있습니다:
 
@@ -140,7 +140,7 @@ runtime이 준비되기 전에는 다음을 해볼 수 있습니다:
 4. 터미널에서 찾을 수 있는지 확인합니다:
    which codex
    codex --version
-5. Multica가 인식할 때까지 기다립니다. 실행 중인 daemon은 몇 분마다 새로 설치된 CLI를
+5. ContextPRO가 인식할 때까지 기다립니다. 실행 중인 daemon은 몇 분마다 새로 설치된 CLI를
    다시 확인하므로 보통 재시작이 필요하지 않습니다.
    바로 적용하려면:
    multica daemon restart
