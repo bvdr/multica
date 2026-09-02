@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -102,10 +103,14 @@ type WorkspaceResponse struct {
 	Context     *string `json:"context"`
 	Settings    any     `json:"settings"`
 	Repos       any     `json:"repos"`
-	IssuePrefix string  `json:"issue_prefix"`
-	AvatarURL   *string `json:"avatar_url"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	// DefaultLocalDirectory is the workspace-wide fallback folder for tasks
+	// (ContextPRO fork). null when unset; otherwise the local_directory ref
+	// shape {local_path, daemon_id, label?, execution_mode?}.
+	DefaultLocalDirectory any     `json:"default_local_directory"`
+	IssuePrefix           string  `json:"issue_prefix"`
+	AvatarURL             *string `json:"avatar_url"`
+	CreatedAt             string  `json:"created_at"`
+	UpdatedAt             string  `json:"updated_at"`
 }
 
 func (h *Handler) workspaceToResponse(w db.Workspace) WorkspaceResponse {
@@ -123,18 +128,23 @@ func (h *Handler) workspaceToResponse(w db.Workspace) WorkspaceResponse {
 	if repos == nil {
 		repos = []any{}
 	}
+	var defaultLocalDirectory any
+	if len(w.DefaultLocalDirectory) > 0 {
+		json.Unmarshal(w.DefaultLocalDirectory, &defaultLocalDirectory)
+	}
 	return WorkspaceResponse{
-		ID:          uuidToString(w.ID),
-		Name:        w.Name,
-		Slug:        w.Slug,
-		Description: textToPtr(w.Description),
-		Context:     textToPtr(w.Context),
-		Settings:    settings,
-		Repos:       repos,
-		IssuePrefix: w.IssuePrefix,
-		AvatarURL:   h.resolveAvatarURLPtr(textToPtr(w.AvatarUrl)),
-		CreatedAt:   timestampToString(w.CreatedAt),
-		UpdatedAt:   timestampToString(w.UpdatedAt),
+		ID:                    uuidToString(w.ID),
+		Name:                  w.Name,
+		Slug:                  w.Slug,
+		Description:           textToPtr(w.Description),
+		Context:               textToPtr(w.Context),
+		Settings:              settings,
+		Repos:                 repos,
+		DefaultLocalDirectory: defaultLocalDirectory,
+		IssuePrefix:           w.IssuePrefix,
+		AvatarURL:             h.resolveAvatarURLPtr(textToPtr(w.AvatarUrl)),
+		CreatedAt:             timestampToString(w.CreatedAt),
+		UpdatedAt:             timestampToString(w.UpdatedAt),
 	}
 }
 
@@ -327,6 +337,12 @@ type UpdateWorkspaceRequest struct {
 	Repos       any     `json:"repos"`
 	IssuePrefix *string `json:"issue_prefix"`
 	AvatarURL   *string `json:"avatar_url"`
+	// DefaultLocalDirectory distinguishes absent (nil: leave as is) from an
+	// explicit JSON null (clear) from an object (validate and store). A plain
+	// RawMessage, not a pointer: encoding/json sets a *RawMessage to nil for a
+	// JSON null, which would make "clear" look like "absent"; the non-pointer
+	// form receives the literal `null` bytes instead.
+	DefaultLocalDirectory json.RawMessage `json:"default_local_directory"`
 }
 
 type workspaceRepoRef struct {
@@ -437,6 +453,31 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 		params.AvatarUrl = pgtype.Text{String: accepted, Valid: true}
 	}
 
+	// Fork (ContextPRO): workspace default folder. Validated like a project
+	// resource so the daemon can trust the ref shape, and gated on the runtime
+	// capability for worktree/tmux exactly like a project resource save.
+	clearDefaultLocalDirectory := false
+	if raw := bytes.TrimSpace(req.DefaultLocalDirectory); len(raw) > 0 {
+		if bytes.Equal(raw, []byte("null")) {
+			clearDefaultLocalDirectory = true
+		} else {
+			normalized, err := validateLocalDirectoryRef(raw)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if !h.requireModeCapableDaemon(w, r, idUUID, "local_directory", normalized) {
+				return
+			}
+			params.DefaultLocalDirectory = normalized
+		}
+	}
+	if clearDefaultLocalDirectory {
+		if err := h.Queries.ClearWorkspaceDefaultLocalDirectory(r.Context(), idUUID); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to clear default local directory: "+err.Error())
+			return
+		}
+	}
 	ws, err := h.Queries.UpdateWorkspace(r.Context(), params)
 	if err != nil {
 		slog.Warn("update workspace failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", id)...)
