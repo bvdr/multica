@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -908,6 +909,21 @@ func (c claimProjectContext) applyTo(resp *AgentTaskResponse) {
 	resp.Repos = c.Repos
 }
 
+// workspaceDefaultLocalDirectoryResourceID marks a resource the claim handler
+// synthesized from workspace.default_local_directory (ContextPRO fork). It is
+// not a project_resource row id; the daemon treats it like any other
+// local_directory resource and only logs it.
+const workspaceDefaultLocalDirectoryResourceID = "workspace-default"
+
+func hasLocalDirectoryResource(resources []ProjectResourceData) bool {
+	for _, res := range resources {
+		if res.ResourceType == "local_directory" {
+			return true
+		}
+	}
+	return false
+}
+
 // resolveClaimProjectContext loads the project context for one daemon claim.
 //
 // Every claim path (issue, chat, autopilot, quick-create) resolves the same
@@ -960,7 +976,11 @@ func (h *Handler) resolveClaimProjectContext(ctx context.Context, projectID, wor
 		}
 	}
 
-	if len(out.Repos) > 0 {
+	needWorkspaceRepos := len(out.Repos) == 0
+	// Fork (ContextPRO): only a project can inherit the workspace default
+	// folder, and only when it has no local_directory resource of its own.
+	needDefaultFolder := out.ProjectID != "" && !hasLocalDirectoryResource(out.Resources)
+	if !needWorkspaceRepos && !needDefaultFolder {
 		return out, nil
 	}
 
@@ -968,7 +988,7 @@ func (h *Handler) resolveClaimProjectContext(ctx context.Context, projectID, wor
 	if err != nil {
 		return claimProjectContext{}, fmt.Errorf("get workspace: %w", err)
 	}
-	if ws.Repos != nil {
+	if needWorkspaceRepos && ws.Repos != nil {
 		var repos []RepoData
 		if jsonErr := json.Unmarshal(ws.Repos, &repos); jsonErr != nil {
 			// Corrupt stored JSON is not transient: failing the claim would
@@ -979,6 +999,14 @@ func (h *Handler) resolveClaimProjectContext(ctx context.Context, projectID, wor
 		} else if len(repos) > 0 {
 			out.Repos = repos
 		}
+	}
+	if needDefaultFolder && len(ws.DefaultLocalDirectory) > 0 && !bytes.Equal(bytes.TrimSpace(ws.DefaultLocalDirectory), []byte("null")) {
+		out.Resources = append(out.Resources, ProjectResourceData{
+			ID:           workspaceDefaultLocalDirectoryResourceID,
+			ResourceType: "local_directory",
+			ResourceRef:  json.RawMessage(ws.DefaultLocalDirectory),
+			Label:        localDirectoryRefLabel(ws.DefaultLocalDirectory),
+		})
 	}
 	return out, nil
 }
