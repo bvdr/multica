@@ -632,7 +632,7 @@ git commit -m "feat(config): expose local_tmux_supported to clients"
 
 **Files:**
 - Create: `server/migrations/444_workspace_default_local_directory.up.sql`, `server/migrations/444_workspace_default_local_directory.down.sql`
-- Modify: `server/pkg/db/queries/workspace.sql:47-58` (`UpdateWorkspace`), append `ClearWorkspaceDefaultLocalDirectory`
+- Modify: `server/pkg/db/queries/workspace.sql:1-8` (`ListWorkspaces` must keep selecting every column, add `w.default_local_directory`, or sqlc stops returning `db.Workspace` for it), `:47-58` (`UpdateWorkspace`), append `ClearWorkspaceDefaultLocalDirectory`
 - Modify: `server/internal/handler/workspace.go:97-135` (`WorkspaceResponse`, `workspaceToResponse`), `:320-332` (`UpdateWorkspaceRequest`), `:373-450` (`UpdateWorkspace`)
 - Test: `server/internal/handler/workspace_default_local_directory_test.go`
 
@@ -774,8 +774,11 @@ and set `DefaultLocalDirectory: defaultLocalDirectory,` in the literal.
 `UpdateWorkspaceRequest`: add
 ```go
 	// DefaultLocalDirectory distinguishes absent (nil: leave as is) from an
-	// explicit JSON null (clear) from an object (validate and store).
-	DefaultLocalDirectory *json.RawMessage `json:"default_local_directory"`
+	// explicit JSON null (clear) from an object (validate and store). A plain
+	// RawMessage, not a pointer: encoding/json sets a *RawMessage to nil for a
+	// JSON null, which would make "clear" look like "absent"; the non-pointer
+	// form receives the literal `null` bytes instead.
+	DefaultLocalDirectory json.RawMessage `json:"default_local_directory"`
 ```
 
 In `UpdateWorkspace`, after the `req.Repos` block and before the issue-prefix validation, add:
@@ -784,9 +787,8 @@ In `UpdateWorkspace`, after the `req.Repos` block and before the issue-prefix va
 	// resource so the daemon can trust the ref shape, and gated on the runtime
 	// capability for worktree/tmux exactly like a project resource save.
 	clearDefaultLocalDirectory := false
-	if req.DefaultLocalDirectory != nil {
-		raw := bytes.TrimSpace(*req.DefaultLocalDirectory)
-		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+	if raw := bytes.TrimSpace(req.DefaultLocalDirectory); len(raw) > 0 {
+		if bytes.Equal(raw, []byte("null")) {
 			clearDefaultLocalDirectory = true
 		} else {
 			normalized, err := validateLocalDirectoryRef(raw)
