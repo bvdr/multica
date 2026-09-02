@@ -140,7 +140,7 @@ export function createElectronReloadPrompt(
       buttons: ["Reload", "Dismiss"],
       defaultId: 0,
       cancelId: 1,
-      title: "Multica needs to reload",
+      title: "ContextPRO needs to reload",
       message: rendererRecoveryMessage(payload.kind),
       detail: rendererRecoveryDetail(payload),
     });
@@ -173,13 +173,13 @@ function rendererRecoveryMessage(kind: ReloadPromptPayload["kind"]) {
 
 function rendererRecoveryDetail(payload: ReloadPromptPayload) {
   const guidance = [
-    "Click Reload to refresh this window and keep using Multica.",
+    "Click Reload to refresh this window and keep using ContextPRO.",
     "If this keeps happening, please tell us what you were doing right before this message appeared and whether Reload recovered the window.",
   ];
 
   if (payload.kind === "unresponsive") {
     guidance.push(
-      "For macOS reports, an Activity Monitor sample of the Multica Helper (Renderer) process helps us find what blocked the app.",
+      "For macOS reports, an Activity Monitor sample of the ContextPRO Helper (Renderer) process helps us find what blocked the app.",
     );
   }
 

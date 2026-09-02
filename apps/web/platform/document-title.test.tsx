@@ -48,7 +48,7 @@ beforeEach(() => {
 describe("formatDocumentTitle", () => {
   it("puts the page name in front of the product name", () => {
     expect(formatDocumentTitle("MUL-123: Fix login")).toBe(
-      "MUL-123: Fix login | Multica",
+      "MUL-123: Fix login | ContextPRO",
     );
   });
 
@@ -64,14 +64,14 @@ describe("formatDocumentTitle", () => {
     const formatted = formatDocumentTitle(title);
 
     expect(formatted.startsWith("MUL-123: long")).toBe(true);
-    expect(formatted.endsWith("… | Multica")).toBe(true);
+    expect(formatted.endsWith("… | ContextPRO")).toBe(true);
     // Ellipsis replaces the clipped remainder, and no trailing space survives.
     expect(formatted).not.toContain(" … ");
   });
 
   it("clips on code points so an emoji is never cut in half", () => {
     const formatted = formatDocumentTitle("🎯".repeat(MAX_PAGE_TITLE_LENGTH + 10));
-    const pageTitle = formatted.slice(0, formatted.indexOf(" | Multica"));
+    const pageTitle = formatted.slice(0, formatted.indexOf(" | ContextPRO"));
 
     expect(Array.from(pageTitle)).toHaveLength(MAX_PAGE_TITLE_LENGTH + 1);
     expect(pageTitle).not.toContain("�");
@@ -80,7 +80,7 @@ describe("formatDocumentTitle", () => {
 
   it("leaves a title at the limit untouched", () => {
     const exact = "x".repeat(MAX_PAGE_TITLE_LENGTH);
-    expect(formatDocumentTitle(exact)).toBe(`${exact} | Multica`);
+    expect(formatDocumentTitle(exact)).toBe(`${exact} | ContextPRO`);
   });
 });
 
@@ -91,7 +91,7 @@ describe("WorkspaceDocumentTitle", () => {
 
     render(<WorkspaceDocumentTitle />);
 
-    expect(document.title).toBe("MUL-123: Fix login | Multica");
+    expect(document.title).toBe("MUL-123: Fix login | ContextPRO");
   });
 
   it("resolves against the full URL so a container's selection titles the tab", () => {
@@ -101,7 +101,7 @@ describe("WorkspaceDocumentTitle", () => {
     render(<WorkspaceDocumentTitle />);
 
     expect(presentation.urls).toContain("/acme/inbox?issue=abc&view=archived");
-    expect(document.title).toBe("MUL-9: Ping | Multica");
+    expect(document.title).toBe("MUL-9: Ping | ContextPRO");
   });
 
   it("keeps the site title on an unrecognized route", () => {
@@ -118,7 +118,7 @@ describe("WorkspaceDocumentTitle", () => {
     presentation.title = "Website redesign";
 
     const view = render(<WorkspaceDocumentTitle />);
-    expect(document.title).toBe("Website redesign | Multica");
+    expect(document.title).toBe("Website redesign | ContextPRO");
 
     view.unmount();
     expect(document.title).toBe(SITE_TITLE);
@@ -128,7 +128,7 @@ describe("WorkspaceDocumentTitle", () => {
     open("/acme/inbox");
     presentation.title = "Inbox";
     const view = render(<WorkspaceDocumentTitle />);
-    expect(document.title).toBe("Inbox | Multica");
+    expect(document.title).toBe("Inbox | ContextPRO");
 
     // A route change re-renders the target's metadata, resetting the title to
     // the root default before our effect gets to run again.
@@ -136,6 +136,6 @@ describe("WorkspaceDocumentTitle", () => {
     open("/acme/inbox", "view=archived");
     view.rerender(<WorkspaceDocumentTitle />);
 
-    expect(document.title).toBe("Inbox | Multica");
+    expect(document.title).toBe("Inbox | ContextPRO");
   });
 });

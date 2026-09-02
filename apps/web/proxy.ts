@@ -87,7 +87,7 @@ export function proxy(req: NextRequest) {
   }
 
   // --- Root path: "/" is never a page in this fork ---
-  // Upstream Multica serves its public marketing site at "/" and exempts the
+  // Upstream ContextPRO serves its public marketing site at "/" and exempts the
   // official multica.ai hosts from this redirect so the landing stays public
   // even with a session. This fork is a private, self-hosted deployment with
   // the landing removed, so there is nothing to show at "/" and no host to

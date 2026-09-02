@@ -148,9 +148,9 @@ function CallbackContent() {
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-sm">
           <CardHeader className="text-center">
-            <CardTitle className="text-display-sm">Opening Multica</CardTitle>
+            <CardTitle className="text-display-sm">Opening ContextPRO</CardTitle>
             <CardDescription>
-              You should see a prompt to open the Multica desktop app. If
+              You should see a prompt to open the ContextPRO desktop app. If
               nothing happens, click the button below.
             </CardDescription>
           </CardHeader>
@@ -161,7 +161,7 @@ function CallbackContent() {
                 window.location.href = `multica://auth/callback?token=${encodeURIComponent(desktopToken)}`;
               }}
             >
-              Open Multica Desktop
+              Open ContextPRO Desktop
             </Button>
           </CardContent>
         </Card>

@@ -133,7 +133,7 @@ export default function NotificationsSettingsScreen() {
 
       <Section
         title="System"
-        description="Multica-wide announcements and important account events."
+        description="ContextPRO-wide announcements and important account events."
       >
         <View className="flex-row items-center px-4 py-3 gap-3">
           <View className="flex-1">

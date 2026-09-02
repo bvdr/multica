@@ -128,7 +128,7 @@ describe("telemetry props carry no raw identifiers", () => {
     const leaky: FreezeBreadcrumb = {
       ...hang,
       context: {
-        windowUrl: "file:///Users/someone/Applications/Multica.app/index.html",
+        windowUrl: "file:///Users/someone/Applications/ContextPRO.app/index.html",
         desktopRoute: {
           surface: "tab",
           path: "/:slug/issues",
@@ -163,7 +163,7 @@ describe("telemetry props carry no raw identifiers", () => {
         stack: [
           {
             functionName: "blockMainThread",
-            url: "file:///Users/someone/Applications/Multica.app/out/renderer/main.js",
+            url: "file:///Users/someone/Applications/ContextPRO.app/out/renderer/main.js",
             location: { lineNumber: 12, columnNumber: 3 },
             scopeChain: [{ type: "local", object: { objectId: "{secret-scope}" } }],
           },

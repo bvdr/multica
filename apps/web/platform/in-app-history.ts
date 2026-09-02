@@ -1,5 +1,5 @@
 /**
- * "Is there a Multica page behind this one?" for the web navigation adapter.
+ * "Is there a ContextPRO page behind this one?" for the web navigation adapter.
  *
  * Callers that want to step back (deleting an issue returns the user to the
  * list they opened it from) must not step back off the app when the current
@@ -17,7 +17,7 @@
  * URL is unchanged (`app-router.js`, the `pendingPush && href !== canonicalUrl`
  * branch), and pushes can also be superseded or abandoned mid-transition. Any
  * count derived from calls can therefore claim history that does not exist,
- * and a wrong `true` walks the user out of Multica — the precise failure this
+ * and a wrong `true` walks the user out of ContextPRO — the precise failure this
  * exists to prevent. So where the browser cannot answer we report `false`,
  * and callers take their fallback path.
  */

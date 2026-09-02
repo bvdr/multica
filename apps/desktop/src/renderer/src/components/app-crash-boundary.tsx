@@ -68,7 +68,7 @@ function CrashFallback({ error }: { error: Error }) {
         <div className="max-w-xl rounded-lg border bg-card p-6 shadow-sm">
           <h1 className="text-title font-semibold">Something went wrong</h1>
           <p className="mt-3 text-body text-muted-foreground">
-            Multica Desktop hit an unexpected error and could not keep
+            ContextPRO Desktop hit an unexpected error and could not keep
             rendering. Reloading usually recovers — your work is stored on the
             server.
           </p>

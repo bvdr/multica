@@ -1,5 +1,5 @@
 appId: ai.multica.desktop
-productName: Multica
+productName: ContextPRO
 directories:
   buildResources: build
 files:
@@ -30,7 +30,7 @@ extraResources:
   - from: ../../NOTICE
     to: NOTICE
 protocols:
-  - name: Multica
+  - name: ContextPRO
     schemes:
       - multica
 asarUnpack:
@@ -76,7 +76,7 @@ linux:
   # worst failure mode: it exits 0 with empty stdout (its own Chromium flags
   # eat CLI args like `--output json`), which looks like a healthy CLI that
   # returned nothing rather than "wrong binary" (github.com/multica-ai/multica/issues/5481).
-  # `StartupWMClass=Multica` (productName-derived) is unaffected by this
+  # `StartupWMClass=ContextPRO` (productName-derived) is unaffected by this
   # rename — it comes from `app.getName()`, not `executableName`.
   executableName: multica-desktop
   # Pin StartupWMClass to the WM_CLASS Electron emits on X11. Electron
@@ -87,16 +87,16 @@ linux:
   # `name: "@multica/desktop"`, packaged Electron emitted
   # `WM_CLASS=@multica/desktop`, which broke association with this entry
   # and reproduced #2515 on Ubuntu 0.2.31. The fix lives in two places
-  # outside this file — `productName: "Multica"` on the source
-  # package.json (so the ASAR carries it) and `app.setName("Multica")`
+  # outside this file — `productName: "ContextPRO"` on the source
+  # package.json (so the ASAR carries it) and `app.setName("ContextPRO")`
   # in the production branch of `src/main/index.ts` (belt-and-braces).
-  # Keep `StartupWMClass: Multica` pinned here so any future drift in
+  # Keep `StartupWMClass: ContextPRO` pinned here so any future drift in
   # those two anchors shows up as a diff against this declaration.
   # Verification on a real Ubuntu install: `xprop WM_CLASS` on a running
-  # window prints `Multica` for both fields.
+  # window prints `ContextPRO` for both fields.
   desktop:
     entry:
-      StartupWMClass: Multica
+      StartupWMClass: ContextPRO
   # Point at pre-rendered hicolor sizes. electron-builder *can* generate
   # 16/24/32/48/64/128/256/512 from a single build/icon.png, but the
   # auto-generation silently shipped only the 1024×1024 source in our
