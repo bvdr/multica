@@ -122,10 +122,7 @@ assignments for them). The daemon path is otherwise identical for both sources.
 
 ## Daemon changes (server/internal/daemon)
 
-- **Capability.** `daemonClientCapabilities()` includes `local-tmux-v1` only when
-  `exec.LookPath("tmux")` succeeds at startup. The lookup result is cached on
-  the daemon and logged once at startup ("tmux found at ...", or "tmux not
-  found: interactive mode unavailable").
+- **Capability.** `daemonClientCapabilities()` includes `local-tmux-v1` only when `tmux` resolves on PATH; the lookup runs on every capability advertisement (one PATH scan) so installing tmux and restarting the daemon is enough.
 - **Assignment.** `local_directory.go`: add `localDirectoryModeTmux`; accept it in
   `ValidateExecutionMode`; add `UsesTmux()`. `localDirectoryLockExempt` returns
   true for tmux assignments (parallel sessions in one folder are the chosen
@@ -157,8 +154,7 @@ assignments for them). The daemon path is otherwise identical for both sources.
   7. Watch loop: every 2s `tmux has-session -t <name>`; heartbeat as other
      tasks. On exit: read `exit-code`; `0` completes with output = last 200
      lines of the transcript, ANSI escape sequences stripped, prefixed by one
-     line naming the session; non-zero fails with the same tail and
-     `failure_reason = "interactive_session_exit"`; missing file fails with
+     line naming the session; non-zero fails with the same tail; the failure reason stays the daemon's default classification, since the report path has no per-mode reason and adding one bought nothing visible; missing file fails with
      "interactive session ended without an exit code (session lost)".
   8. Cancel: when the task context is cancelled, `tmux kill-session -t <name>`
      then the existing cancel handling. Files under `<envRoot>/tasks/<taskID>`
