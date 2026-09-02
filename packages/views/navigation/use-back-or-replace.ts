@@ -15,7 +15,7 @@ import { useNavigation } from "./context";
  *
  * `fallback` covers the case where there is nothing to go back to: a shared
  * link opened cold, a new tab, a pasted URL. Stepping back from those would
- * leave Multica entirely, so we navigate to `fallback` instead.
+ * leave ContextPRO entirely, so we navigate to `fallback` instead.
  *
  * It also covers every platform that cannot answer the question — the desktop
  * issue window, test stubs, and browsers with no Navigation API. That branch

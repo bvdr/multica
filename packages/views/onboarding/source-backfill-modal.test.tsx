@@ -151,7 +151,7 @@ describe("SourceBackfillModal", () => {
     });
     renderModal();
     expect(
-      screen.queryByText(/How did you hear about Multica/i),
+      screen.queryByText(/How did you hear about ContextPRO/i),
     ).not.toBeInTheDocument();
     // A settled user must not even pay for the count query.
     expect(mockListIssues).not.toHaveBeenCalled();
@@ -166,7 +166,7 @@ describe("SourceBackfillModal", () => {
     renderModal();
     await waitFor(() => {
       expect(
-        screen.getByText(/How did you hear about Multica/i),
+        screen.getByText(/How did you hear about ContextPRO/i),
       ).toBeInTheDocument();
     });
   });
@@ -184,7 +184,7 @@ describe("SourceBackfillModal", () => {
       expect(mockListIssues).toHaveBeenCalled();
     });
     expect(
-      screen.queryByText(/How did you hear about Multica/i),
+      screen.queryByText(/How did you hear about ContextPRO/i),
     ).not.toBeInTheDocument();
   });
 
@@ -197,7 +197,7 @@ describe("SourceBackfillModal", () => {
     });
     renderModal();
     expect(
-      screen.queryByText(/How did you hear about Multica/i),
+      screen.queryByText(/How did you hear about ContextPRO/i),
     ).not.toBeInTheDocument();
     expect(mockListIssues).not.toHaveBeenCalled();
   });
@@ -330,19 +330,19 @@ describe("SourceBackfillModal", () => {
         await vi.advanceTimersByTimeAsync(0);
       });
       expect(
-        screen.queryByText(/How did you hear about Multica/i),
+        screen.queryByText(/How did you hear about ContextPRO/i),
       ).not.toBeInTheDocument();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(699);
       });
       expect(
-        screen.queryByText(/How did you hear about Multica/i),
+        screen.queryByText(/How did you hear about ContextPRO/i),
       ).not.toBeInTheDocument();
       await act(async () => {
         await vi.advanceTimersByTimeAsync(50);
       });
       expect(
-        screen.getByText(/How did you hear about Multica/i),
+        screen.getByText(/How did you hear about ContextPRO/i),
       ).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
@@ -358,7 +358,7 @@ describe("SourceBackfillModal", () => {
     });
     renderModal();
     expect(
-      screen.queryByText(/How did you hear about Multica/i),
+      screen.queryByText(/How did you hear about ContextPRO/i),
     ).not.toBeInTheDocument();
     expect(mockListIssues).not.toHaveBeenCalled();
   });

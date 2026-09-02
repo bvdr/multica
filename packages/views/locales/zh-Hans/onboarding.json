@@ -1,6 +1,6 @@
 {
   "step_nav": {
-    "wordmark": "Multica",
+    "wordmark": "ContextPRO",
     "label": "引导步骤",
     "about_you": {
       "label": "关于你",
@@ -16,7 +16,7 @@
     }
   },
   "welcome": {
-    "wordmark": "欢迎使用 Multica",
+    "wordmark": "欢迎使用 ContextPRO",
     "headline_line1": "你的 AI 队友，",
     "headline_line2": "在",
     "headline_emphasis": "同一个工作区。",
@@ -59,7 +59,7 @@
   },
   "source_backfill": {
     "eyebrow": "顺便问一句",
-    "lede": "就一个小问题——帮我们了解都是哪些人在用 Multica。回答一次，马上回到手上的事。",
+    "lede": "就一个小问题——帮我们了解都是哪些人在用 ContextPRO。回答一次，马上回到手上的事。",
     "submit": "提交",
     "hint_ready": "看起来不错，准备好就点提交。",
     "save_failed_toast": "保存失败"
@@ -69,7 +69,7 @@
       "question": "简单介绍一下你自己。"
     },
     "source": {
-      "question": "你是从哪里了解到 Multica 的？",
+      "question": "你是从哪里了解到 ContextPRO 的？",
       "friends_colleagues": "朋友或同事",
       "search": "Google / 搜索",
       "social_x": "X / Twitter",
@@ -100,7 +100,7 @@
       "other_placeholder": "例如：教师、支持负责人"
     },
     "use_case": {
-      "question": "你打算用 Multica 做什么？",
+      "question": "你打算用 ContextPRO 做什么？",
       "ship_code": "让 AI 智能体帮我写代码",
       "manage_team": "给团队做任务管理",
       "personal_tasks": "管理我自己的任务",
@@ -123,7 +123,7 @@
   "cli_install": {
     "copy_aria": "复制",
     "intro": "这台电脑上需要安装一个智能体运行时（Claude Code、Codex、Cursor 等）才能运行你的智能体。也支持服务器和远程开发机。",
-    "step1_label": "安装 Multica CLI",
+    "step1_label": "安装 ContextPRO CLI",
     "step2_label": "启动守护进程"
   },
   "cloud_waitlist": {
@@ -142,7 +142,7 @@
   "welcome_after_onboarding": {
     "skip": {
       "loading": "正在为你准备工作区...",
-      "title": "欢迎来到 Multica！",
+      "title": "欢迎来到 ContextPRO！",
       "subtitle": "我们建了一个任务帮你连接运行时。准备好后，在 \"运行时\" 页面就能开始使用 Mika。",
       "got_it": "知道了",
       "status_in_progress": "进行中",
@@ -193,7 +193,7 @@
     "create_failed_toast": "创建工作区失败",
     "creation_disabled_eyebrow": "工作区创建已禁用",
     "creation_disabled_headline": "请联系管理员邀请你加入工作区。",
-    "creation_disabled_lede": "该 Multica 实例不允许创建新的工作区。等管理员把你邀请到某个工作区后，接受邀请并刷新即可继续。",
+    "creation_disabled_lede": "该 ContextPRO 实例不允许创建新的工作区。等管理员把你邀请到某个工作区后，接受邀请并刷新即可继续。",
     "creation_disabled_logout": "退出登录",
     "creation_disabled_eyebrow_resume": "你的工作区",
     "creation_disabled_headline_resume": "继续使用 {{name}}。",
@@ -232,7 +232,7 @@
   "step_platform": {
     "eyebrow": "连接一台电脑",
     "headline": "连接一台电脑来运行你的智能体。",
-    "lede": "Mika 是这个工作区的参谋长，运行在你连接到 Multica 的一台真实电脑上。选择一种连接方式。",
+    "lede": "Mika 是这个工作区的参谋长，运行在你连接到 ContextPRO 的一台真实电脑上。选择一种连接方式。",
     "hint_default": "在上方选一种方式——或先跳过，之后再连接电脑。",
     "download_title": "使用这台电脑",
     "download_subtitle": "安装我们的桌面端来连接这台电脑。会在新标签页打开，在那里选你的平台。",

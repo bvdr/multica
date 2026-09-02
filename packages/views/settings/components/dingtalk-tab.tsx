@@ -507,7 +507,7 @@ export function DingTalkBotGroups({
 // workspace owner/admin-only in Settings.
 //
 // Adding a new installation flows through the Agent detail page: the install
-// path is per-agent (each Multica agent gets exactly one robot — the
+// path is per-agent (each ContextPRO agent gets exactly one robot — the
 // (workspace_id, agent_id, channel_type) UNIQUE in channel_installation), so
 // asking the user to pick an agent here would re-create that page's picker.
 export function DingTalkTab() {

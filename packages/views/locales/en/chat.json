@@ -5,10 +5,10 @@
     "agent_link_no_access": "You don't have access to chat with this agent."
   },
   "fab": {
-    "running": "Multica is working...",
+    "running": "ContextPRO is working...",
     "unread_one": "{{count}} unread chat",
     "unread_other": "{{count}} unread chats",
-    "default": "Ask Multica"
+    "default": "Ask ContextPRO"
   },
   "input": {
     "placeholder_no_agent": "Create an agent to start chatting",
@@ -147,7 +147,7 @@
     "first_time_pillars_suffix": ".",
     "first_time_actions": "Ask for a summary, plan your day, or hand off a quick task.",
     "returning_title_named": "Hi, I'm {{name}}",
-    "returning_title_default": "Welcome to Multica",
+    "returning_title_default": "Welcome to ContextPRO",
     "returning_subtitle": "Try asking",
     "chat_with_named": "Chat with {{name}}"
   },

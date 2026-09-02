@@ -223,7 +223,7 @@ function store() {
 function element(props: Partial<React.ComponentProps<typeof ChatInput>> = {}) {
   return (
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
-      <ChatInput onSend={vi.fn()} agentName="Multica" {...props} />
+      <ChatInput onSend={vi.fn()} agentName="ContextPRO" {...props} />
     </I18nProvider>
   );
 }

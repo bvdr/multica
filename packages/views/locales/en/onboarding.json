@@ -1,6 +1,6 @@
 {
   "step_nav": {
-    "wordmark": "Multica",
+    "wordmark": "ContextPRO",
     "label": "Onboarding steps",
     "about_you": {
       "label": "About you",
@@ -16,7 +16,7 @@
     }
   },
   "welcome": {
-    "wordmark": "Welcome to Multica",
+    "wordmark": "Welcome to ContextPRO",
     "headline_line1": "Your AI teammates,",
     "headline_line2": "in",
     "headline_emphasis": "one workspace.",
@@ -59,7 +59,7 @@
   },
   "source_backfill": {
     "eyebrow": "Quick question",
-    "lede": "One quick question — it helps us understand who finds Multica useful. Answer once and you're back to your work.",
+    "lede": "One quick question — it helps us understand who finds ContextPRO useful. Answer once and you're back to your work.",
     "submit": "Submit",
     "hint_ready": "Looks good. Hit Submit when you're ready.",
     "save_failed_toast": "Failed to save"
@@ -69,7 +69,7 @@
       "question": "Tell us a bit about you."
     },
     "source": {
-      "question": "How did you hear about Multica?",
+      "question": "How did you hear about ContextPRO?",
       "friends_colleagues": "Friends or colleagues",
       "search": "Google / search",
       "social_x": "X / Twitter",
@@ -100,7 +100,7 @@
       "other_placeholder": "e.g. teacher, support lead"
     },
     "use_case": {
-      "question": "What do you want to use Multica for?",
+      "question": "What do you want to use ContextPRO for?",
       "ship_code": "Ship code with AI agents",
       "manage_team": "Manage tasks for my team",
       "personal_tasks": "Organize my own tasks",
@@ -123,7 +123,7 @@
   "cli_install": {
     "copy_aria": "Copy",
     "intro": "You'll need an agent runtime on this computer (Claude Code, Codex, Cursor, …) for it to run your agent. Also works on servers and remote dev boxes.",
-    "step1_label": "Install the Multica CLI",
+    "step1_label": "Install the ContextPRO CLI",
     "step2_label": "Start the daemon"
   },
   "cloud_waitlist": {
@@ -142,7 +142,7 @@
   "welcome_after_onboarding": {
     "skip": {
       "loading": "Setting up your workspace…",
-      "title": "Welcome to Multica!",
+      "title": "Welcome to ContextPRO!",
       "subtitle": "We've added one issue to help you connect a runtime. When it's ready, start with Mika from Runtimes.",
       "got_it": "Got it",
       "status_in_progress": "In progress",
@@ -193,7 +193,7 @@
     "create_failed_toast": "Failed to create workspace",
     "creation_disabled_eyebrow": "Workspace creation is disabled",
     "creation_disabled_headline": "Ask your administrator for an invitation.",
-    "creation_disabled_lede": "This Multica instance does not allow new workspaces to be created. Once an administrator invites you to a workspace, accept the invitation and refresh to continue.",
+    "creation_disabled_lede": "This ContextPRO instance does not allow new workspaces to be created. Once an administrator invites you to a workspace, accept the invitation and refresh to continue.",
     "creation_disabled_logout": "Log out",
     "creation_disabled_eyebrow_resume": "Your workspace",
     "creation_disabled_headline_resume": "Continue with {{name}}.",
@@ -233,7 +233,7 @@
   "step_platform": {
     "eyebrow": "Connect a computer",
     "headline": "Connect a computer to run your agent.",
-    "lede": "Mika, your workspace's Chief of Staff, runs on a real computer that you connect to Multica. Pick how you want to connect one.",
+    "lede": "Mika, your workspace's Chief of Staff, runs on a real computer that you connect to ContextPRO. Pick how you want to connect one.",
     "hint_default": "Pick a way to connect — or skip and connect a computer later.",
     "download_title": "Use this computer",
     "download_subtitle": "Install our desktop app to connect this computer. Opens in a new tab — pick your platform there.",

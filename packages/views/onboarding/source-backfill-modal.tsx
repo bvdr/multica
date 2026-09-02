@@ -67,7 +67,7 @@ const EMPTY_BACKFILL: Pick<
  *      source recorded, never declined, dismiss cap not reached.
  *   2. Workspace-level: agents (or squads) have completed at least
  *      SOURCE_BACKFILL_MIN_AGENT_DONE_ISSUES issues here. Attribution
- *      is a zero-payoff ask for the user, so it waits until Multica
+ *      is a zero-payoff ask for the user, so it waits until ContextPRO
  *      has visibly delivered value. The count query only runs while
  *      gate 1 passes, so settled users never pay for it.
  *

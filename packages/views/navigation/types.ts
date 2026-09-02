@@ -38,7 +38,7 @@ export interface NavigationAdapter {
   prefetch?: (path: string) => void;
   /**
    * Optional: is there an in-app page behind the current one, so that `back()`
-   * lands somewhere inside Multica rather than stepping off the app? Only the
+   * lands somewhere inside ContextPRO rather than stepping off the app? Only the
    * platform can answer — web reads the browser's session history, desktop the
    * active tab's virtual history. Adapters that cannot answer leave this
    * undefined and callers must treat that as `false`.

@@ -294,7 +294,7 @@ describe("CreateProjectModal — local directory execution mode", () => {
     await pickLocalDirectory(user);
 
     expect(screen.getByRole("radio", { name: /Run in parallel, isolated/i })).toBeDisabled();
-    expect(screen.getByText(/Multica server is too old/i)).toBeInTheDocument();
+    expect(screen.getByText(/ContextPRO server is too old/i)).toBeInTheDocument();
     // And it must not have been preselected either — that would submit a mode
     // the server would silently downgrade.
     expect(screen.getByRole("button", { name: /^Direct$/i })).toBeInTheDocument();

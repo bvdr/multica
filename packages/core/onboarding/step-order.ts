@@ -16,7 +16,7 @@ import type { OnboardingStep } from "./types";
  *
  * Two questions are intentionally NOT steps anymore:
  *
- *   - "source" (How did you hear about Multica?) is pure attribution
+ *   - "source" (How did you hear about ContextPRO?) is pure attribution
  *     data with zero user-facing payoff, so it no longer taxes the
  *     critical path. It is collected post-onboarding by the workspace
  *     source-backfill prompt, and only after agents have completed

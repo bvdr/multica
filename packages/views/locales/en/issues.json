@@ -735,7 +735,7 @@
       "open_link": "Open link",
       "archived_hint": "Archived property — value is read-only",
       "unknown_value": "Unavailable",
-      "unknown_value_hint": "This value was set by a newer version of Multica and can't be edited here — update the app, or clear it"
+      "unknown_value_hint": "This value was set by a newer version of ContextPRO and can't be edited here — update the app, or clear it"
     },
     "filter_options_aria": "Filter options",
     "no_results": "No results",

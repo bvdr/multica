@@ -328,13 +328,13 @@ describe("ReadonlyContent CJK emphasis", () => {
 
   it("repairs a trailing space before a CJK strong closing delimiter", () => {
     const { container } = render(
-      <ReadonlyContent content="**为什么做，收益是什么。 **Multica 的能力边界" />,
+      <ReadonlyContent content="**为什么做，收益是什么。 **ContextPRO 的能力边界" />,
     );
 
     expect(container.querySelector("strong")?.textContent).toBe(
       "为什么做，收益是什么。",
     );
-    expect(container.textContent).toBe("为什么做，收益是什么。 Multica 的能力边界");
+    expect(container.textContent).toBe("为什么做，收益是什么。 ContextPRO 的能力边界");
   });
 
   it.each([

@@ -704,7 +704,7 @@
       "open_link": "リンクを開く",
       "archived_hint": "アーカイブ済みプロパティ — 値は読み取り専用です",
       "unknown_value": "表示できません",
-      "unknown_value_hint": "この値は新しいバージョンの Multica で設定されており、ここでは編集できません。アプリを更新するか、値をクリアしてください"
+      "unknown_value_hint": "この値は新しいバージョンの ContextPRO で設定されており、ここでは編集できません。アプリを更新するか、値をクリアしてください"
     },
     "filter_options_aria": "フィルターオプション",
     "no_results": "結果なし",

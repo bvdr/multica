@@ -481,7 +481,7 @@ export interface Agent {
   /** Up to three agent-authored first-turn suggestions. Older servers omit it. */
   conversation_starters?: AgentConversationStarter[];
   /** Set for product-defined agents (e.g. "mika"). Absent for user- and
-   *  template-created agents. Identity for "maintained by Multica" checks —
+   *  template-created agents. Identity for "maintained by ContextPRO" checks —
    *  never the display name, which owners may change. */
   system_key?: string;
   /** Read-only product half of a system agent's prompt, served from the
@@ -1119,7 +1119,7 @@ export interface RuntimeModelThinking {
   supported_levels: RuntimeModelThinkingLevel[];
   /** Informational: the level the upstream CLI documents as its built-in
    *  default when no `--effort` flag is passed. Surfaced by the daemon
-   *  but not actively rendered today — Multica's empty `thinking_level`
+   *  but not actively rendered today — ContextPRO's empty `thinking_level`
    *  means "no override; let the local CLI config decide", which may
    *  itself differ from this value. */
   default_level?: string;

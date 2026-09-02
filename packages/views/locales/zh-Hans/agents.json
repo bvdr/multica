@@ -44,7 +44,7 @@
   },
   "empty": {
     "title": "还没有智能体",
-    "description": "创建一个智能体，像分配给同事那样把任务交给它。本地智能体在你的机器上运行，云智能体在 Multica 运行时上运行。"
+    "description": "创建一个智能体，像分配给同事那样把任务交给它。本地智能体在你的机器上运行，云智能体在 ContextPRO 运行时上运行。"
   },
   "no_matches": {
     "title": "无匹配项",
@@ -460,12 +460,12 @@
       "intro": "设置每个 task 都会使用的 System Prompt，支持 Markdown。",
       "system_prompt_label": "System Prompt",
       "placeholder": "定义这个智能体的角色、专长和工作风格。\n\n# 示例\n你是一名专注 React 和 TypeScript 的前端工程师。\n\n## 工作风格\n- 写小而聚焦的 PR——每个逻辑变更一个 commit\n- 优先组合而不是继承\n- 新组件总是配单元测试\n\n## 约束\n- 未经明确批准不要修改 shared/ 下的 type\n- 遵循 features/ 中现有的组件模式",
-      "system_layer_label": "由 Multica 维护",
-      "system_layer_hint": "随 Multica 版本更新。你无法编辑这部分，你在下面写的内容也永远不会被覆盖。",
+      "system_layer_label": "由 ContextPRO 维护",
+      "system_layer_hint": "随 ContextPRO 版本更新。你无法编辑这部分，你在下面写的内容也永远不会被覆盖。",
       "system_layer_show": "查看",
       "system_layer_hide": "收起",
       "workspace_notes_label": "工作区补充",
-      "workspace_notes_intro": "在下面补充你们团队的上下文和偏好，它们会叠加在 Multica 为这个智能体维护的指令之上。支持 Markdown。",
+      "workspace_notes_intro": "在下面补充你们团队的上下文和偏好，它们会叠加在 ContextPRO 为这个智能体维护的指令之上。支持 Markdown。",
       "workspace_notes_placeholder": "写下这个智能体应该始终知道的上下文。\n\n# 示例\n我们的主仓库是 github.com/acme/platform。\n即使聊天用中文，任务也一律用英文写。\n周五不部署。"
     },
     "env": {
@@ -518,12 +518,12 @@
       "save_failed_toast": "保存自定义参数失败"
     },
     "mcp_config": {
-      "managed_title": "由 Multica 管理",
-      "managed_empty": "还没有由 Multica 管理的 MCP Server。",
+      "managed_title": "由 ContextPRO 管理",
+      "managed_empty": "还没有由 ContextPRO 管理的 MCP Server。",
       "add_action": "添加 MCP",
       "agent_disabled_badge": "已为智能体关闭",
       "runtime_disabled_badge": "运行时中已关闭",
-      "runtime_overridden_badge": "已由 Multica 覆盖",
+      "runtime_overridden_badge": "已由 ContextPRO 覆盖",
       "workspace_title": "来自工作区库",
       "workspace_action_failed": "更新该智能体的 MCP 服务失败",
       "workspace_removed_toast": "已从该智能体移除 MCP 服务",

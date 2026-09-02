@@ -277,7 +277,7 @@ describe("ApiClient Plugin surface bridge routes", () => {
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       method: "GET",
       headers: expect.objectContaining({
-        "X-Multica-Plugin-Installation": "installation-1",
+        "X-ContextPRO-Plugin-Installation": "installation-1",
       }),
     });
   });

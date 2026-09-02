@@ -31,7 +31,7 @@ describe("providerSupportsMcpConfig", () => {
     expect(providerSupportsMcpConfig("antigravity")).toBe(false);
     expect(providerSupportsMcpConfig("copilot")).toBe(false);
     // Pi ships without MCP by design: upstream's README states "No MCP." and
-    // directs users to extensions instead, so there is no config file Multica
+    // directs users to extensions instead, so there is no config file ContextPRO
     // could write that pi would read. Only its omp fork consumes mcp_config.
     expect(providerSupportsMcpConfig("pi")).toBe(false);
     // ZeroClaw's ACP server never reads `params.mcpServers` — MCP lives in

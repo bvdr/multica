@@ -1,6 +1,6 @@
 {
   "step_nav": {
-    "wordmark": "Multica",
+    "wordmark": "ContextPRO",
     "label": "オンボーディングの手順",
     "about_you": {
       "label": "あなたについて",
@@ -16,7 +16,7 @@
     }
   },
   "welcome": {
-    "wordmark": "Multica へようこそ",
+    "wordmark": "ContextPRO へようこそ",
     "headline_line1": "あなたの AI チームメイトを、",
     "headline_line2": "ひとつの",
     "headline_emphasis": "ワークスペースに。",
@@ -59,7 +59,7 @@
   },
   "source_backfill": {
     "eyebrow": "ちょっと質問",
-    "lede": "ひとつだけ質問です。Multica がどんな方に役立っているかを把握するのに役立ちます。答えたらすぐ作業に戻れます。",
+    "lede": "ひとつだけ質問です。ContextPRO がどんな方に役立っているかを把握するのに役立ちます。答えたらすぐ作業に戻れます。",
     "submit": "送信",
     "hint_ready": "OK です。準備ができたら送信を押してください。",
     "save_failed_toast": "保存できませんでした"
@@ -69,7 +69,7 @@
       "question": "あなたについて少し教えてください。"
     },
     "source": {
-      "question": "Multica をどこで知りましたか?",
+      "question": "ContextPRO をどこで知りましたか?",
       "friends_colleagues": "友人または同僚",
       "search": "Google / 検索",
       "social_x": "X / Twitter",
@@ -100,7 +100,7 @@
       "other_placeholder": "例: 教師、サポートリード"
     },
     "use_case": {
-      "question": "Multica を何に使いたいですか?",
+      "question": "ContextPRO を何に使いたいですか?",
       "ship_code": "AI エージェントとコードをリリース",
       "manage_team": "チームのタスクを管理",
       "personal_tasks": "自分のタスクを整理",
@@ -123,7 +123,7 @@
   "cli_install": {
     "copy_aria": "コピー",
     "intro": "エージェントを実行するには、このコンピュータにエージェントランタイム(Claude Code、Codex、Cursor など)が必要です。サーバーやリモート開発環境でも動作します。",
-    "step1_label": "Multica CLI をインストール",
+    "step1_label": "ContextPRO CLI をインストール",
     "step2_label": "デーモンを起動"
   },
   "cloud_waitlist": {
@@ -142,7 +142,7 @@
   "welcome_after_onboarding": {
     "skip": {
       "loading": "ワークスペースを準備中…",
-      "title": "Multica へようこそ!",
+      "title": "ContextPRO へようこそ!",
       "subtitle": "ランタイム接続を案内するタスクを 1 つ追加しました。準備できたら Runtimes から Mika と始められます。",
       "got_it": "了解",
       "status_in_progress": "進行中",
@@ -193,7 +193,7 @@
     "create_failed_toast": "ワークスペースを作成できませんでした",
     "creation_disabled_eyebrow": "ワークスペースの作成は無効です",
     "creation_disabled_headline": "管理者に招待を依頼してください。",
-    "creation_disabled_lede": "この Multica インスタンスでは新しいワークスペースを作成できません。管理者からワークスペースに招待されたら、招待を承諾して更新し、続けてください。",
+    "creation_disabled_lede": "この ContextPRO インスタンスでは新しいワークスペースを作成できません。管理者からワークスペースに招待されたら、招待を承諾して更新し、続けてください。",
     "creation_disabled_logout": "ログアウト",
     "creation_disabled_eyebrow_resume": "あなたのワークスペース",
     "creation_disabled_headline_resume": "{{name}} で続けましょう。",
@@ -232,7 +232,7 @@
   "step_platform": {
     "eyebrow": "コンピュータを接続",
     "headline": "エージェントを実行するコンピュータを接続しましょう。",
-    "lede": "このワークスペースの参謀長である Mika は、Multica に接続した実際のコンピュータで動きます。どう接続するかを選んでください。",
+    "lede": "このワークスペースの参謀長である Mika は、ContextPRO に接続した実際のコンピュータで動きます。どう接続するかを選んでください。",
     "hint_default": "接続方法を選んでください。スキップしてあとでコンピュータを接続することもできます。",
     "download_title": "このコンピュータを使う",
     "download_subtitle": "デスクトップアプリをインストールして、このコンピュータを接続します。新しいタブで開くので、そこでプラットフォームを選んでください。",

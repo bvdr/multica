@@ -48,7 +48,7 @@ describe("StepAboutYou", () => {
       screen.getByText("Which best describes you?"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("What do you want to use Multica for?"),
+      screen.getByText("What do you want to use ContextPRO for?"),
     ).toBeInTheDocument();
   });
 

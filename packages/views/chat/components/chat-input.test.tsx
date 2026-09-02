@@ -363,7 +363,7 @@ function renderInput(props: Partial<React.ComponentProps<typeof ChatInput>> = {}
   const onSend = props.onSend ?? vi.fn();
   const view = render(
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
-      <ChatInput onSend={onSend} uploadEnabled agentName="Multica" {...props} />
+      <ChatInput onSend={onSend} uploadEnabled agentName="ContextPRO" {...props} />
     </I18nProvider>,
   );
   return { onSend, ...view };
@@ -372,7 +372,7 @@ function renderInput(props: Partial<React.ComponentProps<typeof ChatInput>> = {}
 function element(props: Partial<React.ComponentProps<typeof ChatInput>>) {
   return (
     <I18nProvider locale="en" resources={TEST_RESOURCES}>
-      <ChatInput onSend={vi.fn()} uploadEnabled agentName="Multica" {...props} />
+      <ChatInput onSend={vi.fn()} uploadEnabled agentName="ContextPRO" {...props} />
     </I18nProvider>
   );
 }
@@ -472,7 +472,7 @@ describe("ChatInput focusRequest", () => {
   it("focuses the editor when focusRequest becomes a non-zero value (new chat)", () => {
     const { rerender } = render(
       <I18nProvider locale="en" resources={TEST_RESOURCES}>
-        <ChatInput onSend={vi.fn()} agentName="Multica" focusRequest={0} />
+        <ChatInput onSend={vi.fn()} agentName="ContextPRO" focusRequest={0} />
       </I18nProvider>,
     );
     // The inert initial value must not steal focus (e.g. a plain deep-link open).
@@ -481,7 +481,7 @@ describe("ChatInput focusRequest", () => {
     // Starting a new chat bumps the nonce — the compose box grabs focus.
     rerender(
       <I18nProvider locale="en" resources={TEST_RESOURCES}>
-        <ChatInput onSend={vi.fn()} agentName="Multica" focusRequest={1} />
+        <ChatInput onSend={vi.fn()} agentName="ContextPRO" focusRequest={1} />
       </I18nProvider>,
     );
     expect(editorState.focused).toBe(1);
@@ -489,7 +489,7 @@ describe("ChatInput focusRequest", () => {
     // Each subsequent new chat re-focuses.
     rerender(
       <I18nProvider locale="en" resources={TEST_RESOURCES}>
-        <ChatInput onSend={vi.fn()} agentName="Multica" focusRequest={2} />
+        <ChatInput onSend={vi.fn()} agentName="ContextPRO" focusRequest={2} />
       </I18nProvider>,
     );
     expect(editorState.focused).toBe(2);
@@ -1548,8 +1548,8 @@ describe("ChatInput revoked-access placeholder", () => {
   });
 
   it("leaves the normal placeholder alone when access is intact", () => {
-    renderInput({ agentName: "Multica" });
+    renderInput({ agentName: "ContextPRO" });
 
-    expect(editorProps.last?.placeholder).toBe("Message Multica…");
+    expect(editorProps.last?.placeholder).toBe("Message ContextPRO…");
   });
 });

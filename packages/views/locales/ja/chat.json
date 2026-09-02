@@ -5,9 +5,9 @@
     "agent_link_no_access": "このエージェントとチャットする権限がありません。"
   },
   "fab": {
-    "running": "Multica が作業中です...",
+    "running": "ContextPRO が作業中です...",
     "unread_other": "未読のチャット {{count}}件",
-    "default": "Multica に質問"
+    "default": "ContextPRO に質問"
   },
   "input": {
     "placeholder_no_agent": "チャットを始めるにはエージェントを作成してください",
@@ -143,7 +143,7 @@
     "first_time_pillars_suffix": "。",
     "first_time_actions": "要約を頼んだり、今日の予定を立てたり、簡単なタスクを任せたりしてみましょう。",
     "returning_title_named": "こんにちは、{{name}} です",
-    "returning_title_default": "Multica へようこそ",
+    "returning_title_default": "ContextPRO へようこそ",
     "returning_subtitle": "こう聞いてみましょう",
     "chat_with_named": "{{name}} とチャット"
   },

@@ -126,7 +126,7 @@
     "mode_worktree_title": "隔離して並行実行する",
     "mode_worktree_description": "タスクは作業コピーに触れずに同時実行されます。それぞれがこのリポジトリの agent/… ブランチを返すので、レビューしてマージします。",
     "mode_worktree_needs_git": "このフォルダは git リポジトリではないため、ブランチを作成できません。リポジトリを選ぶか、フォルダを直接編集してください。",
-    "mode_worktree_needs_server_upgrade": "接続中の Multica サーバーが古いため並行実行に対応できません。このままでは、タスクがこのフォルダ内で直接実行されてしまいます。サーバーを更新してから有効にしてください。",
+    "mode_worktree_needs_server_upgrade": "接続中の ContextPRO サーバーが古いため並行実行に対応できません。このままでは、タスクがこのフォルダ内で直接実行されてしまいます。サーバーを更新してから有効にしてください。",
     "mode_cancel": "キャンセル",
     "mode_save": "保存",
     "mode_add": "フォルダを追加",

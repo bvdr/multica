@@ -1,5 +1,5 @@
 /* =============================================================================
- * Multica shared base styles — imported by all apps
+ * ContextPRO shared base styles — imported by all apps
  * ============================================================================= */
 
 /* The chat launcher overlays the dashboard's bottom-right corner on every
@@ -42,7 +42,7 @@
   color: var(--shiki-dark) !important;
 }
 
-/* Multica icon: entrance spin animation */
+/* ContextPRO icon: entrance spin animation */
 @keyframes entrance-spin {
   0% { transform: rotate(0deg); opacity: 0; }
   50% { opacity: 1; }
