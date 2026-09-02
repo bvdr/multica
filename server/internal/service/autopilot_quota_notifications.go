@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/entitlement"
 	"github.com/multica-ai/multica/server/internal/events"
@@ -97,7 +99,7 @@ func (s *AutopilotService) createAutopilotQuotaRejectionNotice(
 	}
 	// A successfully resolved no-recipient result is still terminal for this
 	// period. Retrying on every rejected run would repeatedly take the period
-	// row lock even though there is no actionable human to notify.
+	// row lock even though there is no workspace billing manager to notify.
 	if _, err := q.MarkAutopilotQuotaRejectionNotified(ctx, db.MarkAutopilotQuotaRejectionNotifiedParams{
 		WorkspaceID: period.WorkspaceID,
 		PeriodStart: period.PeriodStart,
@@ -116,18 +118,17 @@ func (s *AutopilotService) createAutopilotQuotaInboxItems(
 	q *db.Queries,
 	facts autopilotQuotaNoticeFacts,
 ) ([]db.InboxItem, error) {
+	autopilotTitle := ""
 	autopilot, err := q.GetAutopilot(ctx, facts.AutopilotID)
-	if err != nil {
+	if err == nil {
+		autopilotTitle = autopilot.Title
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("load autopilot for quota notice: %w", err)
 	}
-	recipient, ok, err := ResolveAutopilotNotificationRecipient(ctx, q, autopilot)
+	recipientIDs, err := q.ListWorkspaceBillingNotificationRecipients(ctx, facts.WorkspaceID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve autopilot quota notice recipient: %w", err)
+		return nil, fmt.Errorf("list workspace billing notification recipients: %w", err)
 	}
-	if !ok {
-		return nil, nil
-	}
-	autopilotTitle := autopilot.Title
 	resetAt := facts.ResetAt.UTC().Format("January 2, 2006 at 15:04 UTC")
 
 	body := fmt.Sprintf(
@@ -156,18 +157,22 @@ func (s *AutopilotService) createAutopilotQuotaInboxItems(
 		return nil, fmt.Errorf("marshal autopilot quota inbox details: %w", err)
 	}
 
-	item, err := q.CreateInboxItem(ctx, db.CreateInboxItemParams{
-		ID: dbid.NewV7(), WorkspaceID: facts.WorkspaceID,
-		RecipientType: recipient.Type, RecipientID: recipient.ID,
-		Type: "autopilot_quota_exceeded", Severity: "attention", IssueID: pgtype.UUID{},
-		Title: "Autopilot run limit reached", Body: pgtype.Text{String: body, Valid: true},
-		ActorType: pgtype.Text{String: "system", Valid: true}, ActorID: pgtype.UUID{},
-		Details: details,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create autopilot quota inbox item: %w", err)
+	items := make([]db.InboxItem, 0, len(recipientIDs))
+	for _, recipientID := range recipientIDs {
+		item, err := q.CreateInboxItem(ctx, db.CreateInboxItemParams{
+			ID: dbid.NewV7(), WorkspaceID: facts.WorkspaceID,
+			RecipientType: "member", RecipientID: recipientID,
+			Type: "autopilot_quota_exceeded", Severity: "attention", IssueID: pgtype.UUID{},
+			Title: "Autopilot run limit reached", Body: pgtype.Text{String: body, Valid: true},
+			ActorType: pgtype.Text{String: "system", Valid: true}, ActorID: pgtype.UUID{},
+			Details: details,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create autopilot quota inbox item: %w", err)
+		}
+		items = append(items, item)
 	}
-	return []db.InboxItem{item}, nil
+	return items, nil
 }
 
 func (s *AutopilotService) publishAutopilotQuotaInboxItems(items []db.InboxItem) {

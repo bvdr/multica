@@ -167,6 +167,32 @@ func (q *Queries) ListMembersWithUser(ctx context.Context, workspaceID pgtype.UU
 	return items, nil
 }
 
+const listWorkspaceBillingNotificationRecipients = `-- name: ListWorkspaceBillingNotificationRecipients :many
+SELECT user_id FROM member
+WHERE workspace_id = $1 AND role IN ('owner', 'admin')
+ORDER BY created_at ASC
+`
+
+func (q *Queries) ListWorkspaceBillingNotificationRecipients(ctx context.Context, workspaceID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, listWorkspaceBillingNotificationRecipients, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []pgtype.UUID{}
+	for rows.Next() {
+		var user_id pgtype.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateMemberRole = `-- name: UpdateMemberRole :one
 UPDATE member SET role = $2
 WHERE id = $1

@@ -25,6 +25,8 @@ export const workspaceSubscriptionSummaryOptions = (
     queryKey: workspaceSubscriptionKeys.summary(wsId),
     queryFn: ({ signal }) => api.getWorkspaceSubscriptionSummary({ signal }),
     enabled: !!wsId && enabled,
-    staleTime: 30 * 1000,
+    // Recovery actions are Cloud-authoritative and may change immediately
+    // after an upgrade, so opening a notice must revalidate this summary.
+    staleTime: 0,
     retry: false,
   });

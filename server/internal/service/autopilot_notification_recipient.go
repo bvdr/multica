@@ -30,9 +30,19 @@ func ResolveAutopilotNotificationRecipient(
 		if !autopilot.CreatedByID.Valid {
 			return AutopilotNotificationRecipient{}, false, nil
 		}
+		member, err := queries.GetMemberByUserAndWorkspace(ctx, db.GetMemberByUserAndWorkspaceParams{
+			UserID:      autopilot.CreatedByID,
+			WorkspaceID: autopilot.WorkspaceID,
+		})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return AutopilotNotificationRecipient{}, false, nil
+		}
+		if err != nil {
+			return AutopilotNotificationRecipient{}, false, fmt.Errorf("load autopilot member creator: %w", err)
+		}
 		return AutopilotNotificationRecipient{
 			Type: "member",
-			ID:   autopilot.CreatedByID,
+			ID:   member.UserID,
 		}, true, nil
 	}
 	if autopilot.CreatedByType != "agent" {

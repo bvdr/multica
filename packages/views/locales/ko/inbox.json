@@ -51,7 +51,6 @@
     "autopilot_quota_exceeded_body": "현재 기간의 자동화 실행 한도 {{limit}}회에 도달하여 이번 실행은 시작되지 않았습니다. 한도는 {{resetAt}}에 초기화됩니다.",
     "autopilot_quota_exceeded_autopilot_body": "자동화 ‘{{autopilot}}’은 현재 기간의 실행 한도 {{limit}}회에 도달하여 시작되지 않았습니다. 한도는 {{resetAt}}에 초기화됩니다.",
     "autopilot_quota_upgrade": "업그레이드 옵션 보기",
-    "autopilot_quota_contact_admin": "플랜을 업그레이드하려면 워크스페이스 owner 또는 admin에게 문의하세요.",
     "archive": "보관",
     "unarchive": "보관 해제"
   },

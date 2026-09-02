@@ -249,12 +249,12 @@ func TestAutopilotQuotaEnforcesBoundaryAndFinalizesIdempotently(t *testing.T) {
 	}
 }
 
-func TestAutopilotQuotaFirstRejectionNotifiesResponsibleMemberOnce(t *testing.T) {
+func TestAutopilotQuotaFirstRejectionNotifiesBillingManagersOncePerWorkspacePeriod(t *testing.T) {
 	const attempts = 10
 	fixture := newAutopilotQuotaFixture(t, entitlement.ActionEnforce, 2)
 	fixture.setNotificationPolicy(2)
-	addAutopilotQuotaMember(t, fixture, "admin")
-	addAutopilotQuotaMember(t, fixture, "member")
+	adminID := addAutopilotQuotaMember(t, fixture, "admin")
+	ordinaryMemberID := addAutopilotQuotaMember(t, fixture, "member")
 	ctx := context.Background()
 
 	for i := 1; i <= 2; i++ {
@@ -291,16 +291,55 @@ func TestAutopilotQuotaFirstRejectionNotifiesResponsibleMemberOnce(t *testing.T)
 		t.Error(err)
 	}
 
-	var noticeCount int
-	if err := fixture.pool.QueryRow(ctx,
-		`SELECT count(*) FROM inbox_item
-		 WHERE workspace_id = $1 AND type = 'autopilot_quota_exceeded'`,
-		fixture.workspaceID,
-	).Scan(&noticeCount); err != nil {
-		t.Fatalf("count quota rejection notices: %v", err)
+	// A different autopilot rejected later in the same billing period must not
+	// select a second set of recipients or create duplicate notices.
+	secondAutopilotID, _ := seedRunOnlyAutopilot(
+		t,
+		fixture.pool,
+		util.UUIDToString(fixture.workspaceID),
+		util.UUIDToString(fixture.agentID),
+		util.UUIDToString(ordinaryMemberID),
+	)
+	secondParams := fixture.createRunArgs
+	secondParams.AutopilotID = util.MustParseUUID(secondAutopilotID)
+	secondParams.Source = "schedule"
+	_, _, err := fixture.service.createAutopilotRunWithQuota(
+		ctx, fixture.workspaceID, "schedule", "second-autopilot-rejection", secondParams,
+	)
+	var quotaErr *AutopilotQuotaExceededError
+	if !errors.As(err, &quotaErr) {
+		t.Fatalf("second autopilot rejection = %v, want quota error", err)
 	}
-	if noticeCount != 1 {
-		t.Fatalf("quota rejection notices = %d, want one for the responsible member", noticeCount)
+
+	rows, err := fixture.pool.Query(ctx, `
+		SELECT recipient_id FROM inbox_item
+		WHERE workspace_id = $1 AND type = 'autopilot_quota_exceeded'`, fixture.workspaceID)
+	if err != nil {
+		t.Fatalf("list quota rejection recipients: %v", err)
+	}
+	defer rows.Close()
+	recipients := make(map[string]int)
+	for rows.Next() {
+		var recipientID pgtype.UUID
+		if err := rows.Scan(&recipientID); err != nil {
+			t.Fatalf("scan quota rejection recipient: %v", err)
+		}
+		recipients[util.UUIDToString(recipientID)]++
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate quota rejection recipients: %v", err)
+	}
+	wantRecipients := []pgtype.UUID{fixture.publisherID, adminID}
+	if len(recipients) != len(wantRecipients) {
+		t.Fatalf("quota rejection recipients = %v, want owner and admin", recipients)
+	}
+	for _, recipientID := range wantRecipients {
+		if got := recipients[util.UUIDToString(recipientID)]; got != 1 {
+			t.Fatalf("quota rejection recipient %s notices = %d, want one", util.UUIDToString(recipientID), got)
+		}
+	}
+	if got := recipients[util.UUIDToString(ordinaryMemberID)]; got != 0 {
+		t.Fatalf("ordinary member received %d quota rejection notices, want none", got)
 	}
 
 	period, err := fixture.queries.GetAutopilotQuotaPeriod(ctx, db.GetAutopilotQuotaPeriodParams{
@@ -315,22 +354,19 @@ func TestAutopilotQuotaFirstRejectionNotifiesResponsibleMemberOnce(t *testing.T)
 		t.Fatal("first rejection notification marker was not persisted")
 	}
 
-	var title, noticeKey, recipientID, severity, body string
+	var title, noticeKey, severity, body string
 	var hasThresholdPercent bool
 	if err := fixture.pool.QueryRow(ctx, `
 		SELECT details->>'autopilot_title', details->>'notice_key',
-		       details ? 'threshold_percent', recipient_id::text, severity, body
+		       details ? 'threshold_percent', severity, body
 		FROM inbox_item
 		WHERE workspace_id = $1 AND type = 'autopilot_quota_exceeded'
 		LIMIT 1`, fixture.workspaceID,
-	).Scan(&title, &noticeKey, &hasThresholdPercent, &recipientID, &severity, &body); err != nil {
+	).Scan(&title, &noticeKey, &hasThresholdPercent, &severity, &body); err != nil {
 		t.Fatalf("load first rejection details: %v", err)
 	}
 	if title == "" || noticeKey != autopilotQuotaFirstRejectionNoticeKey || hasThresholdPercent {
 		t.Fatalf("first rejection details = title %q, key %q, threshold field %v", title, noticeKey, hasThresholdPercent)
-	}
-	if recipientID != util.UUIDToString(fixture.publisherID) {
-		t.Fatalf("quota rejection recipient = %s, want creator %s", recipientID, util.UUIDToString(fixture.publisherID))
 	}
 	if severity != "attention" {
 		t.Fatalf("quota rejection severity = %q, want attention", severity)
@@ -344,14 +380,15 @@ func TestAutopilotQuotaFirstRejectionNotifiesResponsibleMemberOnce(t *testing.T)
 	if err != nil {
 		t.Fatalf("quota usage: %v", err)
 	}
-	if got := usage.BlockedCounts["schedule"]; got != attempts {
-		t.Fatalf("blocked schedule count = %d, want %d", got, attempts)
+	if got := usage.BlockedCounts["schedule"]; got != attempts+1 {
+		t.Fatalf("blocked schedule count = %d, want %d", got, attempts+1)
 	}
 }
 
 func TestAutopilotQuotaInboxFailurePreservesQuotaRejection(t *testing.T) {
 	fixture := newAutopilotQuotaFixture(t, entitlement.ActionEnforce, 1)
 	fixture.setNotificationPolicy(1)
+	adminID := addAutopilotQuotaMember(t, fixture, "admin")
 	ctx := context.Background()
 	if _, _, err := fixture.service.createAutopilotRunWithQuota(
 		ctx, fixture.workspaceID, "api", "inbox-failure-fill", fixture.createRunArgs,
@@ -365,7 +402,9 @@ func TestAutopilotQuotaInboxFailurePreservesQuotaRejection(t *testing.T) {
 	if _, err := fixture.pool.Exec(ctx, fmt.Sprintf(`
 		CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN
-			IF NEW.workspace_id = '%s'::uuid AND NEW.type = 'autopilot_quota_exceeded' THEN
+			IF NEW.workspace_id = '%s'::uuid
+				AND NEW.type = 'autopilot_quota_exceeded'
+				AND NEW.recipient_id = '%s'::uuid THEN
 				RAISE EXCEPTION 'injected quota notice failure';
 			END IF;
 			RETURN NEW;
@@ -373,7 +412,7 @@ func TestAutopilotQuotaInboxFailurePreservesQuotaRejection(t *testing.T) {
 		$$;
 		CREATE TRIGGER %s BEFORE INSERT ON inbox_item
 		FOR EACH ROW EXECUTE FUNCTION %s();`,
-		functionName, fixture.workspace.String(), triggerName, functionName)); err != nil {
+		functionName, fixture.workspace.String(), util.UUIDToString(adminID), triggerName, functionName)); err != nil {
 		t.Fatalf("install inbox failure trigger: %v", err)
 	}
 	t.Cleanup(func() {
@@ -408,6 +447,17 @@ func TestAutopilotQuotaInboxFailurePreservesQuotaRejection(t *testing.T) {
 	if period.RejectionNotifiedAt.Valid {
 		t.Fatal("failed Inbox transaction must not persist the notification marker")
 	}
+	var failedTransactionNotices int
+	if err := fixture.pool.QueryRow(ctx, `
+		SELECT count(*) FROM inbox_item
+		WHERE workspace_id = $1 AND type = 'autopilot_quota_exceeded'`,
+		fixture.workspaceID,
+	).Scan(&failedTransactionNotices); err != nil {
+		t.Fatalf("count rolled-back quota notices: %v", err)
+	}
+	if failedTransactionNotices != 0 {
+		t.Fatalf("failed multi-recipient transaction persisted %d notices, want zero", failedTransactionNotices)
+	}
 
 	if _, err := fixture.pool.Exec(ctx, fmt.Sprintf("DROP TRIGGER %s ON inbox_item", triggerName)); err != nil {
 		t.Fatalf("remove inbox failure trigger: %v", err)
@@ -426,8 +476,77 @@ func TestAutopilotQuotaInboxFailurePreservesQuotaRejection(t *testing.T) {
 	).Scan(&notices); err != nil {
 		t.Fatalf("count retried quota notices: %v", err)
 	}
-	if notices == 0 {
-		t.Fatal("a later rejection did not retry the failed Inbox delivery")
+	if notices != 2 {
+		t.Fatalf("retried quota notices = %d, want owner and admin", notices)
+	}
+}
+
+func TestAutopilotQuotaNoticeSurvivesDeletedAutopilot(t *testing.T) {
+	fixture := newAutopilotQuotaFixture(t, entitlement.ActionEnforce, 1)
+	ctx := context.Background()
+	if _, err := fixture.pool.Exec(ctx, `DELETE FROM autopilot WHERE id = $1`, fixture.autopilotID); err != nil {
+		t.Fatalf("delete autopilot before quota notice: %v", err)
+	}
+
+	items, err := fixture.service.createAutopilotQuotaRejectionNotice(
+		ctx,
+		autopilotQuotaPolicy{
+			action:      entitlement.ActionEnforce,
+			limit:       1,
+			periodStart: fixture.periodStart,
+			periodEnd:   fixture.periodEnd,
+			resetAt:     fixture.resetAt,
+			notifications: &entitlement.NotificationPolicy{
+				OnRejection: entitlement.NotificationFirstRejectionPerPeriod,
+			},
+		},
+		fixture.workspaceID,
+		"schedule",
+		fixture.createRunArgs,
+	)
+	if err != nil {
+		t.Fatalf("create quota notice after autopilot deletion: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("quota notices after autopilot deletion = %d, want workspace owner", len(items))
+	}
+	if items[0].Body.String == "" || strings.Contains(items[0].Body.String, "run-only ap") {
+		t.Fatalf("deleted-autopilot notice body = %q, want generic fallback", items[0].Body.String)
+	}
+}
+
+func TestAutopilotQuotaNoticeDoesNotDependOnCreatorAgentOwner(t *testing.T) {
+	fixture := newAutopilotQuotaFixture(t, entitlement.ActionEnforce, 0)
+	fixture.setNotificationPolicy(0)
+	ctx := context.Background()
+	if _, err := fixture.pool.Exec(ctx, `UPDATE agent SET owner_id = NULL WHERE id = $1`, fixture.agentID); err != nil {
+		t.Fatalf("remove autopilot creator agent owner: %v", err)
+	}
+	if _, err := fixture.pool.Exec(ctx, `
+		UPDATE autopilot SET created_by_type = 'agent', created_by_id = $2 WHERE id = $1`,
+		fixture.autopilotID, fixture.agentID,
+	); err != nil {
+		t.Fatalf("make autopilot agent-created: %v", err)
+	}
+
+	_, _, err := fixture.service.createAutopilotRunWithQuota(
+		ctx, fixture.workspaceID, "schedule", "ownerless-agent-rejection", fixture.createRunArgs,
+	)
+	var quotaErr *AutopilotQuotaExceededError
+	if !errors.As(err, &quotaErr) {
+		t.Fatalf("ownerless-agent rejection = %v, want quota error", err)
+	}
+	var recipientID pgtype.UUID
+	if err := fixture.pool.QueryRow(ctx, `
+		SELECT recipient_id FROM inbox_item
+		WHERE workspace_id = $1 AND type = 'autopilot_quota_exceeded'`,
+		fixture.workspaceID,
+	).Scan(&recipientID); err != nil {
+		t.Fatalf("load ownerless-agent quota notice: %v", err)
+	}
+	if recipientID.Bytes != fixture.publisherID.Bytes {
+		t.Fatalf("ownerless-agent notice recipient = %s, want workspace owner %s",
+			util.UUIDToString(recipientID), util.UUIDToString(fixture.publisherID))
 	}
 }
 

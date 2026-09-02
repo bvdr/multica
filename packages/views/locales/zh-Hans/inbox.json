@@ -51,7 +51,6 @@
     "autopilot_quota_exceeded_body": "当前周期的 {{limit}} 次自动化执行额度已用完，本次执行未启动。额度将于 {{resetAt}} 重置。",
     "autopilot_quota_exceeded_autopilot_body": "自动化“{{autopilot}}”未能启动，因为当前周期的 {{limit}} 次执行额度已用完。额度将于 {{resetAt}} 重置。",
     "autopilot_quota_upgrade": "查看升级方案",
-    "autopilot_quota_contact_admin": "请联系工作区 owner 或 admin 升级方案。",
     "archive": "归档",
     "unarchive": "取消归档"
   },

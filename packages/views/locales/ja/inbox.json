@@ -51,7 +51,6 @@
     "autopilot_quota_exceeded_body": "現在の期間の自動化実行上限 {{limit}} 回に達したため、この実行は開始されませんでした。実行枠は {{resetAt}} にリセットされます。",
     "autopilot_quota_exceeded_autopilot_body": "自動化「{{autopilot}}」は、現在の期間の実行上限 {{limit}} 回に達したため開始されませんでした。実行枠は {{resetAt}} にリセットされます。",
     "autopilot_quota_upgrade": "アップグレード方法を見る",
-    "autopilot_quota_contact_admin": "プランをアップグレードするには、ワークスペースの owner または admin に連絡してください。",
     "archive": "アーカイブ",
     "unarchive": "アーカイブ解除"
   },

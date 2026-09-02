@@ -53,7 +53,6 @@
     "autopilot_quota_exceeded_body": "This workspace has reached its limit of {{limit}} autopilot runs for the current period. This execution was not started. The allowance resets {{resetAt}}.",
     "autopilot_quota_exceeded_autopilot_body": "Autopilot “{{autopilot}}” was not started because this workspace has reached its limit of {{limit}} runs for the current period. The allowance resets {{resetAt}}.",
     "autopilot_quota_upgrade": "View upgrade options",
-    "autopilot_quota_contact_admin": "Contact a workspace owner or admin to upgrade the plan.",
     "archive": "Archive",
     "unarchive": "Unarchive"
   },
