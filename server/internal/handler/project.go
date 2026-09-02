@@ -361,7 +361,7 @@ func (h *Handler) CreateProject(w http.ResponseWriter, r *http.Request) {
 			// run — caught only later, by the claim gate cancelling the task.
 			// It writes its own 422; it runs before the transaction, so a
 			// rejection leaves nothing behind.
-			if !h.requireWorktreeCapableDaemon(w, r, wsUUID, res.ResourceType, ref) {
+			if !h.requireModeCapableDaemon(w, r, wsUUID, res.ResourceType, ref) {
 				return
 			}
 		}

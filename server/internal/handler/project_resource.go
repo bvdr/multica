@@ -126,6 +126,13 @@ const (
 	// Only valid when the directory is a git working tree — the daemon
 	// verifies that at task time, since the server can't see the filesystem.
 	localDirectoryModeWorktree = "worktree"
+	// localDirectoryModeTmux runs each task as an interactive Claude Code
+	// session inside a tmux session in the user's directory. Tasks on the same
+	// directory run concurrently in separate sessions and complete when their
+	// session ends. Fork-only mode (ContextPRO); gated on the daemon capability
+	// protocol.DaemonCapabilityLocalTmuxV1 because a daemon without the
+	// implementation would otherwise run the task headlessly in place.
+	localDirectoryModeTmux = "tmux"
 )
 
 // localDirectoryRef is the JSONB shape stored for resource_type=local_directory.
@@ -145,48 +152,61 @@ type localDirectoryRef struct {
 	ExecutionMode string `json:"execution_mode,omitempty"`
 }
 
-// requireWorktreeCapableDaemon rejects saving a local_directory ref that asks
-// for execution_mode=worktree while the daemon owning the path is too old to
-// implement the mode. An old daemon does not know the field exists: it would
-// json-skip it and run tasks IN PLACE, editing the working copy the user
-// explicitly asked to isolate — and it predates the daemon-side unknown-mode
-// refusal, so only the server can stop it. Gating at save time surfaces the
-// failure at the moment the user can act on it (upgrade the daemon), instead
-// of as a silently-wrong task later.
+// localDirectoryModeCapability maps an execution mode to the daemon capability
+// that proves the mode is implemented. in_place is the historical default and
+// needs no proof; the other two fail closed without their capability.
+func localDirectoryModeCapability(mode string) (capability string, gated bool) {
+	switch strings.TrimSpace(mode) {
+	case localDirectoryModeWorktree:
+		return protocol.DaemonCapabilityLocalWorktreeV1, true
+	case localDirectoryModeTmux:
+		return protocol.DaemonCapabilityLocalTmuxV1, true
+	default:
+		return "", false
+	}
+}
+
+// requireModeCapableDaemon rejects saving a local_directory ref whose
+// execution_mode needs a capability the owning daemon's newest runtime row does
+// not advertise. It writes the 422 itself and returns false; true means "go on".
+// Both gated modes share the shape because both fail the same way when skipped:
+// the daemon would silently run in place.
 //
-// Residual gap, accepted for now: a daemon downgraded AFTER the resource was
-// saved is not caught here; closing that needs a claim-time gate.
-//
-// Returns true to proceed; on false the 422 response has already been written,
-// using the same daemon_version_unsupported code as the quick-create gate so
-// clients can branch on it.
-func (h *Handler) requireWorktreeCapableDaemon(w http.ResponseWriter, r *http.Request, workspaceID pgtype.UUID, resourceType string, normalizedRef json.RawMessage) bool {
+// Save-time only: the resource is also re-checked on every claim (see
+// worktreeClaimBlockReason / tmuxClaimBlockReason in daemon.go) because a
+// machine can be downgraded after the row was written.
+func (h *Handler) requireModeCapableDaemon(w http.ResponseWriter, r *http.Request, workspaceID pgtype.UUID, resourceType string, normalizedRef json.RawMessage) bool {
 	if resourceType != "local_directory" {
 		return true
 	}
 	var ref localDirectoryRef
-	if err := json.Unmarshal(normalizedRef, &ref); err != nil || ref.ExecutionMode != localDirectoryModeWorktree {
+	if err := json.Unmarshal(normalizedRef, &ref); err != nil {
 		return true
 	}
-
-	// One machine hosts one runtime row per provider, all registered by the
-	// same daemon binary. A workspace has a handful of runtimes; the unfiltered
-	// list is a tiny read.
+	capability, gated := localDirectoryModeCapability(ref.ExecutionMode)
+	if !gated {
+		return true
+	}
 	runtimes, err := h.Queries.ListAgentRuntimes(r.Context(), workspaceID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to check runtime capabilities")
 		return false
 	}
-	// Same signal the claim gate uses: what the daemon advertised, recorded on
-	// its runtime row at registration. Version numbers cannot answer this — a
-	// dev-built daemon reports a git-describe string that the version floor
-	// deliberately exempts (MUL-5707).
-	if daemonAdvertisesWorktree(runtimes, ref.DaemonID) {
+	if daemonAdvertisesCapability(runtimes, ref.DaemonID, capability) {
 		return true
 	}
-	// Fail closed when no runtime for this daemon advertises it — including a
-	// daemon_id with no registered runtime at all: a worktree resource that can
-	// never dispatch correctly is worse than a save-time error.
+	if ref.ExecutionMode == localDirectoryModeTmux {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": fmt.Sprintf(
+				"local_directory: %q is set to interactive terminal (tmux) mode, but the ContextPRO runtime on that machine does not advertise tmux support. Install tmux on that machine and restart the ContextPRO runtime, or pick another mode.",
+				ref.LocalPath),
+			"code":            "daemon_capability_missing",
+			"capability":      capability,
+			"current_version": latestDaemonCLIVersion(runtimes, ref.DaemonID),
+			"daemon_id":       ref.DaemonID,
+		})
+		return false
+	}
 	writeJSON(w, http.StatusUnprocessableEntity, map[string]any{
 		"error": fmt.Sprintf(
 			"local_directory: %q is set to parallel (worktree) mode, but the ContextPRO runtime on that machine does not support it. Update the ContextPRO app on that machine to the latest version, or keep the resource on in_place.",
@@ -199,19 +219,11 @@ func (h *Handler) requireWorktreeCapableDaemon(w http.ResponseWriter, r *http.Re
 	return false
 }
 
-// daemonAdvertisesWorktree reports whether the daemon's MOST RECENTLY SEEN
-// runtime row advertised worktree support.
-//
-// Deliberately not "any row advertised it". Deregistering a runtime only flips
-// the row to offline — its metadata survives — and ListAgentRuntimes returns
-// every row. So a machine that once ran a capable daemon, then downgraded,
-// still has an old capable row sitting next to the fresh incapable one, and an
-// any-match would keep saying yes forever. Newest-wins reads the machine's
-// CURRENT binary, which is the question being asked.
-//
-// A row missing the capability is never skipped: being the newest is what makes
-// it authoritative, not whether its answer is convenient.
-func daemonAdvertisesWorktree(runtimes []db.AgentRuntime, daemonID string) bool {
+// daemonAdvertisesCapability reports whether the NEWEST runtime row registered
+// by daemonID advertises capability. Newest, not any: a daemon re-registers on
+// every start, so an old row that still lists a capability must not outvote the
+// current binary that dropped it.
+func daemonAdvertisesCapability(runtimes []db.AgentRuntime, daemonID, capability string) bool {
 	if strings.TrimSpace(daemonID) == "" {
 		return false
 	}
@@ -228,7 +240,12 @@ func daemonAdvertisesWorktree(runtimes []db.AgentRuntime, daemonID string) bool 
 	if newest == nil {
 		return false
 	}
-	return runtimeHasCapability(newest.Metadata, protocol.DaemonCapabilityLocalWorktreeV1)
+	return runtimeHasCapability(newest.Metadata, capability)
+}
+
+// daemonAdvertisesWorktree is kept for the existing worktree callers and tests.
+func daemonAdvertisesWorktree(runtimes []db.AgentRuntime, daemonID string) bool {
+	return daemonAdvertisesCapability(runtimes, daemonID, protocol.DaemonCapabilityLocalWorktreeV1)
 }
 
 // runtimeSeenAfter orders two rows of the same daemon by last_seen_at. A row
@@ -287,10 +304,10 @@ func validateLocalDirectoryRef(ref json.RawMessage) (json.RawMessage, error) {
 	payload.Label = strings.TrimSpace(payload.Label)
 	payload.ExecutionMode = strings.TrimSpace(payload.ExecutionMode)
 	switch payload.ExecutionMode {
-	case "", localDirectoryModeInPlace, localDirectoryModeWorktree:
+	case "", localDirectoryModeInPlace, localDirectoryModeWorktree, localDirectoryModeTmux:
 	default:
-		return nil, fmt.Errorf("local_directory: execution_mode must be %q or %q, got %q",
-			localDirectoryModeInPlace, localDirectoryModeWorktree, payload.ExecutionMode)
+		return nil, fmt.Errorf("local_directory: execution_mode must be %q, %q or %q, got %q",
+			localDirectoryModeInPlace, localDirectoryModeWorktree, localDirectoryModeTmux, payload.ExecutionMode)
 	}
 	out, err := json.Marshal(payload)
 	if err != nil {
@@ -520,7 +537,7 @@ func (h *Handler) CreateProjectResource(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if !h.requireWorktreeCapableDaemon(w, r, project.WorkspaceID, req.ResourceType, normalizedRef) {
+	if !h.requireModeCapableDaemon(w, r, project.WorkspaceID, req.ResourceType, normalizedRef) {
 		return
 	}
 
@@ -640,7 +657,7 @@ func (h *Handler) UpdateProjectResource(w http.ResponseWriter, r *http.Request) 
 	// after the mode was legitimately saved. The row already says worktree; the
 	// claim gate is what stops it from running somewhere that cannot.
 	if refProvided && !refRenameOnly {
-		if !h.requireWorktreeCapableDaemon(w, r, project.WorkspaceID, existing.ResourceType, nextRef) {
+		if !h.requireModeCapableDaemon(w, r, project.WorkspaceID, existing.ResourceType, nextRef) {
 			return
 		}
 	}

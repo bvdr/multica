@@ -3136,12 +3136,21 @@ func (h *Handler) buildClaimedTaskResponse(r *http.Request, task *db.AgentTaskQu
 	// user asked to isolate. That is the exact outcome worktree mode exists to
 	// prevent, so it fails closed here, against the version of the runtime that
 	// is actually claiming.
-	if reason := worktreeClaimBlockReason(
+	reason := worktreeClaimBlockReason(
 		resp.ProjectResources,
 		runtime,
 		requestHasClientCapability(r, protocol.DaemonCapabilityLocalWorktreeV1),
-	); reason != "" {
-		slog.Error("task claim: runtime too old for worktree mode; cancelling rather than running in place",
+	)
+	if reason == "" {
+		// Fork (ContextPRO): the same fail-closed rule for tmux mode.
+		reason = tmuxClaimBlockReason(
+			resp.ProjectResources,
+			runtime,
+			requestHasClientCapability(r, protocol.DaemonCapabilityLocalTmuxV1),
+		)
+	}
+	if reason != "" {
+		slog.Error("task claim: runtime lacks the capability for this local_directory mode; cancelling rather than running in place",
 			"task_id", uuidToString(task.ID),
 			"runtime_id", runtimeID,
 			"daemon_id", runtime.DaemonID.String,
@@ -3234,6 +3243,37 @@ func worktreeClaimBlockReason(resources []ProjectResourceData, runtime db.AgentR
 
 // ClaimTaskByRuntime atomically claims the next queued task for a runtime.
 // The response includes the agent's name and skills, fetched fresh from the DB.
+// tmuxClaimBlockReason mirrors worktreeClaimBlockReason for tmux mode
+// (ContextPRO fork): a daemon that did not advertise local-tmux-v1 in
+// X-Client-Capabilities must not receive a tmux-mode local_directory task,
+// because it would run it headlessly in place. Empty string means "no objection".
+func tmuxClaimBlockReason(resources []ProjectResourceData, runtime db.AgentRuntime, hasTmuxCapability bool) string {
+	if !runtime.DaemonID.Valid || runtime.DaemonID.String == "" {
+		return ""
+	}
+	if hasTmuxCapability {
+		return ""
+	}
+	for _, res := range resources {
+		if res.ResourceType != "local_directory" {
+			continue
+		}
+		var ref localDirectoryRef
+		if err := json.Unmarshal(res.ResourceRef, &ref); err != nil {
+			continue
+		}
+		if ref.ExecutionMode != localDirectoryModeTmux || ref.DaemonID != runtime.DaemonID.String {
+			continue
+		}
+		return fmt.Sprintf(
+			"This machine's ContextPRO runtime does not advertise tmux support, which %q is set to use (interactive terminal mode). "+
+				"Install tmux on that machine and restart the ContextPRO runtime, then re-run this task. "+
+				"Refusing to run rather than falling back to a headless run in the directory.",
+			ref.LocalPath)
+	}
+	return ""
+}
+
 func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
 	start := time.Now()
