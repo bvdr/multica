@@ -7,7 +7,6 @@ import {
   resolveDocsUrl,
   resolveRemoteApiUrl,
 } from "./config/runtime-urls";
-import { createMDX } from "fumadocs-mdx/next";
 
 // Load root .env so local next.config.ts rewrites see REMOTE_API_URL / DOCS_URL.
 // Production requests use proxy.ts runtime rewrites, which read process.env
@@ -97,10 +96,9 @@ const nextConfig: NextConfig = {
   },
 };
 
-// fumadocs-mdx@12 is incompatible with Next 16's Turbopack: its loader fails to
-// dynamic-import `.source/source.config.mjs` under the Turbopack Node evaluator
-// (see fumadocs#2658). `dev`/`build` scripts pass `--webpack` to opt out.
-// Drop the flag once fumadocs-mdx ships a Turbopack-compatible loader.
-const withMDX = createMDX() as (config: NextConfig) => NextConfig;
-
-export default withMDX(nextConfig);
+// The `dev`/`build` scripts still pass `--webpack`. Upstream added the flag
+// because fumadocs-mdx could not run under Turbopack; this fork removed
+// fumadocs-mdx together with the marketing use-case pages, so the flag is no
+// longer required. It is kept on purpose so the fork builds with the same
+// bundler upstream ships and tests, not to keep any MDX support alive.
+export default nextConfig;
