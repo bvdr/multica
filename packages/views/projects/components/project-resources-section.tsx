@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   Trash2,
+  Terminal,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -28,6 +29,7 @@ import type {
   ProjectResource,
 } from "@multica/core/types";
 import {
+  runtimeAdvertisesLocalTmux,
   runtimeAdvertisesLocalWorktree,
   runtimeListOptions,
 } from "@multica/core/runtimes";
@@ -54,6 +56,7 @@ import {
 import {
   LocalDirectoryModeDialog,
   type WorktreeUnavailableReason,
+  type TmuxUnavailableReason,
 } from "./local-directory-mode-dialog";
 import { localDirectoryLabel } from "./local-directory-label";
 import { useT } from "../../i18n";
@@ -86,7 +89,9 @@ function isLocalDirectoryRef(r: ProjectResource): r is ProjectResource & {
 function executionModeOf(
   ref: LocalDirectoryResourceRef,
 ): LocalDirectoryExecutionMode {
-  return ref.execution_mode === "worktree" ? "worktree" : "in_place";
+  return ref.execution_mode === "worktree" || ref.execution_mode === "tmux"
+    ? ref.execution_mode
+    : "in_place";
 }
 
 /** Pending mode edit — either for a directory being added, or an existing row. */
@@ -139,6 +144,9 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
   // performs that gate at all. One declared boolean, no inference — servers
   // that predate it drop execution_mode and answer 201.
   const serverValidatesWorktree = useConfigStore((state) => state.localWorktreeSupported);
+  const serverValidatesTmux = useConfigStore((state) => state.localTmuxSupported);
+  const advertisesTmux = (daemonId: string | null) =>
+    runtimeAdvertisesLocalTmux(runtimes, daemonId);
   // Keyed on the resource's OWN daemon, not the machine the browser happens to
   // be on: a resource is pinned to one machine, and its mode can legitimately
   // be changed from the web app or from a different device. Using the local
@@ -538,6 +546,10 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
             modeDialog.isGitRepo,
             serverValidatesWorktree,
           )}
+          tmuxUnavailableReason={tmuxUnavailableReason(
+            advertisesTmux(modeDialog.daemonId),
+            serverValidatesTmux,
+          )}
           errorMessage={modeError ?? undefined}
           saving={modeSaving}
           confirmLabel={
@@ -572,6 +584,17 @@ function worktreeUnavailableReason(
 ): WorktreeUnavailableReason | undefined {
   if (isGitRepo === false) return "not_git";
   if (!serverValidates) return "server_outdated";
+  return undefined;
+}
+
+// ContextPRO fork: tmux mode needs a server that validates it and a runtime
+// that advertises local-tmux-v1 (i.e. has tmux on its PATH).
+function tmuxUnavailableReason(
+  runtimeHasTmux: boolean,
+  serverValidates: boolean,
+): TmuxUnavailableReason | undefined {
+  if (!serverValidates) return "server_outdated";
+  if (!runtimeHasTmux) return "runtime_no_tmux";
   return undefined;
 }
 
@@ -775,6 +798,21 @@ function LocalDirectoryRow({
           />
           <TooltipContent side="top">
             {t(($) => $.resources.mode_badge_worktree_tooltip)}
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {mode === "tmux" && !editing && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Badge variant="secondary" className="shrink-0 gap-1 font-normal">
+                <Terminal className="size-3" />
+                {t(($) => $.resources.mode_badge_tmux)}
+              </Badge>
+            }
+          />
+          <TooltipContent side="top">
+            {t(($) => $.resources.mode_badge_tmux_tooltip)}
           </TooltipContent>
         </Tooltip>
       )}

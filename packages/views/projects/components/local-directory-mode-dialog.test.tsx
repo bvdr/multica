@@ -7,7 +7,7 @@ import type { LocalDirectoryExecutionMode } from "@multica/core/types";
 import enProjects from "../../locales/en/projects.json";
 import enCommon from "../../locales/en/common.json";
 import { LocalDirectoryModeDialog } from "./local-directory-mode-dialog";
-import type { WorktreeUnavailableReason } from "./local-directory-mode-dialog";
+import type { TmuxUnavailableReason, WorktreeUnavailableReason } from "./local-directory-mode-dialog";
 
 const TEST_RESOURCES = { en: { projects: enProjects, common: enCommon } };
 
@@ -15,6 +15,7 @@ function renderDialog(
   overrides: {
     value?: LocalDirectoryExecutionMode;
     unavailableReason?: WorktreeUnavailableReason;
+    tmuxUnavailableReason?: TmuxUnavailableReason;
     errorMessage?: string;
     onConfirm?: (mode: LocalDirectoryExecutionMode) => void;
   } = {},
@@ -28,6 +29,7 @@ function renderDialog(
         path="/Users/dev/work/game-client"
         value={overrides.value ?? "in_place"}
         unavailableReason={overrides.unavailableReason}
+        tmuxUnavailableReason={overrides.tmuxUnavailableReason}
         errorMessage={overrides.errorMessage}
         confirmLabel="Save"
         onConfirm={onConfirm}
@@ -127,5 +129,40 @@ describe("LocalDirectoryModeDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onConfirm).toHaveBeenCalledWith("worktree");
+  });
+});
+
+function tmuxOption(): HTMLElement {
+  return screen.getAllByRole("radio")[2] as HTMLElement;
+}
+
+describe("LocalDirectoryModeDialog — interactive terminal (tmux)", () => {
+  it("offers the tmux mode as a third choice and confirms it", () => {
+    const { onConfirm } = renderDialog();
+    expect(screen.getByText("Interactive terminal (tmux)")).toBeTruthy();
+    fireEvent.click(tmuxOption());
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onConfirm).toHaveBeenCalledWith("tmux");
+  });
+
+  it("disables tmux with a reason when the runtime has no tmux", () => {
+    const { onConfirm } = renderDialog({ tmuxUnavailableReason: "runtime_no_tmux" });
+    const option = tmuxOption();
+    expect(option.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/install tmux on that machine/i)).toBeTruthy();
+    fireEvent.click(option);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onConfirm).toHaveBeenCalledWith("in_place");
+  });
+
+  it("disables tmux when the server predates the mode", () => {
+    renderDialog({ tmuxUnavailableReason: "server_outdated" });
+    expect(tmuxOption().hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/server is too old for interactive terminal/i)).toBeTruthy();
+  });
+
+  it("preselects tmux when editing a tmux resource", () => {
+    renderDialog({ value: "tmux" });
+    expect(tmuxOption().getAttribute("aria-checked")).toBe("true");
   });
 });

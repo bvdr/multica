@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { GitBranch, Pencil, TriangleAlert } from "lucide-react";
+import { GitBranch, Pencil, Terminal, TriangleAlert } from "lucide-react";
 import type { LocalDirectoryExecutionMode } from "@multica/core/types";
 import { Button } from "@multica/ui/components/ui/button";
 import {
@@ -33,6 +33,14 @@ import { useT } from "../../i18n/use-t";
  */
 export type WorktreeUnavailableReason = "not_git" | "server_outdated";
 
+/**
+ * ContextPRO fork: why the tmux card may be unavailable. `runtime_no_tmux` is
+ * what the runtime advertises (no tmux binary on its PATH); `server_outdated`
+ * is a server that does not validate execution_mode=tmux. `undefined` means
+ * available.
+ */
+export type TmuxUnavailableReason = "runtime_no_tmux" | "server_outdated";
+
 interface LocalDirectoryModeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -42,6 +50,8 @@ interface LocalDirectoryModeDialogProps {
   value: LocalDirectoryExecutionMode;
   /** Set when worktree cannot be chosen; the option renders disabled with a reason. */
   unavailableReason?: WorktreeUnavailableReason;
+  /** ContextPRO fork: set when the tmux card cannot be chosen. */
+  tmuxUnavailableReason?: TmuxUnavailableReason;
   /** Server-side rejection to show inline (e.g. a 422 that only the API can detect). */
   errorMessage?: string;
   saving?: boolean;
@@ -65,6 +75,7 @@ export function LocalDirectoryModeDialog({
   path,
   value,
   unavailableReason,
+  tmuxUnavailableReason,
   errorMessage,
   saving = false,
   confirmLabel,
@@ -97,6 +108,7 @@ export function LocalDirectoryModeDialog({
           value={selected}
           onChange={setSelected}
           unavailableReason={unavailableReason}
+          tmuxUnavailableReason={tmuxUnavailableReason}
         />
 
         {errorMessage && (
@@ -127,6 +139,7 @@ interface LocalDirectoryModeOptionsProps {
   value: LocalDirectoryExecutionMode;
   onChange: (mode: LocalDirectoryExecutionMode) => void;
   unavailableReason?: WorktreeUnavailableReason;
+  tmuxUnavailableReason?: TmuxUnavailableReason;
 }
 
 /**
@@ -140,6 +153,7 @@ export function LocalDirectoryModeOptions({
   value,
   onChange,
   unavailableReason,
+  tmuxUnavailableReason,
 }: LocalDirectoryModeOptionsProps) {
   const { t } = useT("projects");
   const worktreeDisabled = unavailableReason !== undefined;
@@ -169,6 +183,22 @@ export function LocalDirectoryModeOptions({
               : undefined
         }
         onSelect={() => onChange("worktree")}
+      />
+      <ModeOption
+        icon={<Terminal className="size-4" />}
+        title={t(($) => $.resources.mode_tmux_title)}
+        description={t(($) => $.resources.mode_tmux_description)}
+        identifier="tmux"
+        selected={value === "tmux"}
+        disabled={tmuxUnavailableReason !== undefined}
+        disabledReason={
+          tmuxUnavailableReason === "runtime_no_tmux"
+            ? t(($) => $.resources.mode_tmux_needs_tmux)
+            : tmuxUnavailableReason === "server_outdated"
+              ? t(($) => $.resources.mode_tmux_needs_server_upgrade)
+              : undefined
+        }
+        onSelect={() => onChange("tmux")}
       />
     </div>
   );
