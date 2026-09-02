@@ -2338,6 +2338,62 @@ func TestVerifyCodeRejectsConfiguredDevCodeInProduction(t *testing.T) {
 	}
 }
 
+// Fork addition: this self-hosted instance runs with APP_ENV=production but is
+// internal-only and gated by Cloudflare Access, so a fixed login code is an
+// accepted trade-off there. Upstream ignores the fixed code in production
+// unconditionally; the fork honors it only behind an explicit second opt-in
+// so the upstream default stays safe for anyone who copies .env.example.
+func TestVerifyCodeAcceptsConfiguredDevCodeInProductionWithExplicitOptIn(t *testing.T) {
+	t.Setenv(devVerificationCodeEnv, "888888")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv(allowFixedCodeInProductionEnv, "true")
+
+	const email = "dev-code-production-optin-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
+		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
+	})
+
+	createVerificationCodeForTest(t, email, "123456")
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "888888"})
+	req := httptest.NewRequest("POST", "/auth/verify-code", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.VerifyCode(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("VerifyCode (production dev code with opt-in): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestVerifyCodeStillRejectsDevCodeInProductionWhenOptInIsFalse(t *testing.T) {
+	t.Setenv(devVerificationCodeEnv, "888888")
+	t.Setenv("APP_ENV", "production")
+	t.Setenv(allowFixedCodeInProductionEnv, "false")
+
+	const email = "dev-code-production-optout-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
+	})
+
+	createVerificationCodeForTest(t, email, "123456")
+
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "888888"})
+	req := httptest.NewRequest("POST", "/auth/verify-code", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.VerifyCode(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("VerifyCode (production dev code, opt-in false): expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestVerifyCodeWrongCode(t *testing.T) {
 	t.Setenv(devVerificationCodeEnv, "")
 

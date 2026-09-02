@@ -305,9 +305,16 @@ func main() {
 		slog.Warn("no email backend configured (RESEND_API_KEY and SMTP_HOST both empty) — verification codes will be printed to the log instead of emailed.")
 	}
 	if os.Getenv("MULTICA_DEV_VERIFICATION_CODE") != "" {
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
-			slog.Warn("MULTICA_DEV_VERIFICATION_CODE is set but ignored because APP_ENV=production.")
-		} else {
+		inProduction := strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
+		switch {
+		case inProduction && handler.FixedCodeAllowedInProduction():
+			// Fork-only opt-in (see handler.allowFixedCodeInProductionEnv): the
+			// operator accepted that every login on this instance takes the fixed
+			// code. Warn loudly so the choice is visible in every boot log.
+			slog.Warn("MULTICA_DEV_VERIFICATION_CODE is ENABLED in production because MULTICA_ALLOW_FIXED_CODE_IN_PRODUCTION=true — every login accepts the fixed code. Only acceptable on an internal instance behind an access gate.")
+		case inProduction:
+			slog.Warn("MULTICA_DEV_VERIFICATION_CODE is set but ignored because APP_ENV=production (set MULTICA_ALLOW_FIXED_CODE_IN_PRODUCTION=true to honor it on an internal, access-gated instance).")
+		default:
 			slog.Warn("MULTICA_DEV_VERIFICATION_CODE is enabled. Use it only for local development or private test instances.")
 		}
 	}

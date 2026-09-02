@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -39,6 +40,15 @@ var ErrSignupProhibited = SignupError{Message: "user registration is disabled on
 var ErrEmailNotAllowed = SignupError{Message: "email address or domain not allowed on this instance"}
 
 const devVerificationCodeEnv = "MULTICA_DEV_VERIFICATION_CODE"
+
+// allowFixedCodeInProductionEnv is a fork addition. Upstream ignores
+// MULTICA_DEV_VERIFICATION_CODE whenever APP_ENV=production, and the Docker
+// self-host stack pins production. This deployment is internal-only and sits
+// behind Cloudflare Access, so the operator chose a fixed login code anyway
+// (decision 2026-09-02). A second, separate variable keeps that an explicit
+// choice: copying .env.example still yields the upstream-safe behavior, and
+// the fixed code never leaks into production by accident.
+const allowFixedCodeInProductionEnv = "MULTICA_ALLOW_FIXED_CODE_IN_PRODUCTION"
 
 // supportedLanguages mirrors `SUPPORTED_LOCALES` in packages/core/i18n/types.ts.
 // Keep both lists in sync when adding a locale — the user-controlled `language`
@@ -121,7 +131,7 @@ func generateCode() (string, error) {
 }
 
 func isDevVerificationCode(code string) bool {
-	if isProductionEnv() {
+	if isProductionEnv() && !FixedCodeAllowedInProduction() {
 		return false
 	}
 
@@ -135,6 +145,16 @@ func isDevVerificationCode(code string) bool {
 
 func isProductionEnv() bool {
 	return strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
+}
+
+// FixedCodeAllowedInProduction reports whether the operator explicitly opted
+// in to honoring MULTICA_DEV_VERIFICATION_CODE under APP_ENV=production.
+// Parsed with strconv.ParseBool like the other boolean flags in cmd/server;
+// an unset or unparsable value counts as "not enabled" so a typo fails closed.
+// Exported so cmd/server can print an accurate startup warning.
+func FixedCodeAllowedInProduction() bool {
+	v, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(allowFixedCodeInProductionEnv)))
+	return err == nil && v
 }
 
 func isSixDigitCode(code string) bool {
