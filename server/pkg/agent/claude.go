@@ -771,6 +771,61 @@ func buildClaudeArgs(opts ExecOptions, logger *slog.Logger) []string {
 	return args
 }
 
+// claudeInteractiveBlockedArgs are the flags a user-supplied custom_args list
+// may not smuggle into an INTERACTIVE launch (tmux mode, ContextPRO fork).
+// Everything that turns the session headless or removes the permission prompt
+// is blocked: the whole point of tmux mode is a human watching and approving in
+// the pane. Session selection flags are blocked too because the runner owns the
+// conversation lifecycle.
+var claudeInteractiveBlockedArgs = map[string]blockedArgMode{
+	"-p":                             blockedStandalone,
+	"--print":                        blockedStandalone,
+	"--output-format":                blockedWithValue,
+	"--input-format":                 blockedWithValue,
+	"--permission-mode":              blockedWithValue,
+	"--dangerously-skip-permissions": blockedStandalone,
+	"--disallowedTools":              blockedWithValue,
+	"--mcp-config":                   blockedWithValue,
+	"--effort":                       blockedWithValue,
+	"--resume":                       blockedWithValue,
+	"--continue":                     blockedStandalone,
+}
+
+// BuildClaudeInteractiveArgs builds the argument list for an interactive Claude
+// Code session (tmux mode). It is buildClaudeArgs minus every headless flag:
+// no -p, no stream-json, no bypassPermissions, no AskUserQuestion ban. The
+// prompt is NOT included; the caller appends it as the positional argument.
+// mcpConfigPath is the file the caller wrote from opts.McpConfig ("" = none).
+func BuildClaudeInteractiveArgs(opts ExecOptions, mcpConfigPath string, logger *slog.Logger) []string {
+	var args []string
+	if mcpConfigPath != "" {
+		args = append(args, "--mcp-config", mcpConfigPath)
+		if hasManagedMcpConfig(opts.McpConfig) {
+			args = append(args, "--strict-mcp-config")
+		}
+	}
+	if opts.Model != "" {
+		args = append(args, "--model", opts.Model)
+	}
+	if opts.ThinkingLevel != "" {
+		args = append(args, "--effort", opts.ThinkingLevel)
+	}
+	blocked := claudeInteractiveBlockedArgs
+	if opts.ClaudeSettingsPath != "" {
+		blocked = make(map[string]blockedArgMode, len(claudeInteractiveBlockedArgs)+1)
+		for key, mode := range claudeInteractiveBlockedArgs {
+			blocked[key] = mode
+		}
+		blocked["--settings"] = blockedWithValue
+	}
+	args = append(args, filterCustomArgs(opts.ExtraArgs, blocked, logger)...)
+	args = append(args, filterCustomArgs(opts.CustomArgs, blocked, logger)...)
+	if opts.ClaudeSettingsPath != "" {
+		args = append(args, "--settings", opts.ClaudeSettingsPath)
+	}
+	return args
+}
+
 func writeClaudeInput(w io.Writer, prompt string) error {
 	data, err := buildClaudeInput(prompt)
 	if err != nil {
