@@ -2943,6 +2943,11 @@ const RuntimeModelSchema = z.object({
     .transform((v) => v ?? undefined),
   service_tiers: z.array(RuntimeModelServiceTierSchema).optional(),
   supports_explicit_standard_service_tier: z.boolean().optional(),
+  // Advertised-but-unrunnable row (MUL-6961). Optional on purpose: a daemon
+  // older than this field sends neither key, and every row stays selectable —
+  // the behaviour before disabled rows existed.
+  disabled: z.boolean().optional(),
+  disabled_reason: z.string().optional(),
 }).loose();
 
 export const RuntimeModelListRequestSchema = z.object({

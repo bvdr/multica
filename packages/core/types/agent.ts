@@ -1109,6 +1109,21 @@ export interface RuntimeModel {
    * a new client stays safe when connected to an older daemon.
    */
   supports_explicit_standard_service_tier?: boolean;
+  /**
+   * The runtime named this model but will not run it on that host — today only
+   * Claude Code, reporting a model that needs a newer CLI than the installed
+   * one. The picker must render it unselectable rather than drop it: an absent
+   * row reads as "Multica does not support this model", when the truth is the
+   * user's CLI does not yet. Missing means false, so an older daemon that never
+   * sends the field keeps every row selectable exactly as before (MUL-6961).
+   */
+  disabled?: boolean;
+  /**
+   * The runtime's own remedy for a disabled row, e.g. "Update to 2.1.255+ to
+   * use Fable 5.1". Rendered verbatim — it is upstream copy, which is why
+   * Multica does not have to track per-model version floors itself.
+   */
+  disabled_reason?: string;
 }
 
 export interface RuntimeModelServiceTier {

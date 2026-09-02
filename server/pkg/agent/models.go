@@ -44,6 +44,17 @@ type Model struct {
 	// per-model and Claude's `--effort` superset has known per-model gaps
 	// (`xhigh` is Opus-only, `max` is session-only). See MUL-2339.
 	Thinking *ModelThinking `json:"thinking,omitempty"`
+	// Disabled marks a model the runtime advertises but will not run in this
+	// installation — today only Claude Code, which reports a model that needs a
+	// newer CLI than the one installed. Such a row is carried rather than
+	// dropped because absence and unavailability read identically in a picker:
+	// hiding it tells the user Multica does not support the model, when the
+	// truth is that their CLI does not yet. DisabledReason is the runtime's own
+	// remedy ("Update to 2.1.255+ to use Fable 5.1"), passed through verbatim
+	// so the copy stays right without Multica tracking upstream version floors
+	// (MUL-6961).
+	Disabled       bool   `json:"disabled,omitempty"`
+	DisabledReason string `json:"disabled_reason,omitempty"`
 }
 
 // ModelServiceTier is one runtime-native execution tier advertised for a
@@ -122,15 +133,14 @@ const modelCacheTTL = 60 * time.Second
 
 // ListModels returns the models supported by the given agent provider.
 // For providers with a known static catalog it returns the baked-in
-// list; for providers with a CLI discovery mechanism (codex, opencode,
-// pi, openclaw) it shells out with caching and falls back where the
+// list; for providers with a CLI discovery mechanism (claude, codex,
+// opencode, pi, openclaw) it shells out with caching and falls back where the
 // provider has a safe static catalog.
 //
-// For claude, codex, opencode, pi, and kimi, the catalog is augmented with
-// per-model thinking-level options discovered from the local CLI. Codex
-// discovery failures fall back to a model + thinking snapshot; providers
-// without a safe fallback leave Thinking nil, which makes the UI hide the
-// thinking picker.
+// For claude, codex, opencode, pi, and kimi, the catalog carries per-model
+// thinking-level options taken from the local CLI. Claude and Codex discovery
+// failures fall back to a model + thinking snapshot; providers without a safe
+// fallback leave Thinking nil, which makes the UI hide the thinking picker.
 //
 // runtimeCmd lets the caller point at a non-default binary; pass the zero
 // Command to use the provider's default name on PATH. Its launch prefix — a
@@ -156,11 +166,9 @@ func ListModels(ctx context.Context, providerType string, runtimeCmd Command) (C
 	}
 	switch providerType {
 	case "claude":
-		models := claudeStaticModels()
-		annotateClaudeThinking(ctx, models, runtimeCmd)
-		// Claude's catalog is static by design, not by failure: there is no
-		// discovery step to fall back from, so this is authoritative.
-		return Catalog{Models: models}, nil
+		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
+			return discoverClaudeCatalog(ctx, runtimeCmd), nil
+		})
 	case "codex":
 		return cachedDiscovery(discoveryCacheKey(providerType, runtimeCmd), func() (Catalog, error) {
 			return discovered(discoverCodexModels(ctx, runtimeCmd), nil)

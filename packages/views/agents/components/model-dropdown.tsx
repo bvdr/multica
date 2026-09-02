@@ -90,8 +90,13 @@ export function ModelDropdown({
   }, [grouped, search]);
 
   const trimmedSearch = search.trim();
+  // Disabled rows are excluded deliberately: they are not something the user
+  // can pick, so letting one count as an exact match would suppress the
+  // manual-entry action and leave the search with no way forward at all.
   const exactMatch = models.some(
-    (m) => m.id === trimmedSearch || m.label === trimmedSearch,
+    (m) =>
+      m.disabled !== true &&
+      (m.id === trimmedSearch || m.label === trimmedSearch),
   );
   const canCreate = trimmedSearch.length > 0 && !exactMatch;
 
@@ -193,28 +198,56 @@ export function ModelDropdown({
                       {provider}
                     </div>
                   )}
-                  {list.map((m) => (
-                    <button
-                      type="button"
-                      key={m.id}
-                      onClick={() => select(m.id)}
-                      className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body transition-colors ${
-                        m.id === value ? "bg-accent" : "hover:bg-accent/50"
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">{m.label}</div>
-                        {m.label !== m.id && (
-                          <div className="truncate text-caption text-muted-foreground">
-                            {m.id}
+                  {list.map((m) =>
+                    m.disabled === true ? (
+                      /* The runtime named this model but cannot run it here —
+                         a Claude Code build older than the model needs. Shown
+                         rather than filtered, because a missing row reads as
+                         "Multica doesn't support this", while the real answer
+                         is an upgrade the user can perform. Rendered as a div,
+                         not a disabled button: it is never focusable and never
+                         selectable, and the reason below is the actionable
+                         part, so it stays at readable contrast instead of
+                         being dimmed along with the label. */
+                      <div
+                        key={m.id}
+                        aria-disabled="true"
+                        className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left text-body"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium text-muted-foreground">
+                            {m.label}
                           </div>
-                        )}
+                          {m.disabled_reason && (
+                            <div className="text-caption text-muted-foreground">
+                              {m.disabled_reason}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      {m.id === value && (
-                        <Check className="h-4 w-4 shrink-0 text-primary" />
-                      )}
-                    </button>
-                  ))}
+                    ) : (
+                      <button
+                        type="button"
+                        key={m.id}
+                        onClick={() => select(m.id)}
+                        className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body transition-colors ${
+                          m.id === value ? "bg-accent" : "hover:bg-accent/50"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium">{m.label}</div>
+                          {m.label !== m.id && (
+                            <div className="truncate text-caption text-muted-foreground">
+                              {m.id}
+                            </div>
+                          )}
+                        </div>
+                        {m.id === value && (
+                          <Check className="h-4 w-4 shrink-0 text-primary" />
+                        )}
+                      </button>
+                    ),
+                  )}
                 </div>
               ))}
 

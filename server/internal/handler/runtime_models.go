@@ -88,6 +88,12 @@ type ModelListRequest struct {
 // thinking_level selector. Older daemons (pre-2026-05) won't send this
 // field, which is fine: the UI hides the selector and the agent runs
 // with the runtime default.
+//
+// `Disabled` marks a model the runtime named but will not run on that host —
+// Claude Code reports one needing a newer CLI this way. The row is forwarded
+// rather than filtered so the picker can grey it out and show
+// `DisabledReason`, the runtime's own upgrade hint; an omitted row would be
+// indistinguishable from "Multica does not support this model" (MUL-6961).
 type ModelEntry struct {
 	ID                                  string             `json:"id"`
 	Label                               string             `json:"label"`
@@ -96,6 +102,8 @@ type ModelEntry struct {
 	Thinking                            *ModelThinking     `json:"thinking,omitempty"`
 	ServiceTiers                        []ModelServiceTier `json:"service_tiers,omitempty"`
 	SupportsExplicitStandardServiceTier bool               `json:"supports_explicit_standard_service_tier,omitempty"`
+	Disabled                            bool               `json:"disabled,omitempty"`
+	DisabledReason                      string             `json:"disabled_reason,omitempty"`
 }
 
 type ModelServiceTier struct {

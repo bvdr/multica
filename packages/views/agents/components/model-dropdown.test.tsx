@@ -136,4 +136,66 @@ describe("ModelDropdown", () => {
     fireEvent.click(await screen.findByText(/vertex\/gemini-3\.1-pro/));
     expect(onChange).toHaveBeenCalledWith("vertex/gemini-3.1-pro");
   });
+
+  // MUL-6961: Claude Code reports a model its own version cannot run as a
+  // disabled row rather than omitting it. Picking one is a guaranteed 400, so
+  // the row must be visible (otherwise the user reads it as "Multica doesn't
+  // support Fable 5.1") and inert (otherwise nothing has been fixed).
+  describe("models the runtime cannot run", () => {
+    const WITH_DISABLED: RuntimeModelsResult = {
+      models: [
+        { id: "claude-fable-5", label: "Fable", provider: "anthropic" },
+        {
+          id: "cc-update-required-1",
+          label: "Fable 5.1 (disabled)",
+          provider: "anthropic",
+          disabled: true,
+          disabled_reason: "Update to 2.1.255+ to use Fable 5.1",
+        },
+      ],
+      supported: true,
+    };
+
+    it("shows the row with the runtime's upgrade hint but refuses to select it", async () => {
+      discovery = async () => WITH_DISABLED;
+      const { container, onChange } = renderDropdown();
+      openDropdown(container);
+
+      const row = await screen.findByText("Fable 5.1 (disabled)");
+      expect(
+        screen.getByText("Update to 2.1.255+ to use Fable 5.1"),
+      ).toBeTruthy();
+
+      fireEvent.click(row);
+      expect(onChange).not.toHaveBeenCalled();
+      // Nothing focusable or pressable was rendered for it.
+      expect(row.closest("button")).toBeNull();
+      expect(row.closest('[aria-disabled="true"]')).toBeTruthy();
+
+      // The model this CLI *can* run is still a normal pick.
+      fireEvent.click(screen.getByText("Fable"));
+      expect(onChange).toHaveBeenCalledWith("claude-fable-5");
+    });
+
+    it("does not let a disabled row suppress manual entry of its name", async () => {
+      discovery = async () => WITH_DISABLED;
+      const { container, onChange } = renderDropdown();
+      openDropdown(container);
+      await screen.findByText("Fable 5.1 (disabled)");
+
+      const input = screen.getByPlaceholderText(
+        enAgents.pickers.model_search_placeholder,
+      );
+      fireEvent.change(input, {
+        target: { value: "Fable 5.1 (disabled)" },
+      });
+
+      // An unpickable row must not count as an exact match — that would leave
+      // the search with neither a selectable result nor the create action.
+      fireEvent.click(
+        await screen.findByText('Use "Fable 5.1 (disabled)"'),
+      );
+      expect(onChange).toHaveBeenCalledWith("Fable 5.1 (disabled)");
+    });
+  });
 });

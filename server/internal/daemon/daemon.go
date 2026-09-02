@@ -4448,6 +4448,12 @@ func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, requestID stri
 		Thinking                            *modelThinkingWire     `json:"thinking,omitempty"`
 		ServiceTiers                        []modelServiceTierWire `json:"service_tiers,omitempty"`
 		SupportsExplicitStandardServiceTier bool                   `json:"supports_explicit_standard_service_tier,omitempty"`
+		// Advertised-but-unavailable rows: the runtime named a model it will
+		// not run here (Claude Code reporting one that needs a newer CLI). The
+		// picker greys them out with the reason instead of hiding them, so the
+		// user sees the remedy rather than an unexplained gap (MUL-6961).
+		Disabled       bool   `json:"disabled,omitempty"`
+		DisabledReason string `json:"disabled_reason,omitempty"`
 	}
 	wire := make([]modelWire, 0, len(models))
 	for _, m := range models {
@@ -4457,6 +4463,8 @@ func (d *Daemon) handleModelList(ctx context.Context, rt Runtime, requestID stri
 			Provider:                            m.Provider,
 			Default:                             m.Default,
 			SupportsExplicitStandardServiceTier: m.SupportsExplicitStandardServiceTier,
+			Disabled:                            m.Disabled,
+			DisabledReason:                      m.DisabledReason,
 		}
 		if m.Thinking != nil {
 			levels := make([]thinkingLevelWire, 0, len(m.Thinking.SupportedLevels))
