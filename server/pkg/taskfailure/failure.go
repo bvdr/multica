@@ -26,7 +26,8 @@
 //     queued_expired, runtime_offline, runtime_reconnect_timeout,
 //     runtime_recovery, timeout, iteration_limit, agent_blocked,
 //     api_invalid_request, skill_bundle_unavailable,
-//     runtime_cli_timeout, invalid_task_identity
+//     runtime_cli_timeout, environment_prepare_failed,
+//     invalid_task_identity
 //
 //   - 14 agent-side values (with `agent_error.` prefix) produced by
 //     Classify(rawError) when the agent process surfaced an error string.
@@ -131,6 +132,31 @@ const (
 	// taskRunFailureReason in daemon/daemon.go.
 	ReasonRuntimeCLITimeout Reason = "runtime_cli_timeout"
 
+	// ReasonEnvironmentPrepareFailed: the daemon could not build or re-open
+	// the task's execution environment on this host — the workspace
+	// directory, its overlay homes, and the per-task config files — so the
+	// agent process was never launched. Every cause is local to the machine
+	// running the daemon: a full volume, a read-only or permission-denied
+	// workspaces root, a directory another process still holds open
+	// (Windows), an I/O error on the underlying disk.
+	//
+	// Platform-side, and that is the point (#7913). Before this reason
+	// existed the wrapped OS error went through Classify — a classifier
+	// written to read agent and provider output — and landed somewhere in
+	// agent_error.*: today the catchall, historically provider_server_error,
+	// which sent one report's diagnosis at an LLM vendor for hours. The task
+	// never reached an agent, so no value in that namespace can be correct,
+	// and any fleet health read grouping by the agent_error.* prefix
+	// over-reports agent problems by exactly these rows.
+	//
+	// Deliberately NOT retryable: a full disk or a denied permission
+	// reproduces identically on the next attempt, and preparation already
+	// waits out the one transient case it knows about (a prior run still
+	// holding the directory) before it fails. Written by
+	// taskRunFailureReason in daemon/daemon.go; resume-safe, because no
+	// session was touched.
+	ReasonEnvironmentPrepareFailed Reason = "environment_prepare_failed"
+
 	// ReasonInvalidTaskIdentity: the daemon refused a claimed task because
 	// the task row's authoritative agent_id was absent or disagreed with the
 	// nested agent payload. The agent process is never launched. This is
@@ -213,7 +239,7 @@ const (
 	ReasonAgentUnknown Reason = "agent_error.unknown"
 )
 
-// allReasons is the canonical ordered list of the 25 reasons. Order is
+// allReasons is the canonical ordered list of the 26 reasons. Order is
 // stable so callers (e.g. Prometheus collectors that pre-warm series via
 // AllReasons) can build deterministic label sets across restarts.
 //
@@ -234,6 +260,7 @@ var allReasons = []Reason{
 	ReasonAPIInvalidRequest,
 	ReasonSkillBundleUnavailable,
 	ReasonRuntimeCLITimeout,
+	ReasonEnvironmentPrepareFailed,
 	ReasonInvalidTaskIdentity,
 
 	// Agent process side: provider errors.
