@@ -63,9 +63,23 @@ CREATE EXTENSION IF NOT EXISTS pg_bigm;
 DROP INDEX CONCURRENTLY IF EXISTS idx_issue_properties_bigm;
 CREATE INDEX CONCURRENTLY idx_issue_properties_bigm
     ON issue USING gin (LOWER(properties::text) gin_bigm_ops);
+ANALYZE issue;
 ```
+
+The `ANALYZE` is not optional and not a formality. Building an expression index
+does not collect statistics for its expression, and until they exist the
+planner has nothing to judge the index by: it falls back to a pattern-length
+heuristic that estimates a single-character needle at 5% of the table and
+leaves `contains` on a sequential scan, with the index built, valid and unused.
+Migration 447 does this after 446; an out-of-band build has to do it itself.
 
 Keep the expression exactly as written: the predicate is
 `LOWER(properties::text) LIKE LOWER(...)`, and an `ILIKE`-shaped or
 non-lowered index would never be used (pg_bigm 1.2 on RDS has no ILIKE index
 scan — the constraint migration 036 hit).
+
+Confirm the statistics landed:
+
+```sql
+SELECT count(*) FROM pg_statistic WHERE starelid = 'idx_issue_properties_bigm'::regclass;
+```
