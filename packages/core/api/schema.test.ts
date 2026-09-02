@@ -1370,3 +1370,22 @@ describe("workspace subscription contract", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// workspace.default_local_directory (ContextPRO fork)
+// ---------------------------------------------------------------------------
+import { parseDefaultLocalDirectory } from "./schemas";
+
+describe("workspace default_local_directory contract", () => {
+  it("accepts every execution mode including tmux", () => {
+    const ref = { local_path: "/Users/dev/app", daemon_id: "d-1", label: "App", execution_mode: "tmux" };
+    expect(parseDefaultLocalDirectory(ref)).toEqual(ref);
+  });
+  it("falls back to null for absent, null, or malformed values", () => {
+    expect(parseDefaultLocalDirectory(undefined)).toBeNull();
+    expect(parseDefaultLocalDirectory(null)).toBeNull();
+    // An old server or a corrupted row must never look like a configured folder.
+    expect(parseDefaultLocalDirectory({ local_path: 5, daemon_id: "d" })).toBeNull();
+    expect(parseDefaultLocalDirectory({ local_path: "/x", daemon_id: "d", execution_mode: "screen" })).toBeNull();
+  });
+});

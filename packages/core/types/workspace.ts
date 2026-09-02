@@ -1,3 +1,5 @@
+import type { LocalDirectoryResourceRef } from "./project";
+
 export type MemberRole = "owner" | "admin" | "member";
 
 export interface WorkspaceRepo {
@@ -13,6 +15,12 @@ export interface Workspace {
   context: string | null;
   settings: Record<string, unknown>;
   repos: WorkspaceRepo[];
+  /**
+   * Workspace-wide fallback folder for tasks (ContextPRO fork). Same ref shape
+   * as a project's local_directory resource; null when unset. Projects with
+   * their own local_directory resource ignore it.
+   */
+  default_local_directory: LocalDirectoryResourceRef | null;
   issue_prefix: string;
   avatar_url: string | null;
   created_at: string;

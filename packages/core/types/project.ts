@@ -85,7 +85,7 @@ export interface GithubRepoResourceRef {
  * Absent means `in_place`: resources created before the mode existed keep their
  * original behavior, so this is optional rather than defaulted on the server.
  */
-export type LocalDirectoryExecutionMode = "in_place" | "worktree";
+export type LocalDirectoryExecutionMode = "in_place" | "worktree" | "tmux";
 
 export interface LocalDirectoryResourceRef {
   local_path: string;

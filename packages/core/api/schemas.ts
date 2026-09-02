@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { parseWithFallback } from "./schema";
+import type { LocalDirectoryResourceRef } from "../types/project";
 import type {
   AgentBuilderRuntimeSwitch,
   AgentBuilderSession,
@@ -3331,3 +3333,28 @@ export const EMPTY_JOIN_SHARE_LINK_RESPONSE: {
   workspace_id: "",
   workspace_slug: "",
 };
+
+// ---------------------------------------------------------------------------
+// Workspace default local directory (ContextPRO fork)
+// ---------------------------------------------------------------------------
+
+export const LocalDirectoryRefSchema = z.object({
+  local_path: z.string().min(1),
+  daemon_id: z.string().min(1),
+  label: z.string().optional(),
+  execution_mode: z.enum(["in_place", "worktree", "tmux"]).optional(),
+});
+
+/**
+ * workspace.default_local_directory as the UI may trust it. Older servers omit
+ * the field and a corrupted row must not look like a configured folder, so
+ * anything that is not a well-formed ref parses to null.
+ */
+export function parseDefaultLocalDirectory(raw: unknown): LocalDirectoryResourceRef | null {
+  return parseWithFallback<LocalDirectoryResourceRef | null>(
+    raw ?? null,
+    LocalDirectoryRefSchema.nullable(),
+    null,
+    { endpoint: "workspace.default_local_directory" },
+  );
+}

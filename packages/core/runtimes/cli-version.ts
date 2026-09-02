@@ -151,6 +151,7 @@ function meetsMinCliVersion(detected: string | undefined | null, minimum: string
  * `server/pkg/protocol/messages.go`.
  */
 export const LOCAL_WORKTREE_CAPABILITY = "local-worktree-v1";
+export const LOCAL_TMUX_CAPABILITY = "local-tmux-v1";
 
 /** Minimal runtime shape this module needs; keeps callers from importing types. */
 type RuntimeCapabilityRow = {
@@ -182,9 +183,10 @@ type RuntimeCapabilityRow = {
  * its metadata survives, so a machine that once advertised the capability and
  * then downgraded would otherwise keep vouching for itself forever.
  */
-export function runtimeAdvertisesLocalWorktree(
+export function runtimeAdvertisesCapability(
   runtimes: RuntimeCapabilityRow[],
   daemonId: string | null | undefined,
+  capability: string,
 ): boolean {
   if (!daemonId) return false;
   let newest: RuntimeCapabilityRow | undefined;
@@ -202,5 +204,20 @@ export function runtimeAdvertisesLocalWorktree(
   const metadata = newest?.metadata;
   if (!metadata || typeof metadata !== "object") return false;
   const caps = (metadata as { capabilities?: unknown }).capabilities;
-  return Array.isArray(caps) && caps.includes(LOCAL_WORKTREE_CAPABILITY);
+  return Array.isArray(caps) && caps.includes(capability);
+}
+
+export function runtimeAdvertisesLocalWorktree(
+  runtimes: RuntimeCapabilityRow[],
+  daemonId: string | null | undefined,
+): boolean {
+  return runtimeAdvertisesCapability(runtimes, daemonId, LOCAL_WORKTREE_CAPABILITY);
+}
+
+/** ContextPRO fork: whether the daemon's newest row advertises tmux mode. */
+export function runtimeAdvertisesLocalTmux(
+  runtimes: RuntimeCapabilityRow[],
+  daemonId: string | null | undefined,
+): boolean {
+  return runtimeAdvertisesCapability(runtimes, daemonId, LOCAL_TMUX_CAPABILITY);
 }

@@ -1,4 +1,6 @@
 import { configStore } from "../config";
+import type { LocalDirectoryResourceRef } from "../types/project";
+import { parseDefaultLocalDirectory } from "./schemas";
 import type {
   Issue,
   IssuePriority,
@@ -659,6 +661,18 @@ function dingTalkGroupSearch(params: ListDingTalkGroupsParams): string {
   if (params.limit !== undefined) search.set("limit", String(params.limit));
   const encoded = search.toString();
   return encoded ? `?${encoded}` : "";
+}
+
+// Every workspace read passes its default folder through the schema so UI code
+// can rely on `default_local_directory` being a ref or null (never undefined).
+// ContextPRO fork.
+function withParsedDefaultLocalDirectory(ws: Workspace): Workspace {
+  return {
+    ...ws,
+    default_local_directory: parseDefaultLocalDirectory(
+      (ws as { default_local_directory?: unknown }).default_local_directory,
+    ),
+  };
 }
 
 export class ApiClient {
@@ -2535,25 +2549,26 @@ export class ApiClient {
 
   // Workspaces
   async listWorkspaces(): Promise<Workspace[]> {
-    return this.fetch("/api/workspaces");
+    const raw = await this.fetch<Workspace[]>("/api/workspaces");
+    return raw.map(withParsedDefaultLocalDirectory);
   }
 
   async getWorkspace(id: string): Promise<Workspace> {
-    return this.fetch(`/api/workspaces/${id}`);
+    return withParsedDefaultLocalDirectory(await this.fetch<Workspace>(`/api/workspaces/${id}`));
   }
 
   async createWorkspace(data: { name: string; slug: string; description?: string; context?: string; issue_prefix?: string }): Promise<Workspace> {
-    return this.fetch("/api/workspaces", {
+    return withParsedDefaultLocalDirectory(await this.fetch<Workspace>("/api/workspaces", {
       method: "POST",
       body: JSON.stringify(data),
-    });
+    }));
   }
 
-  async updateWorkspace(id: string, data: { name?: string; description?: string; context?: string; settings?: Record<string, unknown>; repos?: WorkspaceRepo[]; issue_prefix?: string; avatar_url?: string }): Promise<Workspace> {
-    return this.fetch(`/api/workspaces/${id}`, {
+  async updateWorkspace(id: string, data: { name?: string; description?: string; context?: string; settings?: Record<string, unknown>; repos?: WorkspaceRepo[]; issue_prefix?: string; avatar_url?: string; default_local_directory?: LocalDirectoryResourceRef | null }): Promise<Workspace> {
+    return withParsedDefaultLocalDirectory(await this.fetch<Workspace>(`/api/workspaces/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
-    });
+    }));
   }
 
   async listPluginInstallations(workspaceId: string): Promise<PluginInstallationListResponse> {
