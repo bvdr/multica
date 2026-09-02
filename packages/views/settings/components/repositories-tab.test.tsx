@@ -142,6 +142,14 @@ function I18nWrapper({ children }: { children: ReactNode }) {
   );
 }
 
+// The tab also hosts the workspace default-folder section (ContextPRO fork),
+// whose path input is a textbox too. Repository assertions count only their own.
+function repoTextboxes(): HTMLInputElement[] {
+  return (screen.getAllByRole("textbox") as HTMLInputElement[]).filter(
+    (input) => input.id !== "default-folder-path",
+  );
+}
+
 describe("RepositoriesTab — automatic updates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -187,7 +195,7 @@ describe("RepositoriesTab — automatic updates", () => {
   it("renders persisted repositories as the same shared input controls used for editing", () => {
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
 
-    const inputs = screen.getAllByRole("textbox") as HTMLInputElement[];
+    const inputs = repoTextboxes();
     expect(inputs).toHaveLength(2);
     expect(inputs[0]!.value).toBe("https://github.com/multica-ai/multica");
     expect(screen.queryByRole("button", { name: /^Save$/ })).toBeNull();
@@ -229,7 +237,7 @@ describe("RepositoriesTab — automatic updates", () => {
     render(<RepositoriesTab />, { wrapper: I18nWrapper });
 
     await user.click(screen.getByRole("button", { name: /Add repository/ }));
-    expect(screen.getAllByRole("textbox")).toHaveLength(4);
+    expect(repoTextboxes()).toHaveLength(4);
     vi.advanceTimersByTime(1000);
     expect(mockUpdateWorkspace).not.toHaveBeenCalled();
 

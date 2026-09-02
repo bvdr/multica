@@ -60,6 +60,7 @@ import {
   SettingsTab,
 } from "./settings-layout";
 import { useAutoSave } from "./use-auto-save";
+import { DefaultLocalDirectorySection } from "./default-local-directory-section";
 import { GitHubMark } from "./github-mark";
 
 const EMPTY_REPOSITORIES: WorkspaceRepo[] = [];
@@ -474,6 +475,8 @@ export function RepositoriesTab() {
           )}
         </SettingsCard>
       </SettingsSection>
+
+      <DefaultLocalDirectorySection canManage={canManageWorkspace} />
 
       <Dialog
         open={githubPickerOpen}
