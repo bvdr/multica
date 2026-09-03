@@ -39,9 +39,16 @@ func TestShellQuote(t *testing.T) {
 
 func TestRenderTmuxRunScriptLaunchesInteractiveClaudeAndRecordsExitCode(t *testing.T) {
 	t.Parallel()
-	script := renderTmuxRunScript("/Users/dev/app", "/usr/local/bin/claude", []string{"--model", "claude-opus-5"}, "/root/.tmux-tasks/t1/prompt.md", "/root/.tmux-tasks/t1/exit-code")
+	env := map[string]string{"MULTICA_TOKEN": "mat_secret", "MULTICA_DAEMON_PORT": "8481", "PATH": "/opt/homebrew/bin:/usr/bin", "bad key": "x"}
+	script := renderTmuxRunScript("/Users/dev/app", "/usr/local/bin/claude", []string{"--model", "claude-opus-5"}, "/root/.tmux-tasks/t1/prompt.md", "/root/.tmux-tasks/t1/exit-code", env)
 	for _, want := range []string{
 		"#!/bin/sh",
+		// The per-task environment the headless launch injects (task token,
+		// daemon port, private config root, PATH) must reach the interactive
+		// session too, or the multica CLI inside it refuses to authenticate.
+		"export MULTICA_DAEMON_PORT='8481'",
+		"export MULTICA_TOKEN='mat_secret'",
+		"export PATH='/opt/homebrew/bin:/usr/bin'",
 		"cd '/Users/dev/app' ||",
 		`'/usr/local/bin/claude' '--model' 'claude-opus-5' "$(cat '/root/.tmux-tasks/t1/prompt.md')"`,
 		`code=$?`,
@@ -52,10 +59,14 @@ func TestRenderTmuxRunScriptLaunchesInteractiveClaudeAndRecordsExitCode(t *testi
 			t.Errorf("script missing %q:\n%s", want, script)
 		}
 	}
-	for _, forbidden := range []string{" -p ", "--output-format", "bypassPermissions"} {
+	for _, forbidden := range []string{" -p ", "--output-format", "bypassPermissions", "bad key"} {
 		if strings.Contains(script, forbidden) {
-			t.Errorf("script contains headless flag %q", forbidden)
+			t.Errorf("script contains %q", forbidden)
 		}
+	}
+	// Exports come before the cd so a relative PATH entry cannot change meaning.
+	if strings.Index(script, "export MULTICA_TOKEN") > strings.Index(script, "cd '/Users/dev/app'") {
+		t.Error("environment exports must precede the cd")
 	}
 }
 
@@ -193,7 +204,7 @@ func TestRunTmuxTaskSpawnsSessionAndCompletesOnExitZero(t *testing.T) {
 	var runErr error
 	go func() {
 		defer close(done)
-		result, runErr = d.runTmuxTask(context.Background(), task, env, assignment, "/opt/fake/claude", agent.ExecOptions{Model: "claude-opus-5"}, "Do the thing", slog.Default())
+		result, runErr = d.runTmuxTask(context.Background(), task, env, assignment, "/opt/fake/claude", agent.ExecOptions{Model: "claude-opus-5"}, map[string]string{"MULTICA_TOKEN": "mat_demo"}, "Do the thing", slog.Default())
 	}()
 
 	// Wait for the session to exist, then simulate Claude finishing.
@@ -211,6 +222,9 @@ func TestRunTmuxTaskSpawnsSessionAndCompletesOnExitZero(t *testing.T) {
 	}
 	script, _ := os.ReadFile(filepath.Join(taskDir, "run.sh"))
 	// The interactive launch always pre-authorises the multica CLI first.
+	if !strings.Contains(string(script), "export MULTICA_TOKEN='mat_demo'") {
+		t.Fatalf("run.sh does not export the task environment:\n%s", script)
+	}
 	if !strings.Contains(string(script), "'/opt/fake/claude' '--allowedTools' 'Bash(multica:*)' '--model' 'claude-opus-5'") {
 		t.Fatalf("run.sh does not launch claude interactively:\n%s", script)
 	}

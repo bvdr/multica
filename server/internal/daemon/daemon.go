@@ -7727,7 +7727,7 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	// interactive session in the prepared folder. Everything above (folder
 	// validation, execenv.Prepare, prompt, MCP config, model) is shared.
 	if localAssignment != nil && localAssignment.UsesTmux() {
-		return d.runTmuxTask(ctx, task, env, localAssignment, entry.Path, execOpts, prompt, taskLog)
+		return d.runTmuxTask(ctx, task, env, localAssignment, entry.Path, execOpts, agentEnv, prompt, taskLog)
 	}
 
 	taskLog.Debug("invoking backend",
