@@ -30,7 +30,7 @@ case "$1" in
   new-session) shift; while [ "$1" != "-s" ]; do shift; done; touch "$FAKE_TMUX_SESSIONS/$2"; exit 0 ;;
   has-session) name="${3#=}"; [ -f "$FAKE_TMUX_SESSIONS/$name" ] && exit 0 || exit 1 ;;
   kill-session) name="${3#=}"; rm -f "$FAKE_TMUX_SESSIONS/$name"; exit 0 ;;
-  pipe-pane) exit 0 ;;
+  pipe-pane) case "$4" in =*:) exit 0 ;; *) echo "can't find pane: $4" >&2; exit 1 ;; esac ;;
   *) echo "unexpected: $*" >&2; exit 2 ;;
 esac
 `
@@ -74,7 +74,7 @@ func TestExecTmuxDrivesSessionsThroughTheBinary(t *testing.T) {
 	for _, want := range []string{
 		"new-session -d -s ctx-x-1 -c /Users/dev/app -- sh /tmp/run.sh",
 		"has-session -t =ctx-x-1",
-		"pipe-pane -o -t =ctx-x-1 cat >> '/tmp/transcript.log'",
+		"pipe-pane -o -t =ctx-x-1: cat >> '/tmp/transcript.log'",
 		"kill-session -t =ctx-x-1",
 	} {
 		if !strings.Contains(string(got), want) {

@@ -51,9 +51,20 @@ func (t *execTmux) NewSession(ctx context.Context, name, folder string, command 
 
 // PipePane tees everything the pane prints to transcriptPath. -o only starts a
 // pipe when none is running, so re-running it is harmless.
+//
+// Target form matters: "=name" (exact session match) is accepted by
+// session-level commands such as has-session, but pane-level commands resolve
+// the target as a pane and reject the bare form with "can't find pane". The
+// trailing ":" selects the session's current window and pane. Found the hard
+// way on the first live tmux task (2026-09-03): the session ran fine and the
+// transcript was silently empty.
 func (t *execTmux) PipePane(ctx context.Context, name, transcriptPath string) error {
-	return t.run(ctx, "pipe-pane", "-o", "-t", "="+name, "cat >> "+shellQuote(transcriptPath))
+	return t.run(ctx, "pipe-pane", "-o", "-t", paneTarget(name), "cat >> "+shellQuote(transcriptPath))
 }
+
+// paneTarget converts an exact session name into a target-pane for pane-level
+// tmux commands: the current pane of the session's current window.
+func paneTarget(session string) string { return "=" + session + ":" }
 
 // HasSession uses the "=name" target form for an exact match; tmux otherwise
 // treats the target as a prefix and "ctx-a-1" would match "ctx-a-10".
