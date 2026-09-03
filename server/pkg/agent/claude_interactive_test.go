@@ -23,7 +23,11 @@ func TestBuildClaudeInteractiveArgsNeverEmitsHeadlessFlags(t *testing.T) {
 			t.Errorf("interactive args contain headless flag %q: %v", strings.TrimSpace(forbidden), args)
 		}
 	}
-	for _, want := range [][]string{{"--model", "claude-opus-5"}, {"--effort", "high"}, {"--mcp-config", "/tmp/task/mcp.json"}, {"--settings", "/tmp/settings.json"}, {"--add-dir", "/extra"}, {"--verbose"}} {
+	// The runtime brief tells the agent to drive ContextPRO through the multica
+	// CLI. A user-level "don't ask" / auto mode blocks non-allowlisted Bash, so the
+	// launch must pre-authorise that command or the very first step stalls
+	// (seen on the first live tmux task, 2026-09-03).
+	for _, want := range [][]string{{"--model", "claude-opus-5"}, {"--effort", "high"}, {"--mcp-config", "/tmp/task/mcp.json"}, {"--settings", "/tmp/settings.json"}, {"--add-dir", "/extra"}, {"--verbose"}, {"--allowedTools", "Bash(multica:*)"}} {
 		if !containsSequence(args, want) {
 			t.Errorf("missing %v in %v", want, args)
 		}
@@ -39,8 +43,8 @@ func TestBuildClaudeInteractiveArgsStrictMcpOnlyWhenManaged(t *testing.T) {
 		t.Fatalf("managed config must pin --mcp-config and --strict-mcp-config: %v", managed)
 	}
 	none := BuildClaudeInteractiveArgs(ExecOptions{}, "", slog.Default())
-	if len(none) != 0 {
-		t.Fatalf("no options should produce no args, got %v", none)
+	if !slices.Equal(none, []string{"--allowedTools", "Bash(multica:*)"}) {
+		t.Fatalf("no options should still allow the multica CLI and nothing else, got %v", none)
 	}
 }
 

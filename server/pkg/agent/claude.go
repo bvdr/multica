@@ -797,7 +797,13 @@ var claudeInteractiveBlockedArgs = map[string]blockedArgMode{
 // prompt is NOT included; the caller appends it as the positional argument.
 // mcpConfigPath is the file the caller wrote from opts.McpConfig ("" = none).
 func BuildClaudeInteractiveArgs(opts ExecOptions, mcpConfigPath string, logger *slog.Logger) []string {
-	var args []string
+	// The runtime brief drives ContextPRO through the multica CLI (issue get,
+	// comment list, status). Interactive Claude Code inherits the user's own
+	// permission settings, and a "don't ask" / auto mode refuses Bash commands
+	// that are not allowlisted, so the first step of every task stalled on the
+	// first live run (2026-09-03). Pre-authorise exactly that command; every
+	// other tool still follows the user's mode, which is the point of tmux mode.
+	args := []string{"--allowedTools", "Bash(multica:*)"}
 	if mcpConfigPath != "" {
 		args = append(args, "--mcp-config", mcpConfigPath)
 		if hasManagedMcpConfig(opts.McpConfig) {

@@ -210,7 +210,8 @@ func TestRunTmuxTaskSpawnsSessionAndCompletesOnExitZero(t *testing.T) {
 		t.Fatalf("prompt file = %q", prompt)
 	}
 	script, _ := os.ReadFile(filepath.Join(taskDir, "run.sh"))
-	if !strings.Contains(string(script), "'/opt/fake/claude' '--model' 'claude-opus-5'") {
+	// The interactive launch always pre-authorises the multica CLI first.
+	if !strings.Contains(string(script), "'/opt/fake/claude' '--allowedTools' 'Bash(multica:*)' '--model' 'claude-opus-5'") {
 		t.Fatalf("run.sh does not launch claude interactively:\n%s", script)
 	}
 	ctl.mu.Lock()
