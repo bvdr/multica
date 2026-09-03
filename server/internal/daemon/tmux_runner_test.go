@@ -241,7 +241,7 @@ func TestRunTmuxTaskSpawnsSessionAndCompletesOnExitZero(t *testing.T) {
 	if !strings.Contains(string(script), "export MULTICA_TOKEN='mat_demo'") {
 		t.Fatalf("run.sh does not export the task environment:\n%s", script)
 	}
-	if !strings.Contains(string(script), "'/opt/fake/claude' '--allowedTools' 'Bash(multica:*)' '--model' 'claude-opus-5'") {
+	if !strings.Contains(string(script), "'/opt/fake/claude' '--allowedTools' 'Bash(multica:*)' '--permission-mode' 'manual' '--model' 'claude-opus-5'") {
 		t.Fatalf("run.sh does not launch claude interactively:\n%s", script)
 	}
 	ctl.mu.Lock()

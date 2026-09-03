@@ -803,7 +803,12 @@ func BuildClaudeInteractiveArgs(opts ExecOptions, mcpConfigPath string, logger *
 	// that are not allowlisted, so the first step of every task stalled on the
 	// first live run (2026-09-03). Pre-authorise exactly that command; every
 	// other tool still follows the user's mode, which is the point of tmux mode.
-	args := []string{"--allowedTools", "Bash(multica:*)"}
+	// "manual" is Claude Code's prompting mode (the design's "normal
+	// interactive"). Pinned rather than inherited: a user whose global default
+	// is auto / dontAsk gets silent refusals for Write and Bash instead of a
+	// prompt, and the third live tmux task stalled exactly there. The prompt
+	// in the pane is the point of tmux mode; moshi-hook relays it to the phone.
+	args := []string{"--allowedTools", "Bash(multica:*)", "--permission-mode", "manual"}
 	if mcpConfigPath != "" {
 		args = append(args, "--mcp-config", mcpConfigPath)
 		if hasManagedMcpConfig(opts.McpConfig) {
