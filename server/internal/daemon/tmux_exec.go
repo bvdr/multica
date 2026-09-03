@@ -16,6 +16,9 @@ type tmuxController interface {
 	PipePane(ctx context.Context, name, transcriptPath string) error
 	HasSession(ctx context.Context, name string) (bool, error)
 	KillSession(ctx context.Context, name string) error
+	// CapturePane returns the rendered text of the session's current pane,
+	// including up to `lines` lines of scrollback.
+	CapturePane(ctx context.Context, name string, lines int) (string, error)
 }
 
 type execTmux struct{ path string }
@@ -83,4 +86,19 @@ func (t *execTmux) HasSession(ctx context.Context, name string) (bool, error) {
 
 func (t *execTmux) KillSession(ctx context.Context, name string) error {
 	return t.run(ctx, "kill-session", "-t", "="+name)
+}
+
+// CapturePane reads the rendered pane (what an attached human sees) plus
+// scrollback. -J joins wrapped lines back together. Unlike the pipe-pane
+// transcript this contains no escape sequences, which is why it is the
+// result shown on the task: a full-screen TUI's raw byte stream is unreadable.
+func (t *execTmux) CapturePane(ctx context.Context, name string, lines int) (string, error) {
+	cmd := exec.CommandContext(ctx, t.path, "capture-pane", "-p", "-J", "-S", fmt.Sprintf("-%d", lines), "-t", paneTarget(name))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("tmux capture-pane %s: %w: %s", name, err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	return string(out), nil
 }

@@ -142,9 +142,21 @@ type fakeTmux struct {
 	newArgs [][]string
 	piped   map[string]string
 	killed  []string
+	screen  map[string]string // rendered pane text returned by CapturePane
 }
 
-func newFakeTmux() *fakeTmux { return &fakeTmux{alive: map[string]bool{}, piped: map[string]string{}} }
+func newFakeTmux() *fakeTmux {
+	return &fakeTmux{alive: map[string]bool{}, piped: map[string]string{}, screen: map[string]string{}}
+}
+func (f *fakeTmux) CapturePane(_ context.Context, name string, _ int) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.alive[name] {
+		return "", errors.New("can't find pane")
+	}
+	return f.screen[name], nil
+}
+func (f *fakeTmux) setScreen(name, text string) { f.mu.Lock(); defer f.mu.Unlock(); f.screen[name] = text }
 func (f *fakeTmux) NewSession(_ context.Context, name, folder string, command []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -234,7 +246,20 @@ func TestRunTmuxTaskSpawnsSessionAndCompletesOnExitZero(t *testing.T) {
 	if piped != filepath.Join(taskDir, "transcript.log") {
 		t.Fatalf("pipe-pane transcript = %q", piped)
 	}
-	os.WriteFile(filepath.Join(taskDir, "transcript.log"), []byte("\x1b[1mhello\x1b[0m\nbye\n"), 0o600)
+	os.WriteFile(filepath.Join(taskDir, "transcript.log"), []byte("\x1b[1mraw tui bytes\x1b[0m\n"), 0o600)
+	// While the session is alive the watcher snapshots the rendered screen; the
+	// result must show that (what a human saw), not the raw TUI transcript.
+	ctl.setScreen(name, "⏺ Wrote HELLO.md\n\ndone\n\n\n")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if b, err := os.ReadFile(filepath.Join(taskDir, "screen.txt")); err == nil && strings.Contains(string(b), "done") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("watcher never snapshotted the rendered screen")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	os.WriteFile(filepath.Join(taskDir, "exit-code"), []byte("0\n"), 0o600)
 	ctl.end(name)
 	<-done
@@ -242,8 +267,11 @@ func TestRunTmuxTaskSpawnsSessionAndCompletesOnExitZero(t *testing.T) {
 	if runErr != nil {
 		t.Fatalf("runTmuxTask: %v", runErr)
 	}
-	if result.Status != "completed" || !strings.Contains(result.Comment, "hello\nbye") || result.WorkDir != folder {
+	if result.Status != "completed" || !strings.Contains(result.Comment, "⏺ Wrote HELLO.md\n\ndone") || strings.Contains(result.Comment, "raw tui") || result.WorkDir != folder {
 		t.Fatalf("result = %+v", result)
+	}
+	if strings.HasSuffix(result.Comment, "\n\n\n") {
+		t.Fatalf("trailing blank screen lines should be trimmed: %q", result.Comment)
 	}
 	if _, err := os.Stat(taskDir); !os.IsNotExist(err) {
 		t.Fatal("task dir was not cleaned up after completion")
@@ -266,6 +294,8 @@ func TestWatchTmuxSessionMapsExitCodes(t *testing.T) {
 		os.WriteFile(filepath.Join(dir, "transcript.log"), []byte("tail line\n"), 0o600)
 		return tmuxState{Session: name, TaskID: name, TranscriptPath: filepath.Join(dir, "transcript.log"), ExitCodePath: filepath.Join(dir, "exit-code"), WorkDir: "/w", EnvRoot: "/e"}
 	}
+	// No screen snapshot exists for a session that was already gone: the raw
+	// transcript tail stays the fallback so the failure still shows something.
 	if _, err := d.watchTmuxSession(context.Background(), ctl, mk("gone-nonzero", "2"), slog.Default()); err == nil || !strings.Contains(err.Error(), "exited with code 2") || !strings.Contains(err.Error(), "tail line") {
 		t.Fatalf("non-zero exit: %v", err)
 	}

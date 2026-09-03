@@ -122,7 +122,11 @@ type tmuxState struct {
 	EnvRoot        string    `json:"env_root"`
 	TranscriptPath string    `json:"transcript_path"`
 	ExitCodePath   string    `json:"exit_code_path"`
-	StartedAt      time.Time `json:"started_at"`
+	// ScreenPath holds the latest rendered-pane snapshot taken by the watch
+	// loop. Older state files (before snapshots existed) leave it empty and
+	// fall back to the transcript tail.
+	ScreenPath string    `json:"screen_path,omitempty"`
+	StartedAt  time.Time `json:"started_at"`
 }
 
 func writeTmuxState(dir string, st tmuxState) error {
@@ -230,6 +234,7 @@ func (d *Daemon) runTmuxTask(ctx context.Context, task Task, env *execenv.Enviro
 	}
 	exitPath := filepath.Join(dir, "exit-code")
 	transcript := filepath.Join(dir, "transcript.log")
+	screenPath := filepath.Join(dir, "screen.txt")
 	args := agent.BuildClaudeInteractiveArgs(opts, mcpPath, d.logger)
 	scriptPath := filepath.Join(dir, "run.sh")
 	if err := os.WriteFile(scriptPath, []byte(renderTmuxRunScript(assignment.AbsPath, claudePath, args, promptPath, exitPath, agentEnv)), 0o700); err != nil {
@@ -244,7 +249,7 @@ func (d *Daemon) runTmuxTask(ctx context.Context, task Task, env *execenv.Enviro
 	st := tmuxState{
 		Session: name, TaskID: task.ID, IssueID: task.IssueID, Folder: assignment.AbsPath,
 		WorkDir: env.WorkDir, EnvRoot: env.RootDir, TranscriptPath: transcript, ExitCodePath: exitPath,
-		StartedAt: time.Now().UTC(),
+		ScreenPath: screenPath, StartedAt: time.Now().UTC(),
 	}
 	if err := writeTmuxState(dir, st); err != nil {
 		cleanup()
@@ -289,6 +294,15 @@ func (d *Daemon) watchTmuxSession(ctx context.Context, ctl tmuxController, st tm
 		} else if !alive {
 			return tmuxOutcome(st)
 		}
+		if alive && st.ScreenPath != "" {
+			// Snapshot the rendered screen every tick: once the session is gone
+			// there is nothing left to capture, so the last snapshot is the
+			// task's output. Best effort — a failed capture keeps the previous
+			// snapshot.
+			if screen, cerr := ctl.CapturePane(ctx, st.Session, tmuxTranscriptTailLines); cerr == nil && strings.TrimSpace(screen) != "" {
+				_ = os.WriteFile(st.ScreenPath, []byte(screen), 0o600)
+			}
+		}
 		select {
 		case <-ctx.Done():
 			if d.rootCtx != nil && d.rootCtx.Err() != nil {
@@ -307,7 +321,7 @@ func (d *Daemon) watchTmuxSession(ctx context.Context, ctl tmuxController, st tm
 func tmuxOutcome(st tmuxState) (TaskResult, error) {
 	dir := filepath.Dir(st.ExitCodePath)
 	defer os.RemoveAll(dir)
-	tail := transcriptTail(st.TranscriptPath, tmuxTranscriptTailLines)
+	tail := tmuxOutputText(st)
 	code, found, err := readTmuxExitCode(st.ExitCodePath)
 	switch {
 	case err != nil:
@@ -381,4 +395,17 @@ func (d *Daemon) reportAdoptedTmuxOutcome(ctx context.Context, st tmuxState, res
 		// here; nothing more to do than say so.
 		d.logger.Warn("tmux: reporting adopted session outcome failed", "task_id", st.TaskID, "error", rerr)
 	}
+}
+
+// tmuxOutputText is what the task reports as its output: the last rendered
+// screen snapshot when one exists (readable, what the human saw), else the
+// escape-stripped tail of the raw transcript. Trailing blank lines are dropped
+// because a TUI pads the screen to the terminal height.
+func tmuxOutputText(st tmuxState) string {
+	if st.ScreenPath != "" {
+		if b, err := os.ReadFile(st.ScreenPath); err == nil && strings.TrimSpace(string(b)) != "" {
+			return strings.TrimRight(string(b), "\n ") + "\n"
+		}
+	}
+	return transcriptTail(st.TranscriptPath, tmuxTranscriptTailLines)
 }

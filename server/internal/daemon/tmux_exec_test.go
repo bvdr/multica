@@ -31,6 +31,7 @@ case "$1" in
   has-session) name="${3#=}"; [ -f "$FAKE_TMUX_SESSIONS/$name" ] && exit 0 || exit 1 ;;
   kill-session) name="${3#=}"; rm -f "$FAKE_TMUX_SESSIONS/$name"; exit 0 ;;
   pipe-pane) case "$4" in =*:) exit 0 ;; *) echo "can't find pane: $4" >&2; exit 1 ;; esac ;;
+  capture-pane) case "$7" in =*:) echo "rendered line 1"; echo "rendered line 2"; exit 0 ;; *) echo "can't find pane: $7" >&2; exit 1 ;; esac ;;
   *) echo "unexpected: $*" >&2; exit 2 ;;
 esac
 `
@@ -63,6 +64,10 @@ func TestExecTmuxDrivesSessionsThroughTheBinary(t *testing.T) {
 	if err := ctl.PipePane(ctx, "ctx-x-1", "/tmp/transcript.log"); err != nil {
 		t.Fatalf("PipePane: %v", err)
 	}
+	screen, err := ctl.CapturePane(ctx, "ctx-x-1", 200)
+	if err != nil || !strings.Contains(screen, "rendered line 2") {
+		t.Fatalf("CapturePane: %q %v", screen, err)
+	}
 	if err := ctl.KillSession(ctx, "ctx-x-1"); err != nil {
 		t.Fatalf("KillSession: %v", err)
 	}
@@ -75,6 +80,7 @@ func TestExecTmuxDrivesSessionsThroughTheBinary(t *testing.T) {
 		"new-session -d -s ctx-x-1 -c /Users/dev/app -- sh /tmp/run.sh",
 		"has-session -t =ctx-x-1",
 		"pipe-pane -o -t =ctx-x-1: cat >> '/tmp/transcript.log'",
+		"capture-pane -p -J -S -200 -t =ctx-x-1:",
 		"kill-session -t =ctx-x-1",
 	} {
 		if !strings.Contains(string(got), want) {
