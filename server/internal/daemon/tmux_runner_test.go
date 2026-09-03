@@ -421,3 +421,71 @@ func TestAdoptTmuxSessionsResumesLiveAndSettlesDead(t *testing.T) {
 		t.Fatal("corrupt state dir should be removed")
 	}
 }
+
+// When Claude Code exits it leaves the alternate screen and prints only a
+// goodbye ("Resume this session with …"), so the very last snapshot says
+// nothing about the work. The output must fall back to the previous snapshot
+// and append the short final one.
+func TestTmuxOutputTextPrefersTheLastInformativeScreen(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	st := tmuxState{ScreenPath: filepath.Join(dir, "screen.txt"), TranscriptPath: filepath.Join(dir, "transcript.log")}
+	os.WriteFile(filepath.Join(dir, "screen.prev.txt"), []byte("⏺ Created HELLO.md\n⏺ done\n\n"), 0o600)
+	os.WriteFile(st.ScreenPath, []byte("Resume this session with:\nclaude --resume abc\n\n\n"), 0o600)
+	got := tmuxOutputText(st)
+	if !strings.HasPrefix(got, "⏺ Created HELLO.md\n⏺ done") || !strings.Contains(got, "claude --resume abc") {
+		t.Fatalf("output should combine the last informative screen with the goodbye, got %q", got)
+	}
+	// A rich final screen is used as is.
+	os.WriteFile(st.ScreenPath, []byte("line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n"), 0o600)
+	if got := tmuxOutputText(st); got != "line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\n" {
+		t.Fatalf("rich final screen changed: %q", got)
+	}
+}
+
+func TestWatchTmuxSessionKeepsThePreviousSnapshot(t *testing.T) {
+	orig := tmuxPollInterval
+	tmuxPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { tmuxPollInterval = orig })
+	ctl := newFakeTmux()
+	d := newTmuxTestDaemon(t, ctl)
+	dir := tmuxTaskDir(d.cfg.WorkspacesRoot, "snap")
+	os.MkdirAll(dir, 0o700)
+	st := tmuxState{Session: "ctx-snap", TaskID: "snap", ScreenPath: filepath.Join(dir, "screen.txt"), ExitCodePath: filepath.Join(dir, "exit-code"), TranscriptPath: filepath.Join(dir, "transcript.log")}
+	ctl.alive["ctx-snap"] = true
+	ctl.setScreen("ctx-snap", "working: step one\nworking: step two\nworking: step three\nstep four\nstep five\nstep six\n")
+	done := make(chan struct{})
+	var res TaskResult
+	var err error
+	go func() {
+		defer close(done)
+		res, err = d.watchTmuxSession(context.Background(), ctl, st, slog.Default())
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if b, _ := os.ReadFile(st.ScreenPath); strings.Contains(string(b), "step six") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("first snapshot never written")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	ctl.setScreen("ctx-snap", "Resume this session with:\nclaude --resume xyz\n")
+	deadline = time.Now().Add(2 * time.Second)
+	for {
+		if b, _ := os.ReadFile(st.ScreenPath); strings.Contains(string(b), "resume xyz") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("second snapshot never written")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	os.WriteFile(st.ExitCodePath, []byte("0"), 0o600)
+	ctl.end("ctx-snap")
+	<-done
+	if err != nil || !strings.HasPrefix(res.Comment, "Interactive session ctx-snap finished.\n\nworking: step one") || !strings.Contains(res.Comment, "claude --resume xyz") {
+		t.Fatalf("result = %+v (%v)", res, err)
+	}
+}

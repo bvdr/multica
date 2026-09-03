@@ -300,6 +300,11 @@ func (d *Daemon) watchTmuxSession(ctx context.Context, ctl tmuxController, st tm
 			// task's output. Best effort — a failed capture keeps the previous
 			// snapshot.
 			if screen, cerr := ctl.CapturePane(ctx, st.Session, tmuxTranscriptTailLines); cerr == nil && strings.TrimSpace(screen) != "" {
+				// Keep the previous snapshot: the last one is often just the
+				// TUI's goodbye after it left the alternate screen.
+				if prev, rerr := os.ReadFile(st.ScreenPath); rerr == nil && string(prev) != screen {
+					_ = os.WriteFile(tmuxPrevScreenPath(st), prev, 0o600)
+				}
 				_ = os.WriteFile(st.ScreenPath, []byte(screen), 0o600)
 			}
 		}
@@ -402,10 +407,40 @@ func (d *Daemon) reportAdoptedTmuxOutcome(ctx context.Context, st tmuxState, res
 // escape-stripped tail of the raw transcript. Trailing blank lines are dropped
 // because a TUI pads the screen to the terminal height.
 func tmuxOutputText(st tmuxState) string {
-	if st.ScreenPath != "" {
-		if b, err := os.ReadFile(st.ScreenPath); err == nil && strings.TrimSpace(string(b)) != "" {
-			return strings.TrimRight(string(b), "\n ") + "\n"
+	if st.ScreenPath == "" {
+		return transcriptTail(st.TranscriptPath, tmuxTranscriptTailLines)
+	}
+	last, err := os.ReadFile(st.ScreenPath)
+	if err != nil || strings.TrimSpace(string(last)) == "" {
+		return transcriptTail(st.TranscriptPath, tmuxTranscriptTailLines)
+	}
+	final := strings.TrimRight(string(last), "\n ")
+	// A short final screen is the TUI's exit notice, not the work: Claude Code
+	// leaves the alternate screen (taking the scrollback with it) and prints a
+	// few lines such as the resume hint. Show the last informative screen and
+	// append that notice so the resume id is not lost either.
+	if countNonBlankLines(final) < tmuxInformativeScreenLines {
+		if prev, perr := os.ReadFile(tmuxPrevScreenPath(st)); perr == nil && countNonBlankLines(string(prev)) >= countNonBlankLines(final) && strings.TrimSpace(string(prev)) != "" {
+			return strings.TrimRight(string(prev), "\n ") + "\n\n" + final + "\n"
 		}
 	}
-	return transcriptTail(st.TranscriptPath, tmuxTranscriptTailLines)
+	return final + "\n"
+}
+
+// tmuxInformativeScreenLines is the smallest final snapshot treated as real
+// output rather than an exit notice.
+const tmuxInformativeScreenLines = 6
+
+func tmuxPrevScreenPath(st tmuxState) string {
+	return strings.TrimSuffix(st.ScreenPath, ".txt") + ".prev.txt"
+}
+
+func countNonBlankLines(s string) int {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
 }
