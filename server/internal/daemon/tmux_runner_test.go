@@ -156,7 +156,11 @@ func (f *fakeTmux) CapturePane(_ context.Context, name string, _ int) (string, e
 	}
 	return f.screen[name], nil
 }
-func (f *fakeTmux) setScreen(name, text string) { f.mu.Lock(); defer f.mu.Unlock(); f.screen[name] = text }
+func (f *fakeTmux) setScreen(name, text string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.screen[name] = text
+}
 func (f *fakeTmux) NewSession(_ context.Context, name, folder string, command []string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

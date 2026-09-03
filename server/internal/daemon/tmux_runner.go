@@ -114,14 +114,14 @@ func renderTmuxRunScript(folder, claudePath string, args []string, promptPath, e
 // tmuxState is written next to the run script so a restarted daemon can adopt
 // the session (see adoptTmuxSessions).
 type tmuxState struct {
-	Session        string    `json:"session"`
-	TaskID         string    `json:"task_id"`
-	IssueID        string    `json:"issue_id"`
-	Folder         string    `json:"folder"`
-	WorkDir        string    `json:"work_dir"`
-	EnvRoot        string    `json:"env_root"`
-	TranscriptPath string    `json:"transcript_path"`
-	ExitCodePath   string    `json:"exit_code_path"`
+	Session        string `json:"session"`
+	TaskID         string `json:"task_id"`
+	IssueID        string `json:"issue_id"`
+	Folder         string `json:"folder"`
+	WorkDir        string `json:"work_dir"`
+	EnvRoot        string `json:"env_root"`
+	TranscriptPath string `json:"transcript_path"`
+	ExitCodePath   string `json:"exit_code_path"`
 	// ScreenPath holds the latest rendered-pane snapshot taken by the watch
 	// loop. Older state files (before snapshots existed) leave it empty and
 	// fall back to the transcript tail.
